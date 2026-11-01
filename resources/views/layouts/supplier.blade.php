@@ -23,70 +23,74 @@
                 </div>
             </div>
 
+            <div class="sidebar-divider"></div>
+
+            
             <nav class="sidebar-nav">
 
                 <a href="{{ url('/supplier/dashboard') }}"
                     class="sidebar-link {{ request()->is('supplier/dashboard') ? 'active' : '' }}">
-                    <span class="sidebar-icon">⌂</span>
+                    <span class="sidebar-icon"><i class="bi bi-house-door"></i></span>
                     <span class="sidebar-label">Dashboard</span>
                 </a>
 
                 <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon">❀</span>
+                    <span class="sidebar-icon"><i class="bi bi-flower1"></i></span>
                     <span class="sidebar-label">Flower Management</span>
                 </a>
 
                 <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon">▣</span>
+                    <span class="sidebar-icon"><i class="bi bi-box-seam"></i></span>
                     <span class="sidebar-label">Inventory Management</span>
                 </a>
 
                 <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon">▦</span>
+                    <span class="sidebar-icon"><i class="bi bi-layers"></i></span>
                     <span class="sidebar-label">Batch Management</span>
                 </a>
 
                 <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon">✿</span>
+                    <span class="sidebar-icon"><i class="bi bi-graph-up-arrow"></i></span>
                     <span class="sidebar-label">Spoilage Prediction</span>
                 </a>
 
                 <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon">♙</span>
+                    <span class="sidebar-icon"><i class="bi bi-people"></i></span>
                     <span class="sidebar-label">Client Management</span>
                 </a>
 
                 <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon">🛒</span>
+                    <span class="sidebar-icon"><i class="bi bi-cart3"></i></span>
                     <span class="sidebar-label">Order Management</span>
                 </a>
 
                 <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon">➤</span>
+                    <span class="sidebar-icon"><i class="bi bi-truck"></i></span>
                     <span class="sidebar-label">Delivery Management</span>
                 </a>
 
                 <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon">₱</span>
+                    <span class="sidebar-icon"><i class="bi bi-cash-coin"></i></span>
                     <span class="sidebar-label">Sales & Payments</span>
                 </a>
 
                 <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon">▥</span>
+                    <span class="sidebar-icon"><i class="bi bi-bar-chart"></i></span>
                     <span class="sidebar-label">Reports</span>
                 </a>
 
                 <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon">⚙</span>
+                    <span class="sidebar-icon"><i class="bi bi-person-gear"></i></span>
                     <span class="sidebar-label">User Management</span>
                 </a>
 
                 <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon">◷</span>
+                    <span class="sidebar-icon"><i class="bi bi-clock-history"></i></span>
                     <span class="sidebar-label">Audit Trail</span>
                 </a>
 
             </nav>
+
 
             <div class="sidebar-divider"></div>
 
@@ -117,7 +121,7 @@
                         <div class="navbar-brand-name">FlowerTrack IMS</div>
                         <div class="navbar-brand-subtitle">Inventory Management System</div>
                     </div>
-                    
+
                 </div>
 
                 <div class="navbar-right">

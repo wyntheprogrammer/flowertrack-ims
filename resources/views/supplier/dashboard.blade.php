@@ -17,7 +17,9 @@
     <section class="summary-grid">
 
         <div class="summary-card">
-            <div class="summary-icon">▣</div>
+            <div class="summary-icon">
+                <i class="bi bi-box-seam"></i>
+            </div>
             <div class="summary-info">
                 <small>Total Inventory</small>
                 <h3>2,480</h3>
@@ -26,7 +28,9 @@
         </div>
 
         <div class="summary-card">
-            <div class="summary-icon red">₱</div>
+            <div class="summary-icon red">
+                <i class="bi bi-cash-stack"></i>
+            </div>
             <div class="summary-info">
                 <small>Total Sales</small>
                 <h3>₱248,750</h3>
@@ -35,7 +39,9 @@
         </div>
 
         <div class="summary-card">
-            <div class="summary-icon">✿</div>
+            <div class="summary-icon">
+                <i class="bi bi-exclamation-triangle"></i>
+            </div>
             <div class="summary-info">
                 <small>Low Stock Items</small>
                 <h3>24</h3>
@@ -44,7 +50,9 @@
         </div>
 
         <div class="summary-card">
-            <div class="summary-icon yellow">!</div>
+            <div class="summary-icon yellow">
+                <i class="bi bi-clock-history"></i>
+            </div>
             <div class="summary-info">
                 <small>Pending Orders</small>
                 <h3>12</h3>
@@ -61,7 +69,7 @@
 
             <div class="panel-header">
                 <h4 class="panel-title">
-                    <span>▥</span> Inventory Overview
+                    <i class="bi bi-bar-chart-line"></i> Inventory Overview
                 </h4>
 
                 <select class="form-select form-select-sm"
@@ -159,29 +167,29 @@
 
             <div class="panel-header">
                 <h4 class="panel-title">
-                    <span>⚡</span> Quick Actions
+                    <i class="bi bi-lightning-charge"></i> Quick Actions
                 </h4>
             </div>
 
             <div class="quick-actions">
 
                 <a href="#" class="quick-action">
-                    <span>⊕</span>
+                    <span><i class="bi bi-plus-circle"></i></span>
                     <strong>Add Flower</strong>
                 </a>
 
                 <a href="#" class="quick-action">
-                    <span>🛒</span>
+                    <span><i class="bi bi-cart-plus"></i></span>
                     <strong>New Sale</strong>
                 </a>
 
                 <a href="#" class="quick-action">
-                    <span>▤</span>
+                    <span><i class="bi bi-file-earmark-bar-graph"></i></span>
                     <strong>View Reports</strong>
                 </a>
 
                 <a href="#" class="quick-action">
-                    <span>♟</span>
+                    <span><i class="bi bi-people"></i></span>
                     <strong>Manage Clients</strong>
                 </a>
 
@@ -199,7 +207,7 @@
 
             <div class="panel-header">
                 <h4 class="panel-title">
-                    <span>🏆</span> Top Selling Products
+                    <i class="bi bi-trophy"></i> Top Selling Products
                 </h4>
 
                 <a href="#" class="panel-link">View All →</a>
@@ -233,14 +241,16 @@
 
             <div class="panel-header">
                 <h4 class="panel-title">
-                    <span>◷</span> Recent Activities
+                    <i class="bi bi-activity"></i> Recent Activities
                 </h4>
 
                 <a href="#" class="panel-link">View All →</a>
             </div>
 
             <div class="activity-row">
-                <span class="activity-icon">🛒</span>
+                <span class="activity-icon">
+                    <i class="bi bi-cart-check"></i>
+                </span>
                 <span class="activity-description">
                     New sale completed
                     <small>Today · 3:24 PM</small>
@@ -249,7 +259,9 @@
             </div>
 
             <div class="activity-row">
-                <span class="activity-icon">▣</span>
+                <span class="activity-icon">
+                    <i class="bi bi-box-seam"></i>
+                </span>
                 <span class="activity-description">
                     Inventory updated
                     <small>Today · 2:17 PM</small>
@@ -258,7 +270,9 @@
             </div>
 
             <div class="activity-row">
-                <span class="activity-icon">♙</span>
+                <span class="activity-icon">
+                    <i class="bi bi-person-plus"></i>
+                </span>
                 <span class="activity-description">
                     New client added
                     <small>Today · 10:42 AM</small>
