@@ -1,9 +1,845 @@
-@import 'tailwindcss';
+@import 'bootstrap/dist/css/bootstrap.min.css';
 
-@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '../../storage/framework/views/*.php';
+/* ========================================
+   FLOWERTRACK IMS - SUPPLIER DESIGN
+======================================== */
 
-@theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+:root {
+    --supplier-primary: #176b3a;
+    --supplier-primary-dark: #073f23;
+    --supplier-primary-light: #e4f2e4;
+    --supplier-accent: #9bc99a;
+
+    --supplier-bg: #f6f8f5;
+    --supplier-surface: #ffffff;
+
+    --supplier-text: #202b24;
+    --supplier-muted: #7b867d;
+    --supplier-border: #e8eee7;
+
+    --supplier-danger: #e84b55;
+    --supplier-warning: #f5b943;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    color: var(--supplier-text);
+    background: var(--supplier-bg);
+}
+
+/* ========================================
+   MAIN LAYOUT
+======================================== */
+
+.supplier-layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+.supplier-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ========================================
+   SIDEBAR
+======================================== */
+
+.supplier-sidebar {
+    width: 250px;
+    min-height: 100vh;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 28px 16px 20px;
+    color: #fff;
+    background:
+        radial-gradient(ellipse at bottom left, rgba(90, 153, 91, .24), transparent 40%),
+        linear-gradient(160deg, #064b27, #06391f 75%, #052e1a);
+}
+
+
+
+.sidebar-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 8px 30px;
+    color: #fff;
+    text-align: center;
+}
+
+.sidebar-logo {
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: none;
+}
+
+.sidebar-logo img {
+    display: block;
+    width: 100%;
+    max-height: 125px;
+    object-fit: contain;
+    object-position: center;
+}
+
+
+.sidebar-brand .brand-name {
+    font-size: 21px;
+    font-weight: 700;
+    font-style: normal;
+    letter-spacing: -.4px;
+    color: #ffffff;
+}
+
+.sidebar-brand .brand-subtitle {
+    font-size: 10px;
+    letter-spacing: 1.2px;
+    color: #cce5ce;
+}
+
+
+
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    min-height: 43px;
+    padding: 8px 13px;
+    border-radius: 9px;
+    color: rgba(255,255,255,.86);
+    text-decoration: none;
+    font-size: 14px;
+    line-height: 1.2;
+    transition: .2s ease;
+}
+
+
+.sidebar-link:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, .12);
+}
+
+.sidebar-link.active {
+    color: #103b22;
+    background: #d9efd0;
+    font-weight: 700;
+}
+
+.sidebar-icon {
+    width: 23px;
+    text-align: center;
+    font-size: 19px;
+}
+
+.sidebar-divider {
+    height: 1px;
+    margin: 24px 5px 18px;
+    background: rgba(255, 255, 255, .2);
+}
+
+.sidebar-user {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    margin-top: auto;
+    padding: 15px 5px 5px;
+}
+
+.sidebar-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: #d7ead4;
+    color: var(--supplier-primary-dark);
+    font-size: 19px;
+    font-weight: 700;
+}
+
+.sidebar-user-info strong {
+    display: block;
+    color: #fff;
+    font-size: 13px;
+}
+
+.sidebar-user-info small {
+    color: rgba(255, 255, 255, .7);
+    font-size: 11px;
+}
+
+/* ========================================
+   TOP NAVBAR
+======================================== */
+
+.supplier-navbar {
+    min-height: 76px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 13px 26px;
+    background: #fff;
+    border-bottom: 1px solid var(--supplier-border);
+}
+
+.navbar-left,
+.navbar-right {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+
+.navbar-menu {
+    border: 0;
+    background: transparent;
+    color: var(--supplier-primary-dark);
+    font-size: 25px;
+    cursor: pointer;
+}
+
+
+.navbar-brand {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    margin-right: auto;
+    line-height: 1.2;
+}
+
+.navbar-brand-name {
+    color: var(--supplier-primary-dark);
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: -.4px;
+}
+
+.navbar-brand-subtitle {
+    margin-top: 4px;
+    color: var(--supplier-muted);
+    font-size: 10px;
+    letter-spacing: 1px;
+}
+
+
+
+.navbar-icon {
+    position: relative;
+    border: 0;
+    background: transparent;
+    color: var(--supplier-primary-dark);
+    font-size: 21px;
+}
+
+.notification-count {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    color: #fff;
+    background: var(--supplier-danger);
+    font-size: 10px;
+}
+
+.navbar-date {
+    padding: 10px 14px;
+    border: 1px solid var(--supplier-border);
+    border-radius: 25px;
+    color: var(--supplier-text);
+    background: #fff;
+    font-size: 12px;
+}
+
+/* ========================================
+   DASHBOARD CONTENT
+======================================== */
+
+.dashboard-content {
+    padding: 22px;
+}
+
+.dashboard-heading {
+    margin-bottom: 17px;
+}
+
+.dashboard-heading h1 {
+    margin: 0;
+    font-size: 25px;
+    font-weight: 700;
+}
+
+.dashboard-heading p {
+    margin: 5px 0 0;
+    color: var(--supplier-muted);
+    font-size: 13px;
+}
+
+/* ========================================
+   WELCOME BANNER
+======================================== */
+
+
+
+.welcome-banner {
+    position: relative;
+    overflow: hidden;
+    min-height: 155px;
+    display: flex;
+    align-items: center;
+    padding: 25px 30px;
+    margin-bottom: 18px;
+    border-radius: 17px;
+    background-color: #f1f7ed;
+    background-image:
+        linear-gradient(
+            90deg,
+            #f1f7ed 0%,
+            rgba(241,247,237,.95) 40%,
+            rgba(241,247,237,.15) 75%,
+            rgba(241,247,237,0) 100%
+        ),
+        url('/images/flower-banner.png');
+    background-position: center, right center;
+    background-size: 100% 100%, auto 100%;
+    background-repeat: no-repeat;
+    border-left: 4px solid var(--supplier-primary);
+}
+
+.welcome-banner::after {
+    content: none;
+}
+
+.welcome-text {
+    position: relative;
+    z-index: 1;
+    width: 55%;
+}
+
+.welcome-text h2 {
+    margin: 0 0 8px;
+    color: #151d17;
+    font-size: clamp(24px, 3vw, 36px);
+    font-weight: 800;
+}
+
+.welcome-text h2 span {
+    color: var(--supplier-primary);
+    font-style: italic;
+}
+
+.welcome-text p {
+    margin: 0;
+    color: #3f4941;
+    font-size: 15px;
+}
+
+/* ========================================
+   SUMMARY CARDS
+======================================== */
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 15px;
+    margin-bottom: 18px;
+}
+
+.summary-card {
+    position: relative;
+    overflow: hidden;
+    min-height: 116px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 17px;
+    border: 1px solid var(--supplier-border);
+    border-radius: 15px;
+    background: #fff;
+    box-shadow: 0 3px 12px rgba(28, 65, 37, .035);
+}
+
+.summary-icon {
+    width: 53px;
+    height: 53px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: #fff;
+    background: var(--supplier-primary);
+    font-size: 24px;
+}
+
+.summary-icon.red {
+    background: var(--supplier-danger);
+}
+
+.summary-icon.yellow {
+    color: #493812;
+    background: #ffc451;
+}
+
+.summary-info small {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--supplier-muted);
+    font-size: 12px;
+}
+
+.summary-info h3 {
+    margin: 0;
+    color: #18231b;
+    font-size: 24px;
+    font-weight: 800;
+}
+
+.summary-change {
+    display: block;
+    margin-top: 4px;
+    color: var(--supplier-primary);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.summary-change.negative {
+    color: var(--supplier-danger);
+}
+
+/* ========================================
+   DASHBOARD PANELS
+======================================== */
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2.1fr) minmax(270px, .9fr);
+    gap: 17px;
+    margin-bottom: 18px;
+}
+
+.dashboard-panel {
+    min-width: 0;
+    padding: 20px;
+    border: 1px solid var(--supplier-border);
+    border-radius: 15px;
+    background: #fff;
+    box-shadow: 0 3px 12px rgba(28, 65, 37, .035);
+}
+
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 32px;
+    margin-bottom: 18px;
+}
+
+.panel-title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.panel-title span {
+    margin-right: 8px;
+    color: var(--supplier-primary);
+}
+
+.panel-link {
+    color: var(--supplier-primary);
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+/* ========================================
+   INVENTORY CHART
+======================================== */
+
+.chart-legend {
+    display: flex;
+    justify-content: flex-end;
+    gap: 18px;
+    margin-bottom: 8px;
+    color: var(--supplier-muted);
+    font-size: 11px;
+}
+
+.legend-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: var(--supplier-primary);
+}
+
+.legend-dot.light {
+    background: #a6ce91;
+}
+
+.inventory-chart {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.chart-label {
+    fill: #66736a;
+    font-size: 11px;
+}
+
+/* ========================================
+   QUICK ACTIONS
+======================================== */
+
+.quick-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.quick-action {
+    min-height: 91px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid var(--supplier-border);
+    border-radius: 12px;
+    color: var(--supplier-text);
+    background: #fff;
+    text-decoration: none;
+    transition: .2s ease;
+}
+
+.quick-action:hover {
+    border-color: var(--supplier-accent);
+    background: #f5faf3;
+    transform: translateY(-2px);
+}
+
+.quick-action span {
+    color: var(--supplier-primary);
+    font-size: 25px;
+}
+
+.quick-action strong {
+    font-size: 12px;
+}
+
+
+
+/* Equal height for Quick Actions panel */
+.dashboard-grid > .dashboard-panel:nth-child(2) {
+    display: flex;
+    flex-direction: column;
+}
+
+.dashboard-grid > .dashboard-panel:nth-child(2) .quick-actions {
+    flex: 1;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-grid > .dashboard-panel:nth-child(2) .quick-action {
+    min-height: 0;
+}
+
+/* ========================================
+   LOWER DASHBOARD PANELS
+======================================== */
+
+.lower-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1.1fr .95fr;
+    gap: 16px;
+}
+
+.product-row,
+.activity-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 0;
+    border-bottom: 1px solid #f0f2ef;
+}
+
+.product-row:last-child,
+.activity-row:last-child {
+    border-bottom: 0;
+}
+
+.product-rank {
+    width: 29px;
+    height: 29px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 50%;
+    color: var(--supplier-text);
+    background: #f0f3ef;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.product-image {
+    width: 35px;
+    height: 35px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: #f5f8f2;
+    font-size: 22px;
+}
+
+.product-name,
+.activity-description {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+}
+
+.product-price,
+.activity-value {
+    color: var(--supplier-text);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.activity-icon {
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 50%;
+    color: var(--supplier-primary);
+    background: #eff6ed;
+    font-size: 17px;
+}
+
+.activity-description small {
+    display: block;
+    margin-top: 4px;
+    color: var(--supplier-muted);
+    font-size: 10px;
+}
+
+/* ========================================
+   PROMOTIONAL PANEL
+======================================== */
+
+.promo-panel {
+    min-height: 220px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 23px;
+    border-radius: 15px;
+    background:
+        linear-gradient(
+            90deg,
+            rgba(3, 48, 27, .94) 0%,
+            rgba(3, 48, 27, .78) 52%,
+            rgba(3, 48, 27, .12) 100%
+        ),
+        url('/images/bloom-business.jpg') center / cover no-repeat;
+}
+
+.promo-panel::after {
+    content: none;
+}
+
+.promo-panel h3 {
+    position: relative;
+    z-index: 1;
+    max-width: 260px;
+    margin: 0 0 8px;
+    color: #fff;
+    font-family: Georgia, serif;
+    font-size: 28px;
+    font-style: italic;
+    line-height: 1.15;
+}
+
+.promo-panel p {
+    position: relative;
+    z-index: 1;
+    max-width: 260px;
+    margin-bottom: 15px;
+    color: rgba(255,255,255,.9);
+    font-size: 12px;
+}
+
+.promo-button {
+    position: relative;
+    z-index: 1;
+    width: fit-content;
+    padding: 9px 15px;
+    border-radius: 25px;
+    color: var(--supplier-primary-dark);
+    background: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+/* ========================================
+   RESPONSIVE
+======================================== */
+
+@media (max-width: 1100px) {
+    .summary-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .lower-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .promo-panel {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 768px) {
+    .supplier-sidebar {
+        width: 76px;
+        padding: 22px 8px;
+    }
+
+    .sidebar-brand {
+        padding: 0 0 25px;
+        text-align: center;
+    }
+
+    .sidebar-brand .brand-name {
+        font-size: 13px;
+        letter-spacing: 0;
+    }
+
+    .sidebar-brand .brand-subtitle,
+    .sidebar-link .sidebar-label,
+    .sidebar-user-info,
+    .sidebar-divider {
+        display: none;
+    }
+
+    .sidebar-link {
+        justify-content: center;
+        padding: 12px 5px;
+    }
+
+    .sidebar-icon {
+        font-size: 20px;
+    }
+
+    .sidebar-user {
+        justify-content: center;
+    }
+
+    .navbar-search {
+        width: 40vw;
+    }
+
+    .dashboard-content {
+        padding: 15px;
+    }
+
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 576px) {
+    .supplier-navbar {
+        min-height: 65px;
+        padding: 10px;
+    }
+
+    .navbar-left,
+    .navbar-right {
+        gap: 8px;
+    }
+
+    .navbar-search {
+        width: 38vw;
+        padding: 8px;
+    }
+
+    .navbar-date {
+        display: none;
+    }
+
+    .navbar-brand-name {
+        font-size: 15px;
+    }
+
+    .navbar-brand-subtitle {
+        font-size: 8px;
+        letter-spacing: .5px;
+    }
+
+    .summary-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .lower-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .promo-panel {
+        grid-column: auto;
+    }
+
+    .welcome-banner {
+        min-height: 125px;
+        padding: 20px;
+    }
+
+    .welcome-banner::after {
+        right: -15px;
+        font-size: 95px;
+    }
+
+    .dashboard-content {
+        padding: 12px;
+    }
+
+    .dashboard-panel {
+        padding: 15px;
+    }
 }
