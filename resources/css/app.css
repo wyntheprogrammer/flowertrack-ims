@@ -5,6 +5,7 @@
 @import './supplier/flowers.css';
 @import './supplier/inventory.css';
 @import './supplier/batches.css';
+@import './supplier/spoilage-prediction.css';
 
 /* ========================================
    FLOWERTRACK IMS - SUPPLIER DESIGN
