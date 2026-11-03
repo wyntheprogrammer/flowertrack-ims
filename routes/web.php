@@ -3,24 +3,40 @@
 use Illuminate\Support\Facades\Route;
 
 // Home Page
-Route::get('/', function () {
-    return view('welcome');
+Route::view('/', 'welcome');
+
+// Supplier / Admin UI
+Route::prefix('supplier')->name('supplier.')->group(function () {
+
+    // Completed UI modules
+    Route::view('/dashboard', 'supplier.dashboard')
+        ->name('dashboard');
+
+    Route::view('/flowers', 'supplier.flowers')
+        ->name('flowers');
+
+    Route::view('/inventory', 'supplier.inventory')
+        ->name('inventory');
+
+    Route::view('/batches', 'supplier.batches')
+        ->name('batches');
+
+    // Upcoming modules
+    $upcomingModules = [
+        'spoilage-prediction' => 'Spoilage Prediction',
+        'clients' => 'Client Management',
+        'orders' => 'Order Management',
+        'deliveries' => 'Delivery Management',
+        'sales-payments' => 'Sales & Payments',
+        'reports' => 'Reports',
+        'users' => 'User Management',
+        'audit-trail' => 'Audit Trail',
+    ];
+
+    foreach ($upcomingModules as $path => $title) {
+        Route::view('/' . $path, 'supplier.module-placeholder', [
+            'moduleTitle' => $title,
+        ])->name($path);
+    }
+
 });
-
-// Supplier Dashboard
-Route::get('/supplier/dashboard', function () {
-    return view('supplier.dashboard');
-});
-
-// Supplier Flower Management
-Route::get('/supplier/flowers', function () {
-    return view('supplier.flowers');
-});
-
-// Supplier Inventory Management
-Route::view('/supplier/inventory', 'supplier.inventory')
-    ->name('supplier.inventory');
-
-// Supplier Batch Management
-Route::view('/supplier/batches', 'supplier.batches')
-    ->name('supplier.batches');

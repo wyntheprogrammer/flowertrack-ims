@@ -25,76 +25,39 @@
 
             <div class="sidebar-divider"></div>
 
+            @php
+                $supplierNavigation = [
+                    ['dashboard', 'Dashboard', 'bi-house-door'],
+                    ['flowers', 'Flower Management', 'bi-flower1'],
+                    ['inventory', 'Inventory Management', 'bi-box-seam'],
+                    ['batches', 'Batch Management', 'bi-layers'],
+                    ['spoilage-prediction', 'Spoilage Prediction', 'bi-graph-up-arrow'],
+                    ['clients', 'Client Management', 'bi-people'],
+                    ['orders', 'Order Management', 'bi-cart3'],
+                    ['deliveries', 'Delivery Management', 'bi-truck'],
+                    ['sales-payments', 'Sales & Payments', 'bi-cash-coin'],
+                    ['reports', 'Reports', 'bi-bar-chart'],
+                    ['users', 'User Management', 'bi-person-gear'],
+                    ['audit-trail', 'Audit Trail', 'bi-clock-history'],
+                ];
+            @endphp
 
             <nav class="sidebar-nav">
+                @foreach ($supplierNavigation as [$module, $label, $icon])
+                    @php
+                        $routeName = 'supplier.' . $module;
+                        $isActive = request()->routeIs($routeName, $routeName . '.*');
+                    @endphp
 
-                <a href="{{ url('/supplier/dashboard') }}"
-                    class="sidebar-link {{ request()->is('supplier/dashboard') ? 'active' : '' }}">
-                    <span class="sidebar-icon"><i class="bi bi-house-door"></i></span>
-                    <span class="sidebar-label">Dashboard</span>
-                </a>
+                    <a href="{{ route($routeName) }}" class="sidebar-link {{ $isActive ? 'active' : '' }}" @if ($isActive)
+                    aria-current="page" @endif>
+                        <span class="sidebar-icon">
+                            <i class="bi {{ $icon }}" aria-hidden="true"></i>
+                        </span>
 
-                <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon"><i class="bi bi-flower1"></i></span>
-                    <span class="sidebar-label">Flower Management</span>
-                </a>
-
-                <a href="{{ route('supplier.inventory') }}"
-                    class="sidebar-link {{ request()->is('supplier/inventory*') ? 'active' : '' }}">
-                    <span class="sidebar-icon">
-                        <i class="bi bi-box-seam"></i>
-                    </span>
-                    <span class="sidebar-label">Inventory Management</span>
-                </a>
-
-                <a href="{{ route('supplier.batches') }}"
-                    class="sidebar-link {{ request()->is('supplier/batches*') ? 'active' : '' }}">
-                    <span class="sidebar-icon">
-                        <i class="bi bi-layers"></i>
-                    </span>
-                    <span class="sidebar-label">Batch Management</span>
-                </a>
-
-                <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon"><i class="bi bi-graph-up-arrow"></i></span>
-                    <span class="sidebar-label">Spoilage Prediction</span>
-                </a>
-
-                <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon"><i class="bi bi-people"></i></span>
-                    <span class="sidebar-label">Client Management</span>
-                </a>
-
-                <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon"><i class="bi bi-cart3"></i></span>
-                    <span class="sidebar-label">Order Management</span>
-                </a>
-
-                <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon"><i class="bi bi-truck"></i></span>
-                    <span class="sidebar-label">Delivery Management</span>
-                </a>
-
-                <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon"><i class="bi bi-cash-coin"></i></span>
-                    <span class="sidebar-label">Sales & Payments</span>
-                </a>
-
-                <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon"><i class="bi bi-bar-chart"></i></span>
-                    <span class="sidebar-label">Reports</span>
-                </a>
-
-                <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon"><i class="bi bi-person-gear"></i></span>
-                    <span class="sidebar-label">User Management</span>
-                </a>
-
-                <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon"><i class="bi bi-clock-history"></i></span>
-                    <span class="sidebar-label">Audit Trail</span>
-                </a>
-
+                        <span class="sidebar-label">{{ $label }}</span>
+                    </a>
+                @endforeach
             </nav>
 
 
