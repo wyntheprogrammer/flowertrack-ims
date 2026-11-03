@@ -12,3 +12,8 @@ Route::get('/', function () {
 Route::get('/supplier/dashboard', function () {
     return view('supplier.dashboard');
 });
+
+// Supplier Flower Management
+Route::get('/supplier/flowers', function () {
+    return view('supplier.flowers');
+});
