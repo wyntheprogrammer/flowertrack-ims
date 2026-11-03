@@ -25,7 +25,7 @@
 
             <div class="sidebar-divider"></div>
 
-            
+
             <nav class="sidebar-nav">
 
                 <a href="{{ url('/supplier/dashboard') }}"
@@ -39,8 +39,11 @@
                     <span class="sidebar-label">Flower Management</span>
                 </a>
 
-                <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon"><i class="bi bi-box-seam"></i></span>
+                <a href="{{ route('supplier.inventory') }}"
+                    class="sidebar-link {{ request()->is('supplier/inventory*') ? 'active' : '' }}">
+                    <span class="sidebar-icon">
+                        <i class="bi bi-box-seam"></i>
+                    </span>
                     <span class="sidebar-label">Inventory Management</span>
                 </a>
 

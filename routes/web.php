@@ -17,3 +17,7 @@ Route::get('/supplier/dashboard', function () {
 Route::get('/supplier/flowers', function () {
     return view('supplier.flowers');
 });
+
+// Supplier Inventory Management
+Route::view('/supplier/inventory', 'supplier.inventory')
+    ->name('supplier.inventory');

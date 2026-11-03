@@ -2,8 +2,9 @@
 @import 'bootstrap-icons/font/bootstrap-icons.css';
 @import 'datatables.net-bs5/css/dataTables.bootstrap5.css';
 
-/* Supplier Modules */
 @import './supplier/flowers.css';
+@import './supplier/inventory.css';
+
 
 /* ========================================
    FLOWERTRACK IMS - SUPPLIER DESIGN
