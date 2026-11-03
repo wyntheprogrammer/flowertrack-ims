@@ -20,13 +20,15 @@ Route::prefix('supplier')->name('supplier.')->group(function () {
 
     Route::view('/batches', 'supplier.batches')
         ->name('batches');
-    
+
     Route::view('/spoilage-prediction', 'supplier.spoilage-prediction')
-    ->name('spoilage-prediction');
+        ->name('spoilage-prediction');
+
+    Route::view('/clients', 'supplier.clients')
+        ->name('clients');
 
     // Upcoming modules
     $upcomingModules = [
-        'clients' => 'Client Management',
         'orders' => 'Order Management',
         'deliveries' => 'Delivery Management',
         'sales-payments' => 'Sales & Payments',
