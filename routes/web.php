@@ -1,4 +1,3 @@
-
 <?php
 
 use Illuminate\Support\Facades\Route;
@@ -21,3 +20,7 @@ Route::get('/supplier/flowers', function () {
 // Supplier Inventory Management
 Route::view('/supplier/inventory', 'supplier.inventory')
     ->name('supplier.inventory');
+
+// Supplier Batch Management
+Route::view('/supplier/batches', 'supplier.batches')
+    ->name('supplier.batches');

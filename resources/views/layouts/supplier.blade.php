@@ -47,8 +47,11 @@
                     <span class="sidebar-label">Inventory Management</span>
                 </a>
 
-                <a href="#" class="sidebar-link">
-                    <span class="sidebar-icon"><i class="bi bi-layers"></i></span>
+                <a href="{{ route('supplier.batches') }}"
+                    class="sidebar-link {{ request()->is('supplier/batches*') ? 'active' : '' }}">
+                    <span class="sidebar-icon">
+                        <i class="bi bi-layers"></i>
+                    </span>
                     <span class="sidebar-label">Batch Management</span>
                 </a>
 
