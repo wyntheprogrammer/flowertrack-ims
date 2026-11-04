@@ -194,7 +194,7 @@
 
 #flowerTable {
     width: 100% !important;
-    min-width: 960px;
+    min-width: 1060px;
     table-layout: fixed;
     margin: 0 !important;
     border: 1px solid #e9e2ed;
@@ -236,55 +236,30 @@
     background: #fbf8fd;
 }
 
-/* BALANCED COLUMN WIDTHS */
+/* BALANCED COLUMN WIDTHS / ALIGNMENT */
 
 #flowerTable colgroup col:nth-child(1),
-#flowerTable thead th:nth-child(1) {
-    width: 30% !important;
-    min-width: 0;
-}
-
+#flowerTable thead th:nth-child(1) { width: 28% !important; }
 #flowerTable colgroup col:nth-child(2),
-#flowerTable thead th:nth-child(2) {
-    width: 22% !important;
-}
-
+#flowerTable thead th:nth-child(2) { width: 12% !important; }
 #flowerTable colgroup col:nth-child(3),
-#flowerTable thead th:nth-child(3) {
-    width: 18% !important;
-}
-
+#flowerTable thead th:nth-child(3) { width: 16% !important; }
 #flowerTable colgroup col:nth-child(4),
-#flowerTable thead th:nth-child(4) {
-    width: 14% !important;
-}
-
+#flowerTable thead th:nth-child(4) { width: 16% !important; }
 #flowerTable colgroup col:nth-child(5),
-#flowerTable thead th:nth-child(5) {
-    width: 16% !important;
-}
+#flowerTable thead th:nth-child(5) { width: 12% !important; }
+#flowerTable colgroup col:nth-child(6),
+#flowerTable thead th:nth-child(6) { width: 16% !important; }
 
-/* MATCH HEADER AND DATA ALIGNMENT */
+#flowerTable thead th,
+#flowerTable tbody td { text-align: center !important; }
 
 #flowerTable thead th:nth-child(1),
 #flowerTable tbody td:nth-child(1),
-#flowerTable thead th:nth-child(2),
-#flowerTable tbody td:nth-child(2) {
-    text-align: left !important;
-}
-
 #flowerTable thead th:nth-child(3),
-#flowerTable tbody td:nth-child(3),
-#flowerTable thead th:nth-child(4),
-#flowerTable tbody td:nth-child(4),
-#flowerTable thead th:nth-child(5),
-#flowerTable tbody td:nth-child(5) {
-    text-align: center !important;
-}
+#flowerTable tbody td:nth-child(3) { text-align: left !important; }
 
-#flowerTable tbody td:nth-child(3) {
-    font-variant-numeric: tabular-nums;
-}
+#flowerTable tbody td:nth-child(4) { font-variant-numeric: tabular-nums; }
 
 #flowerTable .flower-actions {
     justify-content: center;

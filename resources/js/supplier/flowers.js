@@ -11,7 +11,9 @@ const FlowerManagement = {
         { code: 'FLW-006', name: 'Pink Carnation', category: 'Carnations', minimumStock: 75, description: 'Pink carnations commonly used in mixed flower bouquets.', status: 'Inactive', image: null },
         { code: 'FLW-007', name: 'Gerbera Daisy', category: 'Gerberas', minimumStock: 50, description: 'Colorful gerbera daisies for cheerful floral designs.', status: 'Active', image: null },
         { code: 'FLW-008', name: "Baby's Breath", category: 'Fillers', minimumStock: 30, description: 'Delicate filler flowers for bouquet arrangements.', status: 'Inactive', image: null }
-    ],
+        ,{ code: 'FLW-009', name: 'Classic Rose Bouquet', itemType: 'Bouquet', category: 'Roses', minimumStock: 5, description: 'Supplier-made finished rose bouquet, received and sold as one bouquet unit.', status: 'Active', image: null },
+        { code: 'FLW-010', name: 'Mixed Flower Bouquet', itemType: 'Bouquet', category: 'Mixed Flowers', minimumStock: 3, description: 'Ready-made mixed bouquet received from the supplier.', status: 'Active', image: null }
+    ].map((flower) => ({ ...flower, itemType: flower.itemType || 'Stem' })),
     dataTable: null,
     formModal: null,
     viewModal: null,
@@ -45,6 +47,9 @@ const FlowerManagement = {
             code: document.querySelector('#flowerCode'),
             name: document.querySelector('#flowerName'),
             category: document.querySelector('#flowerCategory'),
+            itemType: document.querySelector('#flowerItemType'),
+            baseUnit: document.querySelector('#flowerBaseUnit'),
+            minimumHelp: document.querySelector('#flowerMinimumStockHelp'),
             minimumStock: document.querySelector('#flowerMinimumStock'),
             status: document.querySelector('#flowerStatus'),
             description: document.querySelector('#flowerDescription'),
@@ -84,10 +89,9 @@ const FlowerManagement = {
                 bottomEnd: 'paging'
             },
             columnDefs: [
-                { targets: [0, 1], className: 'dt-head-left dt-body-left' },
-                { targets: 2, className: 'dt-head-right dt-body-right' },
-                { targets: 3, className: 'dt-head-center dt-body-center' },
-                { targets: 4, className: 'dt-head-center dt-body-center', orderable: false, searchable: false }
+                { targets: [0, 2], className: 'dt-head-left dt-body-left' },
+                { targets: [1, 3, 4], className: 'dt-head-center dt-body-center' },
+                { targets: 5, className: 'dt-head-center dt-body-center', orderable: false, searchable: false }
             ]
         });
         this.renderTable();
@@ -107,6 +111,7 @@ const FlowerManagement = {
     },
 
     bindEvents() {
+        this.elements.itemType.addEventListener('change', () => this.syncItemUnit());
         this.elements.addButton?.addEventListener('click', () => this.openAddModal());
         this.elements.form?.addEventListener('submit', (event) => {
             event.preventDefault();
@@ -137,8 +142,9 @@ const FlowerManagement = {
         if (!this.dataTable) return;
         const rows = this.flowers.map((flower) => [
             this.renderFlowerDetails(flower),
+            this.escapeHTML(flower.itemType),
             this.escapeHTML(flower.category),
-            Number(flower.minimumStock).toLocaleString(),
+            `${Number(flower.minimumStock).toLocaleString()} ${flower.itemType === 'Bouquet' ? 'bouquets' : 'stems'}`,
             this.renderStatus(flower.status),
             this.renderActions(flower)
         ]);
@@ -227,6 +233,9 @@ const FlowerManagement = {
         this.elements.code.value = flower.code;
         this.elements.name.value = flower.name;
         this.elements.category.value = flower.category;
+        this.elements.itemType.value = flower.itemType;
+        this.elements.itemType.disabled = true;
+        this.syncItemUnit();
         this.elements.minimumStock.value = flower.minimumStock;
         this.elements.status.value = flower.status;
         this.elements.description.value = flower.description;
@@ -245,6 +254,13 @@ const FlowerManagement = {
     saveFlower() {
         const name = this.elements.name.value.trim();
         const category = this.elements.category.value;
+        const itemType = this.editingCode
+            ? this.getFlower(this.editingCode)?.itemType
+            : this.elements.itemType.value;
+        if (!['Stem', 'Bouquet'].includes(itemType)) {
+            alert('Select a valid item type.');
+            return;
+        }
         const minimumStock = Number(this.elements.minimumStock.value);
         const description = this.elements.description.value.trim();
         const status = this.elements.status.value;
@@ -270,6 +286,7 @@ const FlowerManagement = {
             this.flowers.push({
                 code: this.generateFlowerCode(),
                 name,
+                itemType,
                 category,
                 minimumStock,
                 description,
@@ -303,12 +320,16 @@ const FlowerManagement = {
             </div>
             <div class="flower-view-details">
                 <div>
+                    <label>Item Type / Base Unit</label>
+                    <p>${this.escapeHTML(flower.itemType)}</p>
+                </div>
+                <div>
                     <label>Category</label>
                     <p>${this.escapeHTML(flower.category)}</p>
                 </div>
                 <div>
                     <label>Minimum Stock</label>
-                    <p>${Number(flower.minimumStock).toLocaleString()}</p>
+                    <p>${Number(flower.minimumStock).toLocaleString()} ${flower.itemType === 'Bouquet' ? 'bouquets' : 'stems'}</p>
                 </div>
                 <div class="flower-form-full">
                     <label>Description</label>
@@ -355,8 +376,19 @@ const FlowerManagement = {
         this.elements.imagePreviewWrapper?.classList.add('d-none');
     },
 
+    syncItemUnit() {
+        const bouquet = this.elements.itemType.value === 'Bouquet';
+        this.elements.baseUnit.value = bouquet ? 'Bouquet' : 'Stem';
+        this.elements.minimumHelp.textContent = bouquet
+            ? 'Minimum quantity in finished bouquets.'
+            : 'Minimum quantity in stems.';
+    },
+
     clearForm() {
         this.elements.form.reset();
+        this.elements.itemType.disabled = false;
+        this.elements.itemType.value = 'Stem';
+        this.syncItemUnit();
         this.editingCode = null;
         if (this.elements.editingCode) this.elements.editingCode.value = '';
         if (this.elements.code) this.elements.code.value = '';
@@ -390,3 +422,4 @@ if (document.readyState === 'loading') {
 } else {
     FlowerManagement.init();
 }
+

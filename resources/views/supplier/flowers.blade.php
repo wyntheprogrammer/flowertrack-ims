@@ -8,7 +8,7 @@
             <div class="flower-page-header">
                 <div>
                     <h1>Flower Management</h1>
-                    <p>Manage your flower catalog, categories, and availability.</p>
+                    <p>Manage individual stems and supplier-made bouquets.</p>
                 </div>
                 <button type="button" class="flower-primary-btn" id="addFlowerBtn" data-add-flower>
                     <i class="bi bi-plus-lg" aria-hidden="true"></i> Add New Flower
@@ -39,6 +39,7 @@
                     <thead>
                         <tr>
                             <th>Flower Details</th>
+                            <th>Item Type</th>
                             <th>Category</th>
                             <th>Minimum Stock</th>
                             <th>Status</th>
@@ -80,8 +81,20 @@
                                 </select>
                             </div>
                             <div class="flower-form-group">
-                                <label for="flowerName">Flower Name <span>*</span></label>
-                                <input type="text" id="flowerName" placeholder="Enter flower name" required>
+                                <label for="flowerItemType">Item Type <span>*</span></label>
+                                <select id="flowerItemType" required>
+                                    <option value="Stem">Stem</option>
+                                    <option value="Bouquet">Bouquet</option>
+                                </select>
+                                <small>Existing item type is locked to preserve its stock unit.</small>
+                            </div>
+                            <div class="flower-form-group">
+                                <label for="flowerBaseUnit">Base Unit</label>
+                                <input type="text" id="flowerBaseUnit" value="Stem" readonly>
+                            </div>
+                            <div class="flower-form-group">
+                                <label for="flowerName">Item Name <span>*</span></label>
+                                <input type="text" id="flowerName" placeholder="Enter flower or bouquet name" required>
                             </div>
                             <div class="flower-form-group">
                                 <label for="flowerCategory">Category <span>*</span></label>
@@ -95,6 +108,7 @@
                                     <option value="Gerberas">Gerberas</option>
                                     <option value="Fillers">Fillers</option>
                                     <option value="Orchids">Orchids</option>
+                                    <option value="Mixed Flowers">Mixed Flowers</option>
                                     <option value="Others">Others</option>
                                 </select>
                             </div>
@@ -102,6 +116,7 @@
                                 <label for="flowerMinimumStock">Minimum Stock <span>*</span></label>
                                 <input type="number" id="flowerMinimumStock" min="1" step="1"
                                     placeholder="Enter minimum stock" required>
+                                <small id="flowerMinimumStockHelp">Minimum quantity in stems.</small>
                             </div>
                             <div class="flower-form-group flower-form-full">
                                 <label for="flowerDescription">Description <span>*</span></label>
