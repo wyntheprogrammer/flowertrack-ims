@@ -34,7 +34,7 @@
             <div class="inv-stat">
                 <span>On-Hand Stock</span>
                 <strong id="totalOnHand">0</strong>
-                <small>Physical stems in usable batches</small>
+                <small>Separate stem and bouquet quantities</small>
             </div>
 
             <div class="inv-stat">
@@ -135,7 +135,7 @@
                         <th>Date / Time</th>
                         <th>Flower / Batch</th>
                         <th>Movement</th>
-                        <th>Stems</th>
+                        <th>Quantity</th>
                         <th>Remarks</th>
                         <th>User</th>
                     </tr>
@@ -291,7 +291,7 @@
                         </div>
 
                         <div class="inv-field">
-                            <label for="outQuantity">Quantity in Stems <span>*</span></label>
+                            <label for="outQuantity">Quantity in Base Units <span>*</span></label>
                             <input type="number"
                                    id="outQuantity"
                                    min="1"

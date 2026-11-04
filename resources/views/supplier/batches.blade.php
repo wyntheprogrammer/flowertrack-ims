@@ -43,7 +43,7 @@
             <div class="batch-stat">
                 <span>Spoiled</span>
                 <strong id="spoiledBatchCount">0</strong>
-                <small>Manually marked after Stock-Out</small>
+                <small>Confirmed spoilage recorded in Inventory</small>
             </div>
         </div>
 

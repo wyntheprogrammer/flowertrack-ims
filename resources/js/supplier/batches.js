@@ -60,11 +60,15 @@ class BatchModel {
             ['FLW-005', 'White Lily', 'Lilies'],
             ['FLW-006', 'Pink Carnation', 'Carnations'],
             ['FLW-007', 'Gerbera Daisy', 'Gerberas'],
-            ['FLW-008', "Baby's Breath", 'Fillers']
-        ].map(([code, name, category]) => ({
+            ['FLW-008', "Baby's Breath", 'Fillers'],
+            ['FLW-009', 'Classic Rose Bouquet', 'Roses', 'Bouquet'],
+            ['FLW-010', 'Mixed Flower Bouquet', 'Mixed Flowers', 'Bouquet']
+        ].map(([code, name, category, itemType = 'Stem']) => ({
             code,
             name,
-            category
+            category,
+            itemType,
+            baseUnit: itemType
         }));
 
         // Separate frontend samples.
@@ -81,7 +85,9 @@ class BatchModel {
             ['FLW-007', 60, 60, 2, 5, false, false],
             ['FLW-008', 30, 0, 7, -2, false, false],
             ['FLW-005', 40, 0, 6, -1, true, false],
-            ['FLW-002', 60, 0, 9, -3, true, true]
+            ['FLW-002', 60, 0, 9, -3, true, true],
+            ['FLW-009', 12, 10, 2, 3, false, false],
+            ['FLW-010', 8, 8, 1, 4, false, false]
         ];
 
         this.batches = samples.map(([
@@ -137,6 +143,10 @@ class BatchModel {
 
     flower(code) {
         return this.flowers.find((flower) => flower.code === code);
+    }
+
+    unitLabel(batch) {
+        return this.flower(batch.flower).baseUnit === 'Bouquet' ? 'bouquets' : 'stems';
     }
 
     find(id) {
@@ -249,7 +259,7 @@ class BatchModel {
 
         if (batch.remaining !== 0) {
             return (
-                `Record the remaining ${number(batch.remaining)} stems ` +
+                `Record the remaining ${number(batch.remaining)} ${this.unitLabel(batch)} ` +
                 'as a spoilage Stock-Out in Inventory first.'
             );
         }
@@ -372,7 +382,7 @@ const BatchUI = {
                         const flower = this.model.flower(code);
 
                         if (type !== 'display') {
-                            return `${flower.name} ${flower.code} ${flower.category}`;
+                            return `${flower.name} ${flower.code} ${flower.category} ${flower.baseUnit}`;
                         }
 
                         return `
@@ -385,7 +395,7 @@ const BatchUI = {
                                 <div>
                                     <strong>${escapeHTML(flower.name)}</strong>
                                     <small>
-                                        ${flower.code} · ${flower.category}
+                                        ${flower.code} · ${flower.category} · ${flower.baseUnit}
                                     </small>
                                 </div>
                             </div>
@@ -665,12 +675,13 @@ const BatchUI = {
 
         const fields = [
             ['Batch Number', batch.id],
-            ['Flower', `${flower.name} (${flower.code})`],
+            ['Item', `${flower.name} (${flower.code})`],
+            ['Item Type / Base Unit', flower.baseUnit],
             ['Date Received', batch.received],
             ['Harvest Date', batch.harvest],
             ['Freshness / Expiry', batch.expiry || 'Not set'],
-            ['Initial Quantity', `${number(batch.initial)} stems`],
-            ['Remaining Quantity', `${number(batch.remaining)} stems`]
+            ['Initial Quantity', `${number(batch.initial)} ${this.model.unitLabel(batch)}`],
+            ['Remaining Quantity', `${number(batch.remaining)} ${this.model.unitLabel(batch)}`]
         ];
 
         this.el('batchViewTitle').textContent =
@@ -713,7 +724,7 @@ const BatchUI = {
                     <td>${movement.type}</td>
                     <td>
                         ${movement.type === 'Stock-In' ? '+' : '−'}${number(movement.quantity)}
-                        stems
+                        ${this.model.unitLabel(batch)}
                     </td>
                     <td>${escapeHTML(movement.remarks || '—')}</td>
                     <td>${escapeHTML(movement.user)}</td>
@@ -731,7 +742,7 @@ const BatchUI = {
         const values = {
             batchEditingId: batch.id,
             batchEditNumber: batch.id,
-            batchEditFlower: this.model.flower(batch.flower).name,
+            batchEditFlower: `${this.model.flower(batch.flower).name} (${this.model.flower(batch.flower).baseUnit})`,
             batchEditReceived: batch.received,
             batchEditHarvest: batch.harvest,
             batchEditInitial: batch.initial,
@@ -759,8 +770,8 @@ const BatchUI = {
                     ${escapeHTML(this.model.flower(batch.flower).name)}
                 </strong>
                 <p>
-                    Initial: ${number(batch.initial)} stems ·
-                    Remaining: ${number(batch.remaining)} stems
+                    Initial: ${number(batch.initial)} ${this.model.unitLabel(batch)} ·
+                    Remaining: ${number(batch.remaining)} ${this.model.unitLabel(batch)}
                 </p>
             </div>
         `;

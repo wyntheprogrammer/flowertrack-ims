@@ -50,13 +50,17 @@ class InventoryModel {
             ['FLW-005', 'White Lily', 'Lilies', 50],
             ['FLW-006', 'Pink Carnation', 'Carnations', 75],
             ['FLW-007', 'Gerbera Daisy', 'Gerberas', 50],
-            ['FLW-008', "Baby's Breath", 'Fillers', 30]
-        ].map(([code, name, category, minimum]) => ({
+            ['FLW-008', "Baby's Breath", 'Fillers', 30],
+            ['FLW-009', 'Classic Rose Bouquet', 'Roses', 5, 'Bouquet'],
+            ['FLW-010', 'Mixed Flower Bouquet', 'Mixed Flowers', 3, 'Bouquet']
+        ].map(([code, name, category, minimum, itemType = 'Stem']) => ({
             code,
             name,
             category,
             minimum,
-            units: {
+            itemType,
+            baseUnit: itemType,
+            units: itemType === 'Bouquet' ? { Bouquet: 1 } : {
                 Stem: 1,
                 Bunch: 10,
                 Bundle: 20,
@@ -110,7 +114,9 @@ class InventoryModel {
             ['FLW-004', 30, 30, 2],
             ['FLW-006', 75, 25, 5],
             ['FLW-007', 60, 60, 2],
-            ['FLW-008', 30, 0, 7]
+            ['FLW-008', 30, 0, 7],
+            ['FLW-009', 12, 10, 2],
+            ['FLW-010', 8, 8, 1]
         ];
 
         for (const [flower, initial, remaining, age] of samples) {
@@ -123,7 +129,7 @@ class InventoryModel {
                 harvest: daysAgo(age + 1),
                 expiry: '',
                 quantity: initial,
-                unit: 'Stem',
+                unit: this.flower(flower).baseUnit,
                 factor: 1,
                 remarks: 'Opening sample receipt.',
                 spoiled: false
@@ -213,6 +219,10 @@ class InventoryModel {
         });
     }
 
+    unitLabel(code) {
+        return this.flower(code)?.baseUnit === 'Bouquet' ? 'bouquets' : 'stems';
+    }
+
     receive(data) {
         const flower = this.flower(data.flower);
         const batch = data.id
@@ -223,6 +233,12 @@ class InventoryModel {
             throw new Error('Select a valid flower or receipt.');
         }
 
+        if (flower.baseUnit === 'Bouquet' && (data.unit !== 'Bouquet' || data.factor !== 1)) {
+            throw new Error('Bouquets must be received as finished Bouquet units, factor 1.');
+        }
+        if (!batch && flower.units[data.unit] !== data.factor) {
+            throw new Error('Select a configured receiving unit and conversion.');
+        }
         if (batch && batch.flower !== data.flower) {
             throw new Error('The flower on an existing receipt cannot change.');
         }
@@ -320,7 +336,7 @@ class InventoryModel {
     allocation(code, quantity, selectedBatch = '') {
         if (!Number.isSafeInteger(quantity) || quantity < 1) {
             throw new Error(
-                'Enter a positive whole-number quantity in stems.'
+                'Enter a positive whole-number quantity in the item base unit.'
             );
         }
 
@@ -395,7 +411,7 @@ class InventoryModel {
 
         if (data.quantity > available) {
             throw new Error(
-                `Only ${number(available)} stems are available for this transaction after other reservations.`
+                `Only ${number(available)} ${this.unitLabel(data.flower)} are available for this transaction after other reservations.`
             );
         }
 
@@ -640,6 +656,7 @@ const InventoryUI = {
                     this.el('unitFlowerCode').value
                 );
 
+                if (flower.baseUnit === 'Bouquet') throw new Error('Bouquets use one finished Bouquet unit; stem conversions do not apply.');
                 const units = { Stem: 1 };
 
                 for (const unit of ['Bunch', 'Bundle', 'Box']) {
@@ -709,7 +726,7 @@ const InventoryUI = {
                     </span>
                     <div>
                         <strong>${escapeHTML(flower.name)}</strong>
-                        <small>${flower.code} · ${flower.category}</small>
+                        <small>${flower.code} · ${flower.category} · ${flower.baseUnit}</small>
                     </div>
                 </div>
             `,
@@ -734,6 +751,7 @@ const InventoryUI = {
 
                     <button type="button"
                             class="inv-icon-btn edit"
+                            ${flower.baseUnit === 'Bouquet' ? 'hidden' : ''}
                             data-inventory-action="units"
                             data-code="${flower.code}"
                             title="Configure units"
@@ -750,7 +768,7 @@ const InventoryUI = {
             escapeHTML(movement.date),
             `
                 <strong>${escapeHTML(model.flower(movement.flower).name)}</strong>
-                <small class="inv-cell-note">${movement.batch}</small>
+                <small class="inv-cell-note">${movement.batch} · ${model.flower(movement.flower).baseUnit}</small>
             `,
             `
                 <span class="inv-badge ${
@@ -766,14 +784,14 @@ const InventoryUI = {
 
         this.tables.history.clear().rows.add(historyRows).draw(false);
 
-        const total = (method) => model.flowers.reduce(
-            (sum, flower) => sum + model[method](flower.code),
-            0
-        );
-
-        this.el('totalOnHand').textContent = number(total('onHand'));
-        this.el('totalReserved').textContent = number(total('reserved'));
-        this.el('totalAvailable').textContent = number(total('available'));
+        const total = (method) => ['Stem', 'Bouquet'].map((unit) => {
+            const quantity = model.flowers.filter((flower) => flower.baseUnit === unit)
+                .reduce((sum, flower) => sum + model[method](flower.code), 0);
+            return `${number(quantity)} ${unit === 'Bouquet' ? 'bouquets' : 'stems'}`;
+        }).join(' / ');
+        this.el('totalOnHand').textContent = total('onHand');
+        this.el('totalReserved').textContent = total('reserved');
+        this.el('totalAvailable').textContent = total('available');
 
         this.el('totalStockAlerts').textContent = model.flowers.filter(
             (flower) => model.status(flower.code) !== 'Normal'
@@ -796,7 +814,7 @@ const InventoryUI = {
     flowerOptions() {
         return this.model.flowers.map((flower) => `
             <option value="${flower.code}">
-                ${escapeHTML(flower.name)} — ${flower.code}
+                ${escapeHTML(flower.name)} — ${flower.code} (${flower.baseUnit})
             </option>
         `).join('');
     },
@@ -841,12 +859,12 @@ const InventoryUI = {
         this.el('inUnit').innerHTML = Object.entries(units).map(
             ([unit, factor]) => `
                 <option value="${unit}" data-factor="${factor}">
-                    ${unit} (${factor} stem${factor > 1 ? 's' : ''})
+                    ${unit} (${factor} ${this.model.unitLabel(flower.code)})
                 </option>
             `
         ).join('');
 
-        this.el('inUnit').value = batch?.unit ?? 'Stem';
+        this.el('inUnit').value = batch?.unit ?? flower.baseUnit;
         this.inPreview();
     },
 
@@ -855,7 +873,7 @@ const InventoryUI = {
             Number(this.el('inUnit').selectedOptions[0]?.dataset.factor ?? 1);
 
         this.el('inConversion').textContent =
-            `${number(total || 0)} stems will be recorded.`;
+            `${number(total || 0)} ${this.model.unitLabel(this.el('inFlower').value)} will be recorded.`;
     },
 
     openOut() {
@@ -871,7 +889,7 @@ const InventoryUI = {
                     <option value="${order.id}">
                         ${order.id} ·
                         ${this.model.flower(order.flower).name} ·
-                        ${order.quantity} stems ·
+                        ${order.quantity} ${this.model.unitLabel(order.flower)} ·
                         ${order.status}
                     </option>
                 `).join('');
@@ -907,7 +925,7 @@ const InventoryUI = {
             .filter((batch) => !batch.spoiled && batch.remaining > 0)
             .map((batch) => `
                 <option value="${batch.id}">
-                    ${batch.id} · ${batch.received} · ${batch.remaining} stems
+                    ${batch.id} · ${batch.received} · ${batch.remaining} ${this.model.unitLabel(batch.flower)}
                 </option>
             `).join('');
 
@@ -963,7 +981,7 @@ const InventoryUI = {
 
             this.el('outAllocation').textContent = plan.map(
                 ({ batch, amount }) =>
-                    `${batch.id}: ${number(amount)} stems`
+                    `${batch.id}: ${number(amount)} ${this.model.unitLabel(batch.flower)}`
             ).join(' · ');
         } catch (error) {
             this.el('outAllocation').textContent = error.message;
@@ -1023,7 +1041,7 @@ const InventoryUI = {
         this.el('inventoryDetailContent').innerHTML = `
             <p class="inv-muted">
                 ${flower.code} ·
-                Minimum stock: ${flower.minimum} stems ·
+                Minimum stock: ${flower.minimum} ${this.model.unitLabel(code)} ·
                 On hand: ${this.model.onHand(code)} ·
                 Reserved: ${this.model.reserved(code)} ·
                 Available: ${this.model.available(code)}
@@ -1059,7 +1077,7 @@ const InventoryUI = {
                             <th>Date / Time</th>
                             <th>Batch</th>
                             <th>Movement</th>
-                            <th>Stems</th>
+                            <th>Quantity (${flower.baseUnit})</th>
                             <th>Remarks</th>
                         </tr>
                     </thead>
@@ -1076,6 +1094,10 @@ const InventoryUI = {
 
     openUnits(code) {
         const flower = this.model.flower(code);
+        if (flower.baseUnit === 'Bouquet') {
+            this.notice('Bouquets are received as finished Bouquet units; no stem conversion.');
+            return;
+        }
 
         this.el('unitFlowerCode').value = code;
         this.el('unitFlowerName').textContent = flower.name;
@@ -1098,3 +1120,4 @@ if (document.readyState === 'loading') {
 } else {
     InventoryUI.init();
 }
+
