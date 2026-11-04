@@ -563,7 +563,7 @@ class ClientManagementUI {
 
         const completed = orders.filter((order) => order.status === 'Completed');
         const ongoing = orders.filter((order) =>
-            ['Pending', 'Confirmed', 'Preparing', 'Out for Delivery', 'Ready for Pickup']
+            ['Pending', 'Confirmed', 'Processing', 'Ready for Delivery', 'Out for Delivery', 'Ready for Pickup']
                 .includes(order.status),
         );
 

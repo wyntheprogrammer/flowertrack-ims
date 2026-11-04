@@ -1047,7 +1047,8 @@ function initializeOrderManagement() {
 
     if (!table || DataTable.isDataTable(table)) return;
 
-    new OrderManagementUI(table);
+    const ui = new OrderManagementUI(table);
+    if (new URLSearchParams(window.location.search).get('create') === '1') ui.openForm();
 }
 
 if (document.readyState === 'loading') {
@@ -1057,5 +1058,6 @@ if (document.readyState === 'loading') {
 } else {
     initializeOrderManagement();
 }
+
 
 

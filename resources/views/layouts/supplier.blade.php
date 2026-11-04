@@ -15,7 +15,7 @@
     <div class="supplier-layout">
 
         <!-- Sidebar -->
-        <aside class="supplier-sidebar">
+        <aside class="supplier-sidebar" id="supplierSidebar">
 
             <div class="sidebar-brand">
                 <div class="sidebar-logo">
@@ -50,7 +50,7 @@
                     @endphp
 
                     <a href="{{ route($routeName) }}" class="sidebar-link {{ $isActive ? 'active' : '' }}" @if ($isActive)
-                    aria-current="page" @endif>
+                    aria-current="page" @endif aria-label="{{ $label }}" title="{{ $label }}">
                         <span class="sidebar-icon">
                             <i class="bi {{ $icon }}" aria-hidden="true"></i>
                         </span>
@@ -82,8 +82,9 @@
                 <div class="navbar-left">
 
 
-                    <button class="navbar-menu" type="button">
-                        ☰
+                    <button class="navbar-menu" type="button" id="supplierMenuToggle"
+                            aria-controls="supplierSidebar" aria-expanded="true" aria-label="Toggle navigation">
+                        <i class="bi bi-list" aria-hidden="true"></i>
                     </button>
 
                     <div class="navbar-brand">
@@ -95,13 +96,23 @@
 
                 <div class="navbar-right">
 
-                    <button class="navbar-icon" type="button">
-                        ♟
-                        <span class="notification-count">2</span>
-                    </button>
+                    <div class="supplier-notifications">
+                        <button class="navbar-icon" type="button" id="supplierNotificationToggle"
+                                aria-controls="supplierNotificationPanel" aria-expanded="false"
+                                aria-label="Show sample notifications">
+                            <i class="bi bi-bell" aria-hidden="true"></i>
+                            <span class="notification-count">2</span>
+                        </button>
+                        <section id="supplierNotificationPanel" class="supplier-notification-panel" aria-labelledby="supplierNotificationHeading" hidden>
+                            <h2 id="supplierNotificationHeading">Notifications <small>Sample</small></h2>
+                            <a href="{{ route('supplier.inventory') }}">Review sample low-stock items</a>
+                            <a href="{{ route('supplier.orders') }}">Review sample pending orders</a>
+                            <p>Live alerts will be connected during backend integration.</p>
+                        </section>
+                    </div>
 
                     <div class="navbar-date">
-                        ▣ &nbsp; {{ now()->format('M d, Y') }} &nbsp;⌄
+                        <i class="bi bi-calendar3" aria-hidden="true"></i> &nbsp; {{ now()->format('M d, Y') }}
                     </div>
 
                 </div>

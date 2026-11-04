@@ -19,17 +19,23 @@ const FlowerManagement = {
     viewModal: null,
     elements: {},
     editingCode: null,
+    imageRemoved: false,
+    imageUrls: new Map(),
 
     init() {
         this.cacheElements();
         if (!this.elements.table || !this.elements.form) {
-            console.error('Flower Management elements are missing.');
             return;
         }
         this.formModal = bootstrap.Modal.getOrCreateInstance(this.elements.formModal);
         this.viewModal = bootstrap.Modal.getOrCreateInstance(this.elements.viewModal);
         this.initializeDataTable();
         this.bindEvents();
+        if (new URLSearchParams(window.location.search).get('create') === '1') this.openAddModal();
+        window.addEventListener('pagehide', () => {
+            for (const url of this.imageUrls.values()) URL.revokeObjectURL(url);
+            this.imageUrls.clear();
+        });
     },
 
     cacheElements() {
@@ -124,6 +130,7 @@ const FlowerManagement = {
         });
         this.elements.removeImageButton?.addEventListener('click', () => {
             this.removeImagePreview();
+            this.imageRemoved = true;
         });
         this.elements.tableBody?.addEventListener('click', (event) => {
             const button = event.target.closest('[data-action]');
@@ -155,7 +162,7 @@ const FlowerManagement = {
 
     renderFlowerDetails(flower) {
         const imageUrl = flower.image instanceof File
-            ? URL.createObjectURL(flower.image)
+            ? this.imageUrl(flower.image)
             : null;
         return `
             <div class="flower-table-details">
@@ -240,7 +247,7 @@ const FlowerManagement = {
         this.elements.status.value = flower.status;
         this.elements.description.value = flower.description;
         if (flower.image instanceof File) {
-            this.showImagePreview(URL.createObjectURL(flower.image));
+            this.showImagePreview(this.imageUrl(flower.image));
         }
         this.setFormTitle('Edit Flower');
         this.formModal.show();
@@ -282,6 +289,7 @@ const FlowerManagement = {
             flower.description = description;
             flower.status = status;
             if (imageFile) flower.image = imageFile;
+            else if (this.imageRemoved) flower.image = null;
         } else {
             this.flowers.push({
                 code: this.generateFlowerCode(),
@@ -294,6 +302,7 @@ const FlowerManagement = {
                 image: imageFile
             });
         }
+        this.releaseUnusedImages();
         this.renderTable();
         this.applySearch();
         this.formModal.hide();
@@ -303,7 +312,7 @@ const FlowerManagement = {
         const flower = this.getFlower(code);
         if (!flower) return;
         const imageUrl = flower.image instanceof File
-            ? URL.createObjectURL(flower.image)
+            ? this.imageUrl(flower.image)
             : null;
         this.elements.viewContent.innerHTML = `
             <div class="flower-view-header">
@@ -362,7 +371,20 @@ const FlowerManagement = {
             this.elements.image.value = '';
             return;
         }
-        this.showImagePreview(URL.createObjectURL(file));
+        this.imageRemoved = false;
+        this.showImagePreview(this.imageUrl(file));
+    },
+
+    imageUrl(file) {
+        if (!this.imageUrls.has(file)) this.imageUrls.set(file, URL.createObjectURL(file));
+        return this.imageUrls.get(file);
+    },
+
+    releaseUnusedImages() {
+        const retained = new Set(this.flowers.map((flower) => flower.image));
+        for (const [file, url] of this.imageUrls) {
+            if (!retained.has(file)) { URL.revokeObjectURL(url); this.imageUrls.delete(file); }
+        }
     },
 
     showImagePreview(source) {
@@ -393,6 +415,8 @@ const FlowerManagement = {
         if (this.elements.editingCode) this.elements.editingCode.value = '';
         if (this.elements.code) this.elements.code.value = '';
         this.removeImagePreview();
+        this.imageRemoved = false;
+        this.releaseUnusedImages();
     },
 
     generateFlowerCode() {
@@ -422,4 +446,5 @@ if (document.readyState === 'loading') {
 } else {
     FlowerManagement.init();
 }
+
 

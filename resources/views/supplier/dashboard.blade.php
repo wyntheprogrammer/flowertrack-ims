@@ -10,6 +10,7 @@
         <div class="welcome-text">
             <h2>Welcome back, <span>Administrator!</span></h2>
             <p>Here's what's happening with your flower business today.</p>
+            <small class="dashboard-sample-label">UI preview · sample dashboard figures</small>
         </div>
     </section>
 
@@ -72,93 +73,22 @@
                     <i class="bi bi-bar-chart-line"></i> Inventory Overview
                 </h4>
 
-                <select class="form-select form-select-sm"
+                <select id="dashboardPeriod" aria-label="Sample inventory chart period" class="form-select form-select-sm"
                         style="width: 125px;">
-                    <option>This Month</option>
-                    <option>Last Month</option>
-                    <option>This Year</option>
+                    <option value="month">This Month</option>
+                    <option value="last">Last Month</option>
+                    <option value="year">This Year</option>
                 </select>
             </div>
 
-            <div class="chart-legend">
-                <span><i class="legend-dot"></i> Sales</span>
-                <span><i class="legend-dot light"></i> Inventory Stock</span>
-            </div>
-
-            <!-- Sample Chart -->
-            <svg class="inventory-chart"
-                 viewBox="0 0 700 205"
-                 xmlns="http://www.w3.org/2000/svg">
-
-                <defs>
-                    <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="#198754" stop-opacity=".18"/>
-                        <stop offset="100%" stop-color="#198754" stop-opacity="0"/>
-                    </linearGradient>
-
-                    <linearGradient id="stockFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stop-color="#a6ce91" stop-opacity=".2"/>
-                        <stop offset="100%" stop-color="#a6ce91" stop-opacity="0"/>
-                    </linearGradient>
-                </defs>
-
-                <!-- Grid Lines -->
-                <g stroke="#e8eee7" stroke-width="1">
-                    <line x1="45" y1="25" x2="680" y2="25"/>
-                    <line x1="45" y1="65" x2="680" y2="65"/>
-                    <line x1="45" y1="105" x2="680" y2="105"/>
-                    <line x1="45" y1="145" x2="680" y2="145"/>
-                    <line x1="45" y1="175" x2="680" y2="175"/>
-                </g>
-
-                <!-- Y Labels -->
-                <g class="chart-label">
-                    <text x="8" y="29">4k</text>
-                    <text x="8" y="69">3k</text>
-                    <text x="8" y="109">2k</text>
-                    <text x="8" y="149">1k</text>
-                    <text x="17" y="179">0</text>
-                </g>
-
-                <!-- Sales Area -->
-                <path d="M55 125 C120 118 145 80 250 78 S365 65 430 50 S560 45 665 48 L665 175 L55 175 Z"
-                      fill="url(#salesFill)"/>
-
-                <!-- Inventory Area -->
-                <path d="M55 150 C125 142 170 130 250 126 S360 110 430 102 S560 92 665 87 L665 175 L55 175 Z"
-                      fill="url(#stockFill)"/>
-
-                <!-- Lines -->
-                <path d="M55 125 C120 118 145 80 250 78 S365 65 430 50 S560 45 665 48"
-                      fill="none" stroke="#168047" stroke-width="3"/>
-
-                <path d="M55 150 C125 142 170 130 250 126 S360 110 430 102 S560 92 665 87"
-                      fill="none" stroke="#a6ce91" stroke-width="3"/>
-
-                <!-- Data Points -->
-                <g fill="#168047" stroke="#fff" stroke-width="2">
-                    <circle cx="55" cy="125" r="5"/>
-                    <circle cx="250" cy="78" r="5"/>
-                    <circle cx="430" cy="50" r="5"/>
-                    <circle cx="665" cy="48" r="5"/>
-                </g>
-
-                <g fill="#a6ce91" stroke="#fff" stroke-width="2">
-                    <circle cx="55" cy="150" r="5"/>
-                    <circle cx="250" cy="126" r="5"/>
-                    <circle cx="430" cy="102" r="5"/>
-                    <circle cx="665" cy="87" r="5"/>
-                </g>
-
-                <!-- X Labels -->
-                <g class="chart-label" text-anchor="middle">
-                    <text x="55" y="198">Week 1</text>
-                    <text x="250" y="198">Week 2</text>
-                    <text x="430" y="198">Week 3</text>
-                    <text x="665" y="198">Week 4</text>
-                </g>
-
+            <p class="supplier-chart-note" id="dashboardChartNote">Sample loose-stem on-hand quantities. Bouquets and sales amounts are excluded.</p>
+            <svg id="dashboardStockChart" class="inventory-chart" viewBox="0 0 700 205"
+                 xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="dashboardChartTitle dashboardChartDescription">
+                 <title id="dashboardChartTitle">Sample loose-stem inventory</title>
+                 <desc id="dashboardChartDescription">Loading sample chart.</desc>
+                 <g id="dashboardChartContent"></g>
             </svg>
+
 
         </div>
 
@@ -173,22 +103,22 @@
 
             <div class="quick-actions">
 
-                <a href="#" class="quick-action">
+                <a href="{{ route('supplier.flowers', ['create' => 1]) }}" class="quick-action">
                     <span><i class="bi bi-plus-circle"></i></span>
                     <strong>Add Flower</strong>
                 </a>
 
-                <a href="#" class="quick-action">
+                <a href="{{ route('supplier.orders', ['create' => 1]) }}" class="quick-action">
                     <span><i class="bi bi-cart-plus"></i></span>
-                    <strong>New Sale</strong>
+                    <strong>New Order</strong>
                 </a>
 
-                <a href="#" class="quick-action">
+                <a href="{{ route('supplier.reports') }}" class="quick-action">
                     <span><i class="bi bi-file-earmark-bar-graph"></i></span>
                     <strong>View Reports</strong>
                 </a>
 
-                <a href="#" class="quick-action">
+                <a href="{{ route('supplier.clients') }}" class="quick-action">
                     <span><i class="bi bi-people"></i></span>
                     <strong>Manage Clients</strong>
                 </a>
@@ -210,7 +140,7 @@
                     <i class="bi bi-trophy"></i> Top Selling Products
                 </h4>
 
-                <a href="#" class="panel-link">View All →</a>
+                <a href="{{ route('supplier.sales-payments') }}" class="panel-link">View All →</a>
             </div>
 
             <div class="product-row">
@@ -244,7 +174,7 @@
                     <i class="bi bi-activity"></i> Recent Activities
                 </h4>
 
-                <a href="#" class="panel-link">View All →</a>
+                <a href="{{ route('supplier.audit-trail') }}" class="panel-link">View All →</a>
             </div>
 
             <div class="activity-row">
@@ -289,7 +219,7 @@
 
             <p>Manage your flowers and grow your business with FlowerTrack.</p>
 
-            <a href="#" class="promo-button">
+            <a href="{{ route('supplier.inventory') }}" class="promo-button">
                 View Inventory →
             </a>
 
@@ -298,3 +228,4 @@
     </section>
 
 @endsection
+
