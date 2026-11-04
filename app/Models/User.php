@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -17,16 +16,38 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
+    public const ROLE_ADMIN = 'admin';
+    public const ROLE_SUPPLIER = 'supplier';
+    public const ROLE_DELIVERY = 'delivery';
+    public const ROLE_CLIENT = 'client';
+
     protected function casts(): array
     {
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_active' => 'boolean',
+            'must_change_password' => 'boolean',
         ];
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === self::ROLE_ADMIN;
+    }
+
+    public function isSupplier(): bool
+    {
+        return $this->role === self::ROLE_SUPPLIER;
+    }
+
+    public function isDeliveryPersonnel(): bool
+    {
+        return $this->role === self::ROLE_DELIVERY;
+    }
+
+    public function isClient(): bool
+    {
+        return $this->role === self::ROLE_CLIENT;
     }
 }

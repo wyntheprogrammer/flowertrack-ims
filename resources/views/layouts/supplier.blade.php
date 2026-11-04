@@ -71,6 +71,15 @@
                 </div>
             </div>
 
+            <form method="POST" action="{{ route('logout') }}" class="mt-3">
+                @csrf
+
+                <button type="submit" class="btn btn-outline-light w-100">
+                    <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+                    Sign Out
+                </button>
+            </form>
+
         </aside>
 
         <!-- Main Area -->
@@ -82,8 +91,8 @@
                 <div class="navbar-left">
 
 
-                    <button class="navbar-menu" type="button" id="supplierMenuToggle"
-                            aria-controls="supplierSidebar" aria-expanded="true" aria-label="Toggle navigation">
+                    <button class="navbar-menu" type="button" id="supplierMenuToggle" aria-controls="supplierSidebar"
+                        aria-expanded="true" aria-label="Toggle navigation">
                         <i class="bi bi-list" aria-hidden="true"></i>
                     </button>
 
@@ -98,12 +107,13 @@
 
                     <div class="supplier-notifications">
                         <button class="navbar-icon" type="button" id="supplierNotificationToggle"
-                                aria-controls="supplierNotificationPanel" aria-expanded="false"
-                                aria-label="Show sample notifications">
+                            aria-controls="supplierNotificationPanel" aria-expanded="false"
+                            aria-label="Show sample notifications">
                             <i class="bi bi-bell" aria-hidden="true"></i>
                             <span class="notification-count">2</span>
                         </button>
-                        <section id="supplierNotificationPanel" class="supplier-notification-panel" aria-labelledby="supplierNotificationHeading" hidden>
+                        <section id="supplierNotificationPanel" class="supplier-notification-panel"
+                            aria-labelledby="supplierNotificationHeading" hidden>
                             <h2 id="supplierNotificationHeading">Notifications <small>Sample</small></h2>
                             <a href="{{ route('supplier.inventory') }}">Review sample low-stock items</a>
                             <a href="{{ route('supplier.orders') }}">Review sample pending orders</a>

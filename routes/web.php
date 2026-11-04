@@ -1,59 +1,84 @@
 <?php
 
+use App\Http\Controllers\AuthController;
 use Illuminate\Support\Facades\Route;
 
-// Home Page
+// Public home
 Route::view('/', 'welcome');
 
-// Supplier / Admin UI
-Route::prefix('supplier')->name('supplier.')->group(function () {
+// Login
+Route::get('/login', [AuthController::class, 'showLogin'])
+    ->name('login');
 
-    // Completed UI modules
-    Route::view('/dashboard', 'supplier.dashboard')
-        ->name('dashboard');
+Route::post('/login', [AuthController::class, 'login'])
+    ->middleware('guest')
+    ->name('login.store');
 
-    Route::view('/flowers', 'supplier.flowers')
-        ->name('flowers');
+// Signed-in accounts
+Route::middleware('auth')->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout'])
+        ->name('logout');
 
-    Route::view('/inventory', 'supplier.inventory')
-        ->name('inventory');
+    Route::middleware('account.active')->group(function () {
+        // These routes must remain accessible while a password change is required.
+        Route::get('/change-password', [
+            AuthController::class,
+            'showChangePassword',
+        ])->name('password.change');
 
-    Route::view('/batches', 'supplier.batches')
-        ->name('batches');
+        Route::put('/change-password', [
+            AuthController::class,
+            'updatePassword',
+        ])
+            ->middleware('throttle:5,1')
+            ->name('password.update');
 
-    Route::view('/spoilage-prediction', 'supplier.spoilage-prediction')
-        ->name('spoilage-prediction');
+        // Supplier/Admin operational screens
+        Route::prefix('supplier')
+            ->name('supplier.')
+            ->middleware([
+                'password.changed',
+                'role:admin,supplier',
+            ])
+            ->group(function () {
+                Route::view('/dashboard', 'supplier.dashboard')
+                    ->name('dashboard');
 
-    Route::view('/clients', 'supplier.clients')
-        ->name('clients');
+                Route::view('/flowers', 'supplier.flowers')
+                    ->name('flowers');
 
-    Route::view('/orders', 'supplier.orders')
-        ->name('orders');
+                Route::view('/inventory', 'supplier.inventory')
+                    ->name('inventory');
 
-    Route::view('/deliveries', 'supplier.deliveries')
-        ->name('deliveries');
+                Route::view('/batches', 'supplier.batches')
+                    ->name('batches');
 
-    Route::view('/sales-payments', 'supplier.sales-payments')
-        ->name('sales-payments');
+                Route::view('/spoilage-prediction', 'supplier.spoilage-prediction')
+                    ->name('spoilage-prediction');
 
-    Route::view('/reports', 'supplier.reports')
-        ->name('reports');
+                Route::view('/clients', 'supplier.clients')
+                    ->name('clients');
 
-    Route::view('/users', 'supplier.users')
-        ->name('users');
+                Route::view('/orders', 'supplier.orders')
+                    ->name('orders');
 
-    Route::view('/audit-trail', 'supplier.audit-trail')
-        ->name('audit-trail');
+                Route::view('/deliveries', 'supplier.deliveries')
+                    ->name('deliveries');
 
-    // Upcoming modules
-    $upcomingModules = [
-        
-    ];
+                Route::view('/sales-payments', 'supplier.sales-payments')
+                    ->name('sales-payments');
 
-    foreach ($upcomingModules as $path => $title) {
-        Route::view('/' . $path, 'supplier.module-placeholder', [
-            'moduleTitle' => $title,
-        ])->name($path);
-    }
+                // Admin-only screens
+                Route::middleware('role:admin')->group(function () {
+                    Route::view('/reports', 'supplier.reports')
+                        ->name('reports');
 
+                    Route::view('/users', 'supplier.users')
+                        ->name('users');
+
+                    Route::view('/audit-trail', 'supplier.audit-trail')
+                        ->name('audit-trail');
+                });
+            });
+    });
 });
