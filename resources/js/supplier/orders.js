@@ -179,7 +179,7 @@ const initialOrders = [
         status: 'Ready for Pickup',
         flowerId: 'FLW-005',
         quantity: 5,
-        stockedOut: true,
+        stockedOut: false,
         payment: 'Paid',
         paid: 550,
     }),
@@ -230,7 +230,7 @@ class OrderManagementUI {
 
     hasReservation(order) {
         return !order.stockedOut
-            && ['Confirmed', 'Processing', 'Ready for Delivery', 'Out for Delivery']
+            && ['Confirmed', 'Processing', 'Ready for Delivery', 'Ready for Pickup', 'Out for Delivery']
                 .includes(order.status);
     }
 
@@ -807,7 +807,7 @@ class OrderManagementUI {
         }
 
         if (next === 'Ready for Pickup' && !cancelling) {
-            message += ' This simulates the pickup Stock-Out trigger once. Actual FIFO and Inventory movements are not connected.';
+            message += ' Stock stays reserved while awaiting collection. No on-hand deduction occurs at this stage.';
         }
 
         if (next === 'Ready for Delivery' && !cancelling) {
@@ -815,7 +815,7 @@ class OrderManagementUI {
         }
 
         if (next === 'Completed' && !cancelling) {
-            message += ' Confirm the client has collected the order. No additional stock deduction or real Sales Record is created here.';
+            message += ' Confirm the customer has actually collected the order. This simulates pickup Stock-Out once and consumes its reservation. Actual Inventory/FIFO and Sales integration are not connected.';
         }
 
         this.el('orderActionMessage').textContent = message;
@@ -858,7 +858,7 @@ class OrderManagementUI {
             const next = this.nextStatus(order);
             if (!next) return;
 
-            if (next === 'Confirmed' || next === 'Ready for Pickup') {
+            if (next === 'Confirmed' || (next === 'Completed' && order.method === 'Customer Pickup')) {
                 const stockError = this.allocationError(order.items, order.id);
 
                 if (stockError) {
@@ -867,7 +867,7 @@ class OrderManagementUI {
                 }
             }
 
-            if (next === 'Ready for Pickup' && !order.stockedOut) {
+            if (next === 'Completed' && order.method === 'Customer Pickup' && !order.stockedOut) {
                 // Sample aggregate deduction only; real FIFO is Inventory-owned.
                 order.items.forEach((item) => {
                     this.stock.set(
@@ -1035,3 +1035,4 @@ if (document.readyState === 'loading') {
 } else {
     initializeOrderManagement();
 }
+

@@ -91,6 +91,14 @@ class InventoryModel {
                 method: 'Pickup',
                 status: 'Ready for Pickup',
                 stockedOut: false
+            },
+            {
+                id: 'ORD-004',
+                flower: 'FLW-004',
+                quantity: 10,
+                method: 'Pickup',
+                status: 'Completed',
+                stockedOut: false
             }
         ];
 
@@ -188,7 +196,7 @@ class InventoryModel {
     eligibleOrder(order) {
         return order && !order.stockedOut && (
             (order.method === 'Delivery' && order.status === 'Delivered') ||
-            (order.method === 'Pickup' && order.status === 'Ready for Pickup')
+            (order.method === 'Pickup' && order.status === 'Completed')
         );
     }
 
@@ -369,7 +377,7 @@ class InventoryModel {
             )
         ) {
             throw new Error(
-                'Select an eligible Delivered / Ready for Pickup order and issue its full quantity.'
+                'Select an eligible Delivered / collected Completed pickup order and issue its full quantity.'
             );
         }
 
