@@ -9,3 +9,4 @@ import './supplier/clients';
 import './supplier/orders';
 import './supplier/deliveries';
 import './supplier/sales-payments';
+import './supplier/reports';
