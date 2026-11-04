@@ -150,8 +150,8 @@ const initialOrders = [
         status: 'Confirmed',
         flowerId: 'FLW-002',
         quantity: 15,
-        payment: 'Partially Paid',
-        paid: 500,
+        payment: 'Paid',
+        paid: 975,
     }),
     sampleOrder({
         id: 'ORD-003',

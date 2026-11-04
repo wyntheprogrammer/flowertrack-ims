@@ -159,7 +159,7 @@ const initialPayments = [
         orderId: 'ORD-003',
         method: 'E-wallet',
         reference: 'SAMPLE-WALLET-001',
-        amount: 30000,
+        amount: 100000,
         status: 'Confirmed',
         date: daysAgo(0),
         confirmedAt: daysAgo(0),
@@ -169,7 +169,7 @@ const initialPayments = [
         orderId: 'ORD-004',
         method: 'Bank Transfer',
         reference: 'SAMPLE-BANK-002',
-        amount: 20000,
+        amount: 95000,
         status: 'Pending',
         date: daysAgo(0),
         confirmedAt: null,
@@ -239,7 +239,14 @@ class SalesPaymentsUI {
         const paid = this.confirmedPaid(order.id);
 
         if (!paid) return 'Unpaid';
-        return paid >= this.orderTotal(order) ? 'Paid' : 'Partially Paid';
+        return paid === this.orderTotal(order) ? 'Paid' : 'Unpaid';
+    }
+
+    eligibleForPayment(order) {
+        return Boolean(order)
+            && order.status !== 'Cancelled'
+            && this.refunded(order.id) === 0
+            && !this.payments.some((payment) => payment.orderId === order.id);
     }
 
     nextId(records, prefix) {
@@ -574,16 +581,10 @@ class SalesPaymentsUI {
         }
 
         if (type === 'payment') {
-            const eligible = this.orders.filter((order) =>
-                order.status !== 'Cancelled'
-                && this.refunded(order.id) === 0
-                && this.orderTotal(order)
-                    - this.confirmedPaid(order.id)
-                    - this.pendingPaid(order.id) > 0,
-            );
+            const eligible = this.orders.filter((order) => this.eligibleForPayment(order));
 
             if (!eligible.length) {
-                this.announce('No sample orders currently need another payment.');
+                this.announce('No unpaid sample orders are eligible for a full payment.');
                 return;
             }
 
@@ -612,8 +613,8 @@ class SalesPaymentsUI {
                 )}
 
                 ${this.field(
-                    '<label for="financeAmount">Amount *</label>',
-                    '<input type="number" id="financeAmount" min="0.01" max="9999999.99" step="0.01" required>',
+                    '<label for="financeAmount">Full Order Amount *</label>',
+                    '<input type="number" id="financeAmount" step="0.01" readonly required>',
                 )}
 
                 <div class="sales-field" id="financeReferenceField" hidden>
@@ -622,8 +623,8 @@ class SalesPaymentsUI {
                 </div>
 
                 <p class="sales-help">
-                    Recording creates a Pending payment. Confirm it after checking
-                    the actual receipt, transfer or cash collection.
+                    One full payment per order. The amount is fixed to the complete order total.
+                    Recording creates Pending verification; only confirmation marks the order Paid.
                 </p>
             `;
         }
@@ -711,14 +712,9 @@ class SalesPaymentsUI {
         const order = this.order(this.el('financeOrder').value);
         if (!order) return;
 
-        const balance = Math.max(0, this.orderTotal(order) - this.confirmedPaid(order.id));
-        const pending = this.pendingPaid(order.id);
-
+        this.el('financeAmount').value = (this.orderTotal(order) / 100).toFixed(2);
         this.el('financeOrderHelp').textContent =
-            `Order total: ${money(this.orderTotal(order))}. `
-            + `Outstanding before refunds: ${money(balance)}. `
-            + `Pending payments: ${money(pending)}. `
-            + `Maximum new payment: ${money(Math.max(0, balance - pending))}.`;
+            `Full payment required: ${money(this.orderTotal(order))}. No installments or additional payments.`;
     }
 
     saveAction() {
@@ -764,7 +760,7 @@ class SalesPaymentsUI {
                 ? ''
                 : this.el('financeReference').value.trim();
 
-            if (!order || order.status === 'Cancelled' || this.refunded(order.id) > 0) {
+            if (!this.eligibleForPayment(order)) {
                 this.error('This order is not eligible for a new payment in this preview.');
                 return;
             }
@@ -787,12 +783,8 @@ class SalesPaymentsUI {
                 return;
             }
 
-            const remaining = this.orderTotal(order)
-                - this.confirmedPaid(order.id)
-                - this.pendingPaid(order.id);
-
-            if (amount > remaining) {
-                this.error(`Amount exceeds the remaining unrecorded balance of ${money(Math.max(0, remaining))}.`);
+            if (amount !== this.orderTotal(order)) {
+                this.error(`Pay the full order total of ${money(this.orderTotal(order))} in one transaction.`);
                 return;
             }
 
@@ -823,8 +815,9 @@ class SalesPaymentsUI {
                 return;
             }
 
-            if (this.confirmedPaid(order.id) + payment.amount > this.orderTotal(order)) {
-                this.error('Confirmation would exceed the order total.');
+            if (payment.amount !== this.orderTotal(order)
+                || this.payments.some((item) => item.orderId === order.id && item.id !== payment.id)) {
+                this.error('Exactly one payment matching the full order total is required.');
                 return;
             }
 
