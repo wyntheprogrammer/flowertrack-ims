@@ -80,7 +80,9 @@ const initialPrices = [
     { id: 'FLW-004', name: 'Pink Tulip', category: 'Tulips', price: 9500, updated: daysAgo(2) },
     { id: 'FLW-005', name: 'White Lily', category: 'Lilies', price: 11000, updated: daysAgo(1) },
     { id: 'FLW-006', name: 'Pink Carnation', category: 'Carnations', price: 4500, updated: daysAgo(1) },
-];
+    { id: 'FLW-009', name: 'Classic Rose Bouquet', category: 'Roses', price: 120000, updated: daysAgo(0), itemType: 'Bouquet' },
+    { id: 'FLW-010', name: 'Mixed Flower Bouquet', category: 'Mixed Flowers', price: 150000, updated: daysAgo(0), itemType: 'Bouquet' },
+].map((item) => ({ ...item, itemType: item.itemType || 'Stem', baseUnit: item.itemType || 'Stem' }));
 
 const initialOrders = [
     {
@@ -175,6 +177,23 @@ const initialPayments = [
         confirmedAt: null,
     },
 ];
+
+initialOrders.push({
+    id: 'ORD-007', client: 'Maria Santos', status: 'Completed', completedAt: daysAgo(0),
+    deliveryFee: 15000,
+    items: [
+        { flowerId: 'FLW-001', name: 'Red Rose', quantity: 5, price: 6000 },
+        { flowerId: 'FLW-009', name: 'Classic Rose Bouquet', quantity: 1, price: 120000 },
+    ],
+});
+initialOrders.forEach((order) => {
+    order.items = order.items.map((item) => {
+        const product = initialPrices.find((entry) => entry.id === item.flowerId);
+        return { ...item, itemType: product.itemType, baseUnit: product.baseUnit };
+    });
+});
+initialPayments.push({ id: 'PAY-005', orderId: 'ORD-007', method: 'Cash', reference: '',
+    amount: 165000, status: 'Confirmed', date: daysAgo(0), confirmedAt: daysAgo(0) });
 
 class SalesPaymentsUI {
     constructor() {
@@ -309,7 +328,7 @@ class SalesPaymentsUI {
                 data: 'name',
                 width: '30%',
                 render: (value, type, row) =>
-                    type === 'display' ? cell(value, row.id) : `${value} ${row.id}`,
+                    type === 'display' ? cell(value, `${row.id} · ${row.baseUnit}`) : `${value} ${row.id} ${row.baseUnit}`,
             },
             {
                 data: 'category',
@@ -573,7 +592,7 @@ class SalesPaymentsUI {
                     and Sales Record prices remain unchanged.
                 </p>
                 ${this.field(
-                    '<label for="financeAmount">Selling Price / Stem *</label>',
+                    `<label for="financeAmount">Selling Price / ${escapeHtml(flower.baseUnit)} *</label>`,
                     `<input type="number" id="financeAmount" min="0.01" max="9999999.99"
                         step="0.01" value="${(flower.price / 100).toFixed(2)}" required>`,
                 )}
@@ -910,17 +929,28 @@ class SalesPaymentsUI {
 
         this.sales.forEach((sale) => {
             sale.items.forEach((item) => {
-                quantities.set(item.name, (quantities.get(item.name) || 0) + item.quantity);
+                const key = `${item.baseUnit}|${item.name}`;
+                quantities.set(key, (quantities.get(key) || 0) + item.quantity);
             });
 
             const key = dateKey(sale.date);
             dates.set(key, (dates.get(key) || 0) + net(sale));
         });
 
-        const top = [...quantities].sort((a, b) => b[1] - a[1]).slice(0, 5);
         const trend = [...dates].sort((a, b) => a[0].localeCompare(b[0]));
-
-        this.renderBars('salesTopFlowers', top, (value) => `${value} stems`);
+        // Rank quantities within each unit; do not compare stems to bouquets.
+        this.el('salesTopFlowers').innerHTML = ['Stem', 'Bouquet'].map((unit) => {
+            const values = [...quantities].filter(([key]) => key.startsWith(`${unit}|`))
+                .sort((a, b) => b[1] - a[1]).slice(0, 5);
+            const maximum = Math.max(1, ...values.map(([, value]) => value));
+            return `<h3 class="sales-section-title">${unit === 'Stem' ? 'Loose Stems' : 'Finished Bouquets'}</h3>`
+                + (values.length ? values.map(([key, value]) => `
+                    <div class="sales-bar-row">
+                        <div class="sales-bar-label"><span>${escapeHtml(key.split('|').slice(1).join('|'))}</span>
+                        <strong>${value} ${unit === 'Stem' ? 'stems' : 'bouquets'}</strong></div>
+                        <div class="sales-bar-track" aria-hidden="true"><div class="sales-bar-fill" style="width:${value / maximum * 100}%"></div></div>
+                    </div>`).join('') : '<p class="sales-help">No completed sales for this unit.</p>');
+        }).join('');
         this.renderBars('salesTrend', trend, money);
     }
 
@@ -979,7 +1009,7 @@ class SalesPaymentsUI {
                     <thead>
                         <tr>
                             <th scope="col">Flower</th>
-                            <th scope="col">Stems</th>
+                            <th scope="col">Quantity / Unit</th>
                             <th scope="col">Unit Price</th>
                             <th scope="col">Subtotal</th>
                         </tr>
@@ -988,7 +1018,7 @@ class SalesPaymentsUI {
                         ${order.items.map((item) => `
                             <tr>
                                 <td>${escapeHtml(item.name)}</td>
-                                <td>${item.quantity}</td>
+                                <td>${item.quantity} ${escapeHtml(item.baseUnit)}</td>
                                 <td class="sales-money">${money(item.price)}</td>
                                 <td class="sales-money">${money(item.price * item.quantity)}</td>
                             </tr>
@@ -1080,3 +1110,4 @@ if (document.readyState === 'loading') {
 } else {
     initializeSalesPayments();
 }
+

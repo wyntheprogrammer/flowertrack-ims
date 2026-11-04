@@ -142,7 +142,7 @@
                         <div id="orderItemList" class="order-item-list"></div>
 
                         <p class="order-help">
-                            Quantities are in stems. Prices are sample selling-price
+                            Quantities follow each item’s Stem or Bouquet unit. Prices are sample selling-price
                             snapshots and cannot be edited here.
                         </p>
 

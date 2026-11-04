@@ -111,7 +111,7 @@
                             <tr>
                                 <th scope="col">Flower Details</th>
                                 <th scope="col">Category</th>
-                                <th scope="col">Price / Stem</th>
+                                <th scope="col">Price / Unit</th>
                                 <th scope="col">Updated</th>
                                 <th scope="col">Actions</th>
                             </tr>
@@ -222,8 +222,8 @@
 
         <div class="sales-insights">
             <div class="sales-card sales-insight-card">
-                <h2>Top Selling Flowers</h2>
-                <p>Completed-order quantities, before refund adjustments.</p>
+                <h2>Top Selling Items</h2>
+                <p>Completed-order quantities grouped by Stem and Bouquet, before refund adjustments.</p>
                 <div id="salesTopFlowers"></div>
             </div>
 

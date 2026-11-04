@@ -89,7 +89,9 @@ const flowers = [
     { id: 'FLW-003', name: 'Sunflower', price: 85, onHand: 100 },
     { id: 'FLW-004', name: 'Pink Tulip', price: 95, onHand: 80 },
     { id: 'FLW-005', name: 'White Lily', price: 110, onHand: 60 },
-];
+    { id: 'FLW-009', name: 'Classic Rose Bouquet', price: 1200, onHand: 10, itemType: 'Bouquet' },
+    { id: 'FLW-010', name: 'Mixed Flower Bouquet', price: 1500, onHand: 8, itemType: 'Bouquet' },
+].map((item) => ({ ...item, itemType: item.itemType || 'Stem', baseUnit: item.itemType || 'Stem' }));
 
 function sampleOrder({
     id,
@@ -124,6 +126,8 @@ function sampleOrder({
             flowerName: flower.name,
             quantity,
             unitPrice: flower.price,
+            itemType: flower.itemType,
+            baseUnit: flower.baseUnit,
         }],
         history: [{
             status,
@@ -196,6 +200,15 @@ const initialOrders = [
     }),
 ];
 
+
+const mixedSample = sampleOrder({
+    id: 'ORD-007', clientId: 'CLI-001', date: today(), method: 'Delivery',
+    status: 'Pending', flowerId: 'FLW-001', quantity: 5,
+});
+mixedSample.items.push({ flowerId: 'FLW-009', flowerName: 'Classic Rose Bouquet',
+    quantity: 1, unitPrice: 1200, itemType: 'Bouquet', baseUnit: 'Bouquet' });
+initialOrders.push(mixedSample);
+
 class OrderManagementUI {
     constructor(element) {
         this.element = element;
@@ -264,7 +277,7 @@ class OrderManagementUI {
             if (required > available) {
                 const flower = flowers.find((item) => item.id === flowerId);
 
-                return `${flower.name}: ${required} stems requested, but only ${available} available after sample reservations.`;
+                return `${flower.name}: ${required} ${flower.baseUnit.toLowerCase()} units requested, but only ${available} available after sample reservations.`;
             }
         }
 
@@ -446,7 +459,10 @@ class OrderManagementUI {
                     (item) => item.id === event.target.value,
                 );
 
-                row.dataset.unitPrice = String(flower?.price || 0);
+                const existing = this.orders.find((order) => order.id === this.el('orderEditingId').value);
+                const snapshot = existing?.items.find((item) => item.flowerId === flower?.id);
+                row.dataset.unitPrice = String(snapshot?.unitPrice ?? flower?.price ?? 0);
+                row.querySelector('[data-quantity-label]').textContent = `Quantity (${flower?.baseUnit || 'units'}) *`;
             }
 
             this.updateTotals();
@@ -562,14 +578,14 @@ class OrderManagementUI {
                             value="${escapeHtml(flower.id)}"
                             ${flower.id === item?.flowerId ? 'selected' : ''}
                         >
-                            ${escapeHtml(flower.name)} · ${money(flower.price)}
+                            ${escapeHtml(flower.name)} · ${flower.baseUnit} · ${money(item?.flowerId === flower.id ? item.unitPrice : flower.price)} / ${flower.baseUnit}
                         </option>
                     `).join('')}
                 </select>
             </div>
 
             <div class="order-field">
-                <label for="orderQuantity${sequence}">Stems *</label>
+                <label for="orderQuantity${sequence}" data-quantity-label>Quantity (${item?.baseUnit || 'units'}) *</label>
                 <input
                     type="number"
                     id="orderQuantity${sequence}"
@@ -612,6 +628,8 @@ class OrderManagementUI {
                 return {
                     flowerId: flower?.id || '',
                     flowerName: flower?.name || '',
+                    itemType: flower?.itemType || '',
+                    baseUnit: flower?.baseUnit || '',
                     quantity: Number(row.querySelector('[data-quantity]').value),
                     unitPrice: Number(row.dataset.unitPrice),
                 };
@@ -724,7 +742,11 @@ class OrderManagementUI {
                     (entry) => entry.flowerId === item.flowerId,
                 );
 
-                if (original) item.unitPrice = original.unitPrice;
+                if (original) {
+                    item.unitPrice = original.unitPrice;
+                    item.itemType = original.itemType;
+                    item.baseUnit = original.baseUnit;
+                }
             }
         }
 
@@ -973,7 +995,7 @@ class OrderManagementUI {
                     <thead>
                         <tr>
                             <th scope="col">Flower</th>
-                            <th scope="col">Stems</th>
+                            <th scope="col">Quantity / Unit</th>
                             <th scope="col">Unit Price</th>
                             <th scope="col">Subtotal</th>
                         </tr>
@@ -982,7 +1004,7 @@ class OrderManagementUI {
                         ${order.items.map((item) => `
                             <tr>
                                 <td>${escapeHtml(item.flowerName)}</td>
-                                <td>${item.quantity}</td>
+                                <td>${item.quantity} ${escapeHtml(item.baseUnit)}</td>
                                 <td>${money(item.unitPrice)}</td>
                                 <td>${money(item.quantity * item.unitPrice)}</td>
                             </tr>
@@ -1035,4 +1057,5 @@ if (document.readyState === 'loading') {
 } else {
     initializeOrderManagement();
 }
+
 
