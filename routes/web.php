@@ -42,9 +42,12 @@ Route::prefix('supplier')->name('supplier.')->group(function () {
     Route::view('/users', 'supplier.users')
         ->name('users');
 
+    Route::view('/audit-trail', 'supplier.audit-trail')
+        ->name('audit-trail');
+
     // Upcoming modules
     $upcomingModules = [
-        'audit-trail' => 'Audit Trail',
+        
     ];
 
     foreach ($upcomingModules as $path => $title) {

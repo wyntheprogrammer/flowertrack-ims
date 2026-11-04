@@ -1,0 +1,148 @@
+/* Shared page/table/export styles come from the existing reports.css import. */
+.audit-view-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: #edf3fb;
+    color: #6383aa;
+    font-size: 14px;
+    cursor: pointer
+}
+
+.audit-result {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 600;
+    background: #eaf5ed;
+    color: #4e9365
+}
+
+.audit-result.failed {
+    background: #fbecef;
+    color: #bb4355
+}
+
+.audit-modal {
+    overflow: hidden;
+    border: 1px solid #eee7f1;
+    border-radius: 15px;
+    box-shadow: 0 15px 45px rgb(38 25 48 / 12%)
+}
+
+.audit-modal .modal-header {
+    padding: 22px 24px;
+    border-bottom: 1px solid #eee8f1
+}
+
+.audit-modal .modal-title {
+    font-size: 19px;
+    font-weight: 700;
+    color: #40344b
+}
+
+.audit-modal .modal-body {
+    padding: 23px 24px
+}
+
+.audit-modal .modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid #eee8f1
+}
+
+.audit-close {
+    min-height: 42px;
+    padding: 10px 17px;
+    border: 1px solid #e4dce9;
+    border-radius: 9px;
+    background: #fff;
+    color: #6f607b;
+    font-size: 13px;
+    font-weight: 600
+}
+
+.audit-details {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    margin: 0
+}
+
+.audit-details dt {
+    margin-bottom: 5px;
+    color: #93879b;
+    font-size: 10px;
+    text-transform: uppercase
+}
+
+.audit-details dd {
+    margin: 0;
+    color: #51465d;
+    font-size: 12px;
+    line-height: 1.7;
+    overflow-wrap: anywhere
+}
+
+.audit-full {
+    grid-column: 1/-1
+}
+
+.audit-modal h6 {
+    margin: 24px 0 14px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #40344b
+}
+
+.audit-changes {
+    overflow-x: auto;
+    border: 1px solid #e9e2ed;
+    border-radius: 10px
+}
+
+.audit-changes table {
+    width: 100%;
+    min-width: 500px;
+    border-collapse: collapse
+}
+
+.audit-changes th {
+    padding: 13px 15px;
+    background: #eee7f3;
+    color: #604d70;
+    font-size: 11px
+}
+
+.audit-changes td {
+    padding: 13px 15px;
+    border-top: 1px solid #eee9f1;
+    color: #554b5e;
+    font-size: 12px;
+    vertical-align: top;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere
+}
+
+.audit-modal button:focus-visible,
+.audit-view-btn:focus-visible {
+    outline: 2px solid var(--supplier-primary, #196c3d);
+    outline-offset: 3px
+}
+
+@media(max-width:600px) {
+    .audit-details {
+        grid-template-columns: minmax(0, 1fr)
+    }
+
+    .audit-modal .modal-header,
+    .audit-modal .modal-body,
+    .audit-modal .modal-footer {
+        padding-left: 17px;
+        padding-right: 17px
+    }
+}

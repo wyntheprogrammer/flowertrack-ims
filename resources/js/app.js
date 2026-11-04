@@ -11,3 +11,4 @@ import './supplier/deliveries';
 import './supplier/sales-payments';
 import './supplier/reports';
 import './supplier/users';
+import './supplier/audit-trail';
