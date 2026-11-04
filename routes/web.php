@@ -30,9 +30,11 @@ Route::prefix('supplier')->name('supplier.')->group(function () {
     Route::view('/orders', 'supplier.orders')
         ->name('orders');
 
+    Route::view('/deliveries', 'supplier.deliveries')
+        ->name('deliveries');
+
     // Upcoming modules
     $upcomingModules = [
-        'deliveries' => 'Delivery Management',
         'sales-payments' => 'Sales & Payments',
         'reports' => 'Reports',
         'users' => 'User Management',

@@ -7,3 +7,4 @@ import './supplier/batches';
 import './supplier/spoilage-prediction';
 import './supplier/clients';
 import './supplier/orders';
+import './supplier/deliveries';
