@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Supplier\FlowerController;
+use App\Http\Controllers\Supplier\InventoryController;
 
 // Public home
 Route::view('/', 'welcome');
@@ -46,7 +47,7 @@ Route::middleware('auth')->group(function () {
                     ->name('dashboard');
 
 
-                    
+
                 Route::get('/flowers', [FlowerController::class, 'index'])
                     ->name('flowers');
 
@@ -66,8 +67,27 @@ Route::middleware('auth')->group(function () {
 
 
 
-                Route::view('/inventory', 'supplier.inventory')
+                Route::get('/inventory', [InventoryController::class, 'index'])
                     ->name('inventory');
+
+                Route::get('/inventory/data', [InventoryController::class, 'data'])
+                    ->name('inventory.data');
+
+                Route::post('/inventory/stock-in', [InventoryController::class, 'stockIn'])
+                    ->name('inventory.stock-in');
+
+                Route::post('/inventory/stock-out', [InventoryController::class, 'stockOut'])
+                    ->name('inventory.stock-out');
+
+                Route::post('/inventory/batches/{batch}/receipt', [InventoryController::class, 'correctReceipt'])
+                    ->whereNumber('batch')
+                    ->name('inventory.correct-receipt');
+
+                Route::post('/inventory/flowers/{flower}/units', [InventoryController::class, 'updateUnits'])
+                    ->whereNumber('flower')
+                    ->name('inventory.units');
+
+
 
                 Route::view('/batches', 'supplier.batches')
                     ->name('batches');

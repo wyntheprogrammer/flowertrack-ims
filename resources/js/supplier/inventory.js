@@ -2,6 +2,10 @@ import { Modal } from 'bootstrap';
 import DataTable from 'datatables.net-bs5';
 import 'datatables.net-bs5/css/dataTables.bootstrap5.css';
 
+/* ==================================================
+   SHARED TEXT, NUMBER AND LOCAL-DATE HELPERS
+================================================== */
+
 const escapeHTML = (value) => String(value ?? '').replace(
     /[&<>"']/g,
     (character) => ({
@@ -16,440 +20,146 @@ const escapeHTML = (value) => String(value ?? '').replace(
 const number = (value) => Number(value).toLocaleString();
 
 const today = () => {
-    const date = new Date();
-
-    return [
-        date.getFullYear(),
-        String(date.getMonth() + 1).padStart(2, '0'),
-        String(date.getDate()).padStart(2, '0')
-    ].join('-');
+    const parts = Object.fromEntries(
+        new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(new Date()).map(({ type, value }) => [type, value])
+    );
+    return `${parts.year}-${parts.month}-${parts.day}`;
 };
 
-const timestamp = () =>
-    `${today()} ${new Date().toTimeString().slice(0, 8)}`;
-
-const daysAgo = (days) => {
-    const date = new Date();
-    date.setDate(date.getDate() - days);
-
-    return [
-        date.getFullYear(),
-        String(date.getMonth() + 1).padStart(2, '0'),
-        String(date.getDate()).padStart(2, '0')
-    ].join('-');
-};
-
-/* UI-only state. Backend integration will replace these sample records. */
+/* ==================================================
+   READ-ONLY DATABASE SNAPSHOT AND ALLOCATION PREVIEW
+   All mutations are performed by the Laravel backend.
+================================================== */
 class InventoryModel {
-    constructor() {
-        this.flowers = [
-            ['FLW-001', 'Red Rose', 'Roses', 100],
-            ['FLW-002', 'White Rose', 'Roses', 100],
-            ['FLW-003', 'Sunflower', 'Sunflowers', 50],
-            ['FLW-004', 'Pink Tulip', 'Tulips', 50],
-            ['FLW-005', 'White Lily', 'Lilies', 50],
-            ['FLW-006', 'Pink Carnation', 'Carnations', 75],
-            ['FLW-007', 'Gerbera Daisy', 'Gerberas', 50],
-            ['FLW-008', "Baby's Breath", 'Fillers', 30],
-            ['FLW-009', 'Classic Rose Bouquet', 'Roses', 5, 'Bouquet'],
-            ['FLW-010', 'Mixed Flower Bouquet', 'Mixed Flowers', 3, 'Bouquet']
-        ].map(([code, name, category, minimum, itemType = 'Stem']) => ({
-            code,
-            name,
-            category,
-            minimum,
-            itemType,
-            baseUnit: itemType,
-            units: itemType === 'Bouquet' ? { Bouquet: 1 } : {
-                Stem: 1,
-                Bunch: 10,
-                Bundle: 20,
-                Box: 100
-            }
-        }));
+    /* ==================================================
+       CONSTRUCTOR
+    ================================================== */
 
+    constructor() {
+        this.flowers = [];
         this.batches = [];
         this.movements = [];
+    }
 
-        this.orders = [
-            {
-                id: 'ORD-001',
-                flower: 'FLW-001',
-                quantity: 40,
-                method: 'Delivery',
-                status: 'Delivered',
-                stockedOut: false
-            },
-            {
-                id: 'ORD-002',
-                flower: 'FLW-002',
-                quantity: 30,
-                method: 'Delivery',
-                status: 'Processing',
-                stockedOut: false
-            },
-            {
-                id: 'ORD-003',
-                flower: 'FLW-003',
-                quantity: 20,
-                method: 'Pickup',
-                status: 'Ready for Pickup',
-                stockedOut: false
-            },
-            {
-                id: 'ORD-004',
-                flower: 'FLW-004',
-                quantity: 10,
-                method: 'Pickup',
-                status: 'Completed',
-                stockedOut: false
-            }
-        ];
+    /* ==================================================
+       HYDRATE
+    ================================================== */
 
-        const samples = [
-            ['FLW-001', 100, 80, 8],
-            ['FLW-001', 150, 150, 3],
-            ['FLW-002', 50, 50, 4],
-            ['FLW-003', 120, 100, 3],
-            ['FLW-004', 30, 30, 2],
-            ['FLW-006', 75, 25, 5],
-            ['FLW-007', 60, 60, 2],
-            ['FLW-008', 30, 0, 7],
-            ['FLW-009', 12, 10, 2],
-            ['FLW-010', 8, 8, 1]
-        ];
-
-        for (const [flower, initial, remaining, age] of samples) {
-            const batch = {
-                id: this.nextBatch(),
-                flower,
-                initial,
-                remaining,
-                received: daysAgo(age),
-                harvest: daysAgo(age + 1),
-                expiry: '',
-                quantity: initial,
-                unit: this.flower(flower).baseUnit,
-                factor: 1,
-                remarks: 'Opening sample receipt.',
-                spoiled: false
-            };
-
-            this.batches.push(batch);
-
-            this.log(
-                batch,
-                'Stock-In',
-                initial,
-                batch.remarks,
-                `${batch.received} 08:00:00`
-            );
-
-            if (initial > remaining) {
-                this.log(
-                    batch,
-                    'Stock-Out',
-                    -(initial - remaining),
-                    'Sample stock usage.',
-                    `${batch.received} 10:00:00`
-                );
+    hydrate(data) {
+        if (!data || !Array.isArray(data.flowers) || !Array.isArray(data.batches)
+            || !Array.isArray(data.movements)) throw new Error('Invalid inventory response.');
+        for (const flower of data.flowers) {
+            if (!Number.isSafeInteger(Number(flower.id)) || Number(flower.id) < 1
+                || !['Stem', 'Bouquet'].includes(flower.baseUnit)
+                || !Number.isSafeInteger(Number(flower.reserved)) || Number(flower.reserved) < 0) {
+                throw new Error('Invalid flower balance received.');
             }
         }
+        for (const batch of data.batches) {
+            if (!Number.isSafeInteger(Number(batch.dbId)) || Number(batch.dbId) < 1
+                || !Number.isSafeInteger(Number(batch.remaining)) || Number(batch.remaining) < 0
+                || Number(batch.remaining) > Number(batch.initial)) {
+                throw new Error('Invalid batch balance received.');
+            }
+        }
+        this.flowers = data.flowers;
+        this.batches = data.batches;
+        this.movements = data.movements;
     }
 
-    flower(code) {
-        return this.flowers.find((flower) => flower.code === code);
-    }
+    /* ==================================================
+       FLOWER
+    ================================================== */
 
-    nextBatch() {
-        const highest = this.batches.reduce(
-            (max, batch) => Math.max(max, Number(batch.id.slice(4))),
-            0
-        );
+    flower(code) { return this.flowers.find(flower => flower.code === code); }
+    /* ==================================================
+       BATCHES FOR
+    ================================================== */
 
-        return `BAT-${String(highest + 1).padStart(3, '0')}`;
-    }
-
-    batchesFor(code) {
-        return this.batches.filter((batch) => batch.flower === code);
-    }
+    batchesFor(code) { return this.batches.filter(batch => batch.flower === code); }
+    /* ==================================================
+       ON HAND
+    ================================================== */
 
     onHand(code) {
-        return this.batchesFor(code)
-            .filter((batch) => !batch.spoiled)
-            .reduce((sum, batch) => sum + batch.remaining, 0);
+        return this.batchesFor(code).filter(batch => !batch.spoiled)
+            .reduce((sum, batch) => sum + Number(batch.remaining), 0);
     }
+    /* ==================================================
+       RESERVED
+    ================================================== */
 
-    reserved(code) {
-        return this.orders
-            .filter((order) => order.flower === code && !order.stockedOut)
-            .reduce((sum, order) => sum + order.quantity, 0);
-    }
+    reserved(code) { return Number(this.flower(code)?.reserved || 0); }
+    /* ==================================================
+       AVAILABLE
+    ================================================== */
 
-    available(code) {
-        return this.onHand(code) - this.reserved(code);
-    }
+    available(code) { return this.onHand(code) - this.reserved(code); }
+    /* ==================================================
+       STATUS
+    ================================================== */
 
     status(code) {
         const available = this.available(code);
-
-        if (available <= 0) return 'Out of Stock';
-        if (available < this.flower(code).minimum) return 'Low Stock';
-
-        return 'Normal';
+        return available <= 0 ? 'Out of Stock'
+            : available < this.flower(code).minimum ? 'Low Stock' : 'Normal';
     }
+    /* ==================================================
+       UNIT LABEL
+    ================================================== */
 
-    eligibleOrder(order) {
-        return order && !order.stockedOut && (
-            (order.method === 'Delivery' && order.status === 'Delivered') ||
-            (order.method === 'Pickup' && order.status === 'Completed')
-        );
-    }
+    unitLabel(code) { return this.flower(code)?.baseUnit === 'Bouquet' ? 'bouquets' : 'stems'; }
 
-    log(batch, type, quantity, remarks, date = timestamp()) {
-        this.movements.push({
-            id: this.movements.length + 1,
-            batch: batch.id,
-            flower: batch.flower,
-            type,
-            quantity,
-            remarks,
-            date,
-            user: 'Administrator'
-        });
-    }
-
-    unitLabel(code) {
-        return this.flower(code)?.baseUnit === 'Bouquet' ? 'bouquets' : 'stems';
-    }
-
-    receive(data) {
-        const flower = this.flower(data.flower);
-        const batch = data.id
-            ? this.batches.find((item) => item.id === data.id)
-            : null;
-
-        if (!flower || (data.id && !batch)) {
-            throw new Error('Select a valid flower or receipt.');
-        }
-
-        if (flower.baseUnit === 'Bouquet' && (data.unit !== 'Bouquet' || data.factor !== 1)) {
-            throw new Error('Bouquets must be received as finished Bouquet units, factor 1.');
-        }
-        if (!batch && flower.units[data.unit] !== data.factor) {
-            throw new Error('Select a configured receiving unit and conversion.');
-        }
-        if (batch && batch.flower !== data.flower) {
-            throw new Error('The flower on an existing receipt cannot change.');
-        }
-
-        if (
-            !Number.isSafeInteger(data.quantity) ||
-            data.quantity < 1 ||
-            !Number.isSafeInteger(data.factor) ||
-            data.factor < 1 ||
-            !Number.isSafeInteger(data.quantity * data.factor)
-        ) {
-            throw new Error(
-                'Quantity and conversion must be positive whole numbers.'
-            );
-        }
-
-        if (
-            !data.received ||
-            !data.harvest ||
-            data.harvest > data.received ||
-            (data.expiry && data.expiry < data.harvest)
-        ) {
-            throw new Error(
-                'Check the received, harvest and freshness dates.'
-            );
-        }
-
-        if (batch && !data.remarks.trim()) {
-            throw new Error(
-                'Add remarks explaining the receipt correction.'
-            );
-        }
-
-        const initial = data.quantity * data.factor;
-
-        if (batch) {
-            const consumed = batch.initial - batch.remaining;
-
-            if (initial < consumed) {
-                throw new Error(
-                    'Received stock cannot be lower than stock already issued from this batch.'
-                );
-            }
-
-            if (
-                this.onHand(batch.flower) + initial - batch.initial <
-                this.reserved(batch.flower)
-            ) {
-                throw new Error(
-                    'This correction would reduce stock below existing reservations.'
-                );
-            }
-
-            if (batch.spoiled) {
-                throw new Error(
-                    'A spoiled batch cannot be changed from this screen.'
-                );
-            }
-
-            Object.assign(batch, data, {
-                initial,
-                remaining: initial - consumed
-            });
-
-            const movement = this.movements.find(
-                (item) => item.batch === batch.id && item.type === 'Stock-In'
-            );
-
-            Object.assign(movement, {
-                quantity: initial,
-                remarks: data.remarks,
-                date: `${data.received} 08:00:00`
-            });
-        } else {
-            const created = {
-                ...data,
-                id: this.nextBatch(),
-                initial,
-                remaining: initial,
-                spoiled: false
-            };
-
-            this.batches.push(created);
-
-            this.log(
-                created,
-                'Stock-In',
-                initial,
-                data.remarks,
-                `${data.received} ${new Date().toTimeString().slice(0, 8)}`
-            );
-        }
-    }
+    /* ==================================================
+       ALLOCATION
+    ================================================== */
 
     allocation(code, quantity, selectedBatch = '') {
         if (!Number.isSafeInteger(quantity) || quantity < 1) {
-            throw new Error(
-                'Enter a positive whole-number quantity in the item base unit.'
-            );
+            throw new Error('Enter a positive whole-number quantity in the item base unit.');
         }
-
         const batches = this.batchesFor(code)
-            .filter((batch) =>
-                !batch.spoiled &&
-                batch.remaining > 0 &&
-                (!selectedBatch || batch.id === selectedBatch)
-            )
-            .sort((a, b) =>
-                a.received.localeCompare(b.received) ||
-                a.id.localeCompare(b.id)
-            );
-
+            .filter(batch => !batch.spoiled && batch.remaining > 0 && (!selectedBatch || batch.id === selectedBatch))
+            .sort((a, b) => a.received.localeCompare(b.received) || a.dbId - b.dbId);
         let pending = quantity;
         const result = [];
-
         for (const batch of batches) {
             const amount = Math.min(pending, batch.remaining);
-
             if (amount) result.push({ batch, amount });
-
             pending -= amount;
-
             if (!pending) break;
         }
-
-        if (pending) {
-            throw new Error(
-                selectedBatch
-                    ? 'Selected batch has insufficient stock. Use FIFO to split across batches.'
-                    : 'Insufficient physical stock.'
-            );
-        }
-
+        if (pending) throw new Error(selectedBatch
+            ? 'Selected batch has insufficient stock. Use FIFO to split across batches.'
+            : 'Insufficient physical stock.');
         return result;
-    }
-
-    issue(data) {
-        if (!this.flower(data.flower)) {
-            throw new Error('Select a flower.');
-        }
-
-        const order = data.reason === 'Customer order'
-            ? this.orders.find((item) => item.id === data.order)
-            : null;
-
-        if (
-            data.reason === 'Customer order' &&
-            (
-                !this.eligibleOrder(order) ||
-                order.flower !== data.flower ||
-                order.quantity !== data.quantity
-            )
-        ) {
-            throw new Error(
-                'Select an eligible Delivered / collected Completed pickup order and issue its full quantity.'
-            );
-        }
-
-        if (
-            (data.reason === 'Spoilage' || data.batch) &&
-            !data.remarks.trim()
-        ) {
-            throw new Error(
-                'Remarks are required for spoilage or a FIFO override.'
-            );
-        }
-
-        const available = this.available(data.flower) +
-            (order ? order.quantity : 0);
-
-        if (data.quantity > available) {
-            throw new Error(
-                `Only ${number(available)} ${this.unitLabel(data.flower)} are available for this transaction after other reservations.`
-            );
-        }
-
-        const plan = this.allocation(
-            data.flower,
-            data.quantity,
-            data.batch
-        );
-
-        for (const { batch, amount } of plan) {
-            batch.remaining -= amount;
-
-            this.log(
-                batch,
-                'Stock-Out',
-                -amount,
-                `${data.reason}${order ? ` (${order.id})` : ''}` +
-                `${data.batch ? ' · FIFO override' : ''}` +
-                `${data.remarks ? ` — ${data.remarks}` : ''}`
-            );
-        }
-
-        if (order) order.stockedOut = true;
-
-        return plan;
     }
 }
 
-/* PAGE INTERACTIONS */
 const InventoryUI = {
     model: new InventoryModel(),
     tables: {},
     active: 'inventory',
     editing: '',
+    ready: false,
+    busy: false,
+    loading: false,
+    committed: false,
+    requestKeys: {},
+
+    /* ==================================================
+       EL
+    ================================================== */
 
     el(id) {
         return document.getElementById(id);
     },
+
+    /* ==================================================
+       INIT
+    ================================================== */
 
     init() {
         if (!this.el('inventoryPage')) return;
@@ -513,189 +223,93 @@ const InventoryUI = {
         });
 
         this.bindEvents();
-        this.refresh();
+        this.reload();
     },
 
+    /* ==================================================
+       BIND EVENTS
+    ================================================== */
+
     bindEvents() {
-        this.el('openStockIn').addEventListener(
-            'click',
-            () => this.openIn()
-        );
-
-        this.el('openStockOut').addEventListener(
-            'click',
-            () => this.openOut()
-        );
-
-        this.el('inventorySearch').addEventListener(
-            'input',
-            () => this.search()
-        );
-
-        this.el('inventorySearch').addEventListener(
-            'search',
-            () => this.search()
-        );
-
-        this.el('inventoryPageLength').addEventListener('change', (event) => {
-            this.tables[this.active]
-                .page.len(Number(event.target.value))
-                .draw();
+        this.el('openStockIn').addEventListener('click', () => this.openIn());
+        this.el('openStockOut').addEventListener('click', () => this.openOut());
+        ['input', 'search'].forEach(event => {
+            this.el('inventorySearch').addEventListener(event, () => this.search());
         });
-
-        document.querySelectorAll('[data-inventory-tab]').forEach((button) => {
+        this.el('inventoryPageLength').addEventListener('change', event => {
+            const length = Number(event.target.value);
+            if ([5, 10, 25, 50].includes(length)) this.tables[this.active].page.len(length).draw();
+        });
+        document.querySelectorAll('[data-inventory-tab]').forEach(button => {
             button.addEventListener('click', () => {
                 this.active = button.dataset.inventoryTab;
-
-                document.querySelectorAll('[data-inventory-tab]').forEach((tab) => {
+                document.querySelectorAll('[data-inventory-tab]').forEach(tab => {
                     const selected = tab === button;
                     tab.classList.toggle('active', selected);
                     tab.setAttribute('aria-selected', String(selected));
                 });
-
-                this.el('inventoryPanel').hidden =
-                    this.active !== 'inventory';
-
-                this.el('inventoryHistoryPanel').hidden =
-                    this.active !== 'history';
-
-                this.el('inventoryPageLength').value =
-                    String(this.tables[this.active].page.len());
-
+                this.el('inventoryPanel').hidden = this.active !== 'inventory';
+                this.el('inventoryHistoryPanel').hidden = this.active !== 'history';
+                this.el('inventoryPageLength').value = String(this.tables[this.active].page.len());
                 this.search();
                 this.tables[this.active].columns.adjust();
             });
         });
-
-        this.el('inventoryPage').addEventListener('click', (event) => {
+        this.el('inventoryPage').addEventListener('click', event => {
             const button = event.target.closest('[data-inventory-action]');
-            if (!button) return;
-
-            if (button.dataset.inventoryAction === 'details') {
-                this.details(button.dataset.code);
-            }
-
-            if (button.dataset.inventoryAction === 'units') {
-                this.openUnits(button.dataset.code);
-            }
+            if (!button || button.disabled || !this.ready || this.busy) return;
+            if (button.dataset.inventoryAction === 'details') this.details(button.dataset.code);
+            if (button.dataset.inventoryAction === 'units') this.openUnits(button.dataset.code);
         });
-
-        this.el('inventoryDetailContent').addEventListener('click', (event) => {
+        this.el('inventoryDetailContent').addEventListener('click', event => {
             const button = event.target.closest('[data-edit-receipt]');
-            if (!button) return;
-
-            this.el('inventoryDetailModal').addEventListener(
-                'hidden.bs.modal',
-                () => this.openIn(button.dataset.editReceipt),
-                { once: true }
-            );
-
+            if (!button || button.disabled || this.busy) return;
+            this.el('inventoryDetailModal').addEventListener('hidden.bs.modal', () => {
+                this.openIn(button.dataset.editReceipt);
+            }, { once: true });
             this.detailModal.hide();
         });
-
-        this.el('stockInForm').addEventListener('submit', (event) => {
+        this.el('stockInForm').addEventListener('submit', event => {
             event.preventDefault();
-
-            this.attempt('stockInError', () => {
-                const option = this.el('inUnit').selectedOptions[0];
-
-                this.model.receive({
-                    id: this.editing,
-                    flower: this.el('inFlower').value,
-                    quantity: Number(this.el('inQuantity').value),
-                    unit: option.value,
-                    factor: Number(option.dataset.factor),
-                    received: this.el('inReceived').value,
-                    harvest: this.el('inHarvest').value,
-                    expiry: this.el('inExpiry').value,
-                    remarks: this.el('inRemarks').value.trim()
-                });
-
-                this.formModal.hide();
-                this.refresh();
-                this.notice('Stock-In saved in this UI session.');
-            });
+            this.saveIn();
         });
-
-        this.el('inFlower').addEventListener(
-            'change',
-            () => this.fillUnits()
-        );
-
-        ['inQuantity', 'inUnit'].forEach((id) => {
+        this.el('stockOutForm').addEventListener('submit', event => {
+            event.preventDefault();
+            this.saveOut();
+        });
+        this.el('inventoryUnitForm').addEventListener('submit', event => {
+            event.preventDefault();
+            this.saveUnits();
+        });
+        this.el('inFlower').addEventListener('change', () => this.fillUnits());
+        ['inQuantity', 'inUnit'].forEach(id => {
             this.el(id).addEventListener('input', () => this.inPreview());
         });
-
-        this.el('stockOutForm').addEventListener('submit', (event) => {
-            event.preventDefault();
-
-            this.attempt('stockOutError', () => {
-                this.model.issue(this.outData());
-                this.outModal.hide();
-                this.refresh();
-
-                this.notice(
-                    'Stock-Out saved. Batch balances and history updated.'
-                );
-            });
-        });
-
-        ['outFlower', 'outReason', 'outOrder', 'outOverride'].forEach((id) => {
+        ['outFlower', 'outReason', 'outOverride'].forEach(id => {
             this.el(id).addEventListener('change', () => this.syncOut());
         });
-
-        ['outQuantity', 'outBatch'].forEach((id) => {
+        ['outQuantity', 'outBatch'].forEach(id => {
             this.el(id).addEventListener('input', () => this.outPreview());
         });
-
-        this.el('inventoryUnitForm').addEventListener('submit', (event) => {
-            event.preventDefault();
-
-            this.attempt('inventoryUnitError', () => {
-                const flower = this.model.flower(
-                    this.el('unitFlowerCode').value
-                );
-
-                if (flower.baseUnit === 'Bouquet') throw new Error('Bouquets use one finished Bouquet unit; stem conversions do not apply.');
-                const units = { Stem: 1 };
-
-                for (const unit of ['Bunch', 'Bundle', 'Box']) {
-                    const factor = Number(this.el(`unit${unit}`).value);
-
-                    if (!Number.isSafeInteger(factor) || factor < 1) {
-                        throw new Error(
-                            'Enter positive whole-number conversion factors.'
-                        );
-                    }
-
-                    units[unit] = factor;
-                }
-
-                flower.units = units;
-                this.unitModal.hide();
-
-                this.notice(
-                    'Unit conversions updated for new receipts. Existing batch conversions are preserved.'
-                );
+        ['stockInModal', 'stockOutModal', 'inventoryUnitModal'].forEach(id => {
+            this.el(id).addEventListener('hide.bs.modal', event => {
+                if (this.busy && !this.committed) event.preventDefault();
             });
         });
     },
 
-    attempt(id, action) {
-        this.el(id).hidden = true;
-
-        try {
-            action();
-        } catch (error) {
-            this.el(id).textContent = error.message;
-            this.el(id).hidden = false;
-        }
-    },
+    /* ==================================================
+       NOTICE
+    ================================================== */
 
     notice(message) {
         this.el('inventoryNotice').textContent = message;
         this.el('inventoryNotice').hidden = false;
     },
+
+    /* ==================================================
+       BADGE
+    ================================================== */
 
     badge(status) {
         const style = {
@@ -715,6 +329,10 @@ const InventoryUI = {
         `;
     },
 
+    /* ==================================================
+       REFRESH
+    ================================================== */
+
     refresh() {
         const model = this.model;
 
@@ -726,7 +344,7 @@ const InventoryUI = {
                     </span>
                     <div>
                         <strong>${escapeHTML(flower.name)}</strong>
-                        <small>${flower.code} · ${flower.category} · ${flower.baseUnit}</small>
+                        <small>${escapeHTML(flower.code)} · ${escapeHTML(flower.category)} · ${escapeHTML(flower.baseUnit)}${flower.status === 'Inactive' ? ' · Inactive' : ''}</small>
                     </div>
                 </div>
             `,
@@ -772,7 +390,7 @@ const InventoryUI = {
             `,
             `
                 <span class="inv-badge ${
-                    movement.type === 'Stock-In' ? 'normal' : 'empty'
+                    movement.quantity >= 0 ? 'normal' : 'empty'
                 }">
                     ${movement.type}
                 </span>
@@ -800,6 +418,10 @@ const InventoryUI = {
         this.search();
     },
 
+    /* ==================================================
+       SEARCH
+    ================================================== */
+
     search() {
         this.tables[this.active].search(
             this.el('inventorySearch').value.trim(),
@@ -811,42 +433,55 @@ const InventoryUI = {
         ).draw();
     },
 
-    flowerOptions() {
-        return this.model.flowers.map((flower) => `
-            <option value="${flower.code}">
-                ${escapeHTML(flower.name)} — ${flower.code} (${flower.baseUnit})
-            </option>
-        `).join('');
+    /* ==================================================
+       FLOWER OPTIONS
+    ================================================== */
+
+    flowerOptions(activeOnly = false) {
+        return this.model.flowers.filter(flower => !activeOnly || flower.status === 'Active')
+            .map(flower => `<option value="${escapeHTML(flower.code)}">${escapeHTML(flower.name)} — ${escapeHTML(flower.code)} (${flower.baseUnit})${flower.status === 'Inactive' ? ' · Inactive' : ''}</option>`)
+            .join('');
     },
 
+    /* ==================================================
+       OPEN IN
+    ================================================== */
+
     openIn(id = '') {
+        if (!this.ready || this.busy) return;
+        const batch = id ? this.model.batches.find(item => item.id === id) : null;
+        if (id && !batch) return;
+        if (batch?.spoiled) {
+            this.notice('A spoiled batch cannot be corrected from this screen.');
+            return;
+        }
         this.el('stockInForm').reset();
         this.editing = id;
         this.el('stockInError').hidden = true;
-        this.el('inFlower').innerHTML = this.flowerOptions();
-
-        const batch = this.model.batches.find((item) => item.id === id);
-
-        this.el('stockInTitle').textContent = batch
-            ? 'Edit Stock-In'
-            : 'Stock-In';
-
-        this.el('inBatchCode').value =
-            batch?.id ?? this.model.nextBatch();
-
-        this.el('inFlower').value =
-            batch?.flower ?? this.model.flowers[0].code;
-
+        this.el('inFlower').innerHTML = this.flowerOptions(!batch);
+        if (!this.el('inFlower').options.length) {
+            this.notice('Add or activate a flower in Flower Management before receiving stock.');
+            return;
+        }
+        this.requestKeys.stockIn = this.newRequestKey();
+        this.el('stockInTitle').textContent = batch ? 'Edit Stock-In' : 'Stock-In';
+        this.el('inBatchCode').value = batch?.id || 'Generated after saving';
+        if (batch) this.el('inFlower').value = batch.flower;
         this.el('inFlower').disabled = Boolean(batch);
         this.el('inQuantity').value = batch?.quantity ?? 1;
-        this.el('inReceived').value = batch?.received ?? today();
-        this.el('inHarvest').value = batch?.harvest ?? today();
-        this.el('inExpiry').value = batch?.expiry ?? '';
-        this.el('inRemarks').value = batch?.remarks ?? '';
-
+        this.el('inReceived').value = batch?.received || today();
+        this.el('inReceived').max = today();
+        this.el('inHarvest').value = batch?.harvest || today();
+        this.el('inExpiry').value = batch?.expiry || '';
+        this.el('inRemarks').value = batch?.remarks || '';
+        this.el('inRemarks').required = Boolean(batch);
         this.fillUnits(batch);
         this.formModal.show();
     },
+
+    /* ==================================================
+       FILL UNITS
+    ================================================== */
 
     fillUnits(batch = null) {
         const flower = this.model.flower(this.el('inFlower').value);
@@ -868,6 +503,10 @@ const InventoryUI = {
         this.inPreview();
     },
 
+    /* ==================================================
+       IN PREVIEW
+    ================================================== */
+
     inPreview() {
         const total = Number(this.el('inQuantity').value) *
             Number(this.el('inUnit').selectedOptions[0]?.dataset.factor ?? 1);
@@ -876,98 +515,68 @@ const InventoryUI = {
             `${number(total || 0)} ${this.model.unitLabel(this.el('inFlower').value)} will be recorded.`;
     },
 
+    /* ==================================================
+       OPEN OUT
+    ================================================== */
+
     openOut() {
+        if (!this.ready || this.busy) return;
         this.el('stockOutForm').reset();
         this.el('stockOutError').hidden = true;
         this.el('outFlower').innerHTML = this.flowerOptions();
-
-        this.el('outOrder').innerHTML =
-            '<option value="">Select eligible order</option>' +
-            this.model.orders
-                .filter((order) => this.model.eligibleOrder(order))
-                .map((order) => `
-                    <option value="${order.id}">
-                        ${order.id} ·
-                        ${this.model.flower(order.flower).name} ·
-                        ${order.quantity} ${this.model.unitLabel(order.flower)} ·
-                        ${order.status}
-                    </option>
-                `).join('');
-
+        if (!this.el('outFlower').options.length) {
+            this.notice('No catalog records are available. Add a flower first.');
+            return;
+        }
+        this.requestKeys.stockOut = this.newRequestKey();
         this.syncOut();
         this.outModal.show();
     },
 
+    /* ==================================================
+       SYNC OUT
+    ================================================== */
+
     syncOut() {
-        const forOrder =
-            this.el('outReason').value === 'Customer order';
-
-        const order = forOrder
-            ? this.model.orders.find(
-                (item) => item.id === this.el('outOrder').value
-            )
-            : null;
-
-        this.el('outOrderGroup').classList.toggle('d-none', !forOrder);
-        this.el('outOrder').required = forOrder;
-        this.el('outFlower').disabled = forOrder;
-        this.el('outQuantity').readOnly = forOrder;
-
-        if (order) {
-            this.el('outFlower').value = order.flower;
-            this.el('outQuantity').value = order.quantity;
-        }
-
+        this.el('outOrderGroup').classList.add('d-none');
+        this.el('outOrder').required = false;
+        this.el('outFlower').disabled = false;
+        this.el('outQuantity').readOnly = false;
         const code = this.el('outFlower').value;
         const previous = this.el('outBatch').value;
-
         this.el('outBatch').innerHTML = this.model.batchesFor(code)
-            .filter((batch) => !batch.spoiled && batch.remaining > 0)
-            .map((batch) => `
-                <option value="${batch.id}">
-                    ${batch.id} · ${batch.received} · ${batch.remaining} ${this.model.unitLabel(batch.flower)}
-                </option>
-            `).join('');
-
-        if (
-            [...this.el('outBatch').options].some(
-                (option) => option.value === previous
-            )
-        ) {
+            .filter(batch => !batch.spoiled && batch.remaining > 0)
+            .map(batch => `<option value="${escapeHTML(batch.id)}">${escapeHTML(batch.id)} · ${batch.received} · ${number(batch.remaining)} ${this.model.unitLabel(code)}</option>`)
+            .join('');
+        if ([...this.el('outBatch').options].some(option => option.value === previous)) {
             this.el('outBatch').value = previous;
         }
-
         const override = this.el('outOverride').checked;
-
         this.el('outBatchGroup').classList.toggle('d-none', !override);
         this.el('outBatch').required = override;
-
-        this.el('outRemarks').required =
-            override || this.el('outReason').value === 'Spoilage';
-
-        const available = this.model.available(code) +
-            (order ? order.quantity : 0);
-
-        this.el('outBalance').textContent =
-            `${number(this.model.onHand(code))} on hand · ` +
-            `${number(this.model.reserved(code))} reserved · ` +
-            `${number(available)} eligible for this transaction.`;
-
+        this.el('outRemarks').required = override || this.el('outReason').value === 'Spoilage';
+        this.el('outBalance').textContent = `${number(this.model.onHand(code))} on hand · `
+            + `${number(this.model.reserved(code))} reserved · ${number(this.model.available(code))} available.`;
         this.outPreview();
     },
+
+    /* ==================================================
+       OUT DATA
+    ================================================== */
 
     outData() {
         return {
             flower: this.el('outFlower').value,
             quantity: Number(this.el('outQuantity').value),
             reason: this.el('outReason').value,
-            order: this.el('outOrder').value,
-            batch: this.el('outOverride').checked
-                ? this.el('outBatch').value
-                : '',
-            remarks: this.el('outRemarks').value.trim()
+            batch: this.el('outOverride').checked ? this.el('outBatch').value : '',
+            remarks: this.el('outRemarks').value.trim(),
         };
     },
+
+    /* ==================================================
+       OUT PREVIEW
+    ================================================== */
 
     outPreview() {
         const data = this.outData();
@@ -987,6 +596,10 @@ const InventoryUI = {
             this.el('outAllocation').textContent = error.message;
         }
     },
+
+    /* ==================================================
+       DETAILS
+    ================================================== */
 
     details(code) {
         const flower = this.model.flower(code);
@@ -1015,6 +628,7 @@ const InventoryUI = {
                     <td>
                         <button type="button"
                                 class="inv-icon-btn edit"
+                                ${batch.spoiled ? 'disabled title="Spoiled batch cannot be corrected"' : ''}
                                 data-edit-receipt="${batch.id}"
                                 aria-label="Edit ${batch.id} receipt">
                             <i class="bi bi-pencil-square"></i>
@@ -1027,7 +641,7 @@ const InventoryUI = {
         const historyRows = this.model.movements
             .filter((movement) => movement.flower === code)
             .slice()
-            .reverse()
+            .sort((a, b) => b.id - a.id)
             .map((movement) => `
                 <tr>
                     <td>${escapeHTML(movement.date)}</td>
@@ -1092,7 +706,12 @@ const InventoryUI = {
         this.detailModal.show();
     },
 
+    /* ==================================================
+       OPEN UNITS
+    ================================================== */
+
     openUnits(code) {
+        if (!this.ready || this.busy) return;
         const flower = this.model.flower(code);
         if (flower.baseUnit === 'Bouquet') {
             this.notice('Bouquets are received as finished Bouquet units; no stem conversion.');
@@ -1108,7 +727,225 @@ const InventoryUI = {
         }
 
         this.unitModal.show();
+    },
+
+    /* ==================================================
+       GENERATE IDEMPOTENCY KEY FOR EACH OPEN RECEIPT FORM
+       Retries keep the same key to prevent duplicate stock.
+    ================================================== */
+
+    
+
+    newRequestKey() {
+        if (globalThis.crypto.randomUUID) return globalThis.crypto.randomUUID();
+        const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+        bytes[6] = (bytes[6] & 15) | 64;
+        bytes[8] = (bytes[8] & 63) | 128;
+        const hex = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    },
+
+    /* ==================================================
+       NAMED ROUTE URLS COME FROM THE BLADE PAGE
+    ================================================== */
+
+    
+
+    endpoint(name, id = null) {
+        let url = this.el('inventoryPage').dataset[name];
+        if (!url) throw new Error(`Missing inventory endpoint: ${name}. Replace the Blade file too.`);
+        if (id !== null) {
+            const token = name === 'correctionUrl' ? '__BATCH__' : '__FLOWER__';
+            if (!url.includes(token)) throw new Error('Invalid inventory route template.');
+            url = url.replace(token, encodeURIComponent(String(id)));
+        }
+        return url;
+    },
+
+    /* ==================================================
+       FETCH JSON WITH CSRF AND SESSION VALIDATION
+    ================================================== */
+
+    
+
+    async request(url, payload = null) {
+        const headers = { Accept: 'application/json' };
+        if (payload !== null) {
+            const token = this.el('stockInForm').querySelector('[name="_token"]')?.value;
+            if (!token) throw new Error('Missing CSRF token. Replace the Blade file too.');
+            headers['X-CSRF-TOKEN'] = token;
+            headers['Content-Type'] = 'application/json';
+        }
+        const response = await fetch(url, {
+            method: payload === null ? 'GET' : 'POST', headers,
+            credentials: 'same-origin', redirect: 'error',
+            ...(payload === null ? {} : { body: JSON.stringify(payload) }),
+        });
+        const isJson = (response.headers.get('content-type') || '').includes('application/json');
+        const result = isJson ? await response.json() : {};
+        if (!response.ok) {
+            const messages = {
+                401: 'Your session has expired. Log in again.',
+                403: 'Your account is not allowed to perform this action.',
+                404: 'The record or endpoint was not found. Refresh the page.',
+                419: 'Your session token has expired. Refresh the page.',
+            };
+            const error = new Error(messages[response.status]
+                || (response.status >= 500 ? 'The server could not complete the request.' : result.message)
+                || 'Unable to complete the request.');
+            error.errors = result.errors || {};
+            error.status = response.status;
+            throw error;
+        }
+        if (!isJson) throw new Error('Unexpected server response. Refresh and check your login.');
+        return result;
+    },
+
+    /* ==================================================
+       RELOAD CANONICAL DATABASE BALANCES AFTER EACH WRITE
+    ================================================== */
+
+    
+
+    async reload(successMessage = '') {
+        if (this.loading) return false;
+        this.loading = true;
+        this.ready = false;
+        this.updateAvailability();
+        this.notice('Loading inventory records...');
+        try {
+            const result = await this.request(this.endpoint('url'));
+            this.model.hydrate(result.data);
+            this.refresh();
+            this.ready = true;
+            this.notice(successMessage || 'Inventory records loaded.');
+            return true;
+        } catch (error) {
+            console.error('Inventory loading failed:', error);
+            this.notice(successMessage
+                ? `${successMessage} Balances could not reload. Refresh this page before another transaction.`
+                : error.message);
+            return false;
+        } finally {
+            this.loading = false;
+            this.updateAvailability();
+        }
+    },
+
+    /* ==================================================
+       ENABLE WRITES ONLY AFTER LOADING AND OUTSIDE A SAVE
+    ================================================== */
+
+    
+
+    updateAvailability() {
+        const disabled = !this.ready || this.busy || this.loading;
+        ['openStockIn', 'openStockOut'].forEach(id => { this.el(id).disabled = disabled; });
+        document.querySelectorAll('[data-inventory-action], [data-edit-receipt]').forEach(button => {
+            const batch = button.dataset.editReceipt
+                ? this.model.batches.find(item => item.id === button.dataset.editReceipt) : null;
+            button.disabled = disabled || Boolean(batch?.spoiled);
+        });
+        ['stockInForm', 'stockOutForm', 'inventoryUnitForm'].forEach(id => {
+            this.el(id).querySelectorAll('input, select, textarea, button').forEach(control => {
+                if (control.type !== 'hidden') control.disabled = this.busy;
+            });
+        });
+        this.el('inFlower').disabled = this.busy || Boolean(this.editing);
+    },
+
+    /* ==================================================
+       POST A TRANSACTION THEN REFRESH THE DATABASE SNAPSHOT
+    ================================================== */
+
+    
+
+    async submit(url, payload, errorId, modal) {
+        if (this.busy || !this.ready) return;
+        this.el(errorId).hidden = true;
+        this.busy = true;
+        this.committed = false;
+        this.updateAvailability();
+        try {
+            const result = await this.request(url, payload);
+            this.committed = true;
+            modal.hide();
+            await this.reload(result.message || 'Inventory transaction saved.');
+        } catch (error) {
+            console.error('Inventory saving failed:', error);
+            const messages = Object.values(error.errors || {}).flat();
+            let message = messages.length ? messages.join('\n') : error.message;
+            if (!messages.length && ![401, 403, 404, 419, 422].includes(error.status)) {
+                message += ' Retry this same form to reuse its request key, or refresh to check the saved history.';
+            }
+            this.el(errorId).textContent = message;
+            this.el(errorId).hidden = false;
+        } finally {
+            this.busy = false;
+            this.committed = false;
+            this.updateAvailability();
+        }
+    },
+
+    /* ==================================================
+       CREATE STOCK-IN OR APPEND A RECEIPT CORRECTION
+       Conversion factors are calculated by the backend.
+    ================================================== */
+
+    
+
+    async saveIn() {
+        if (this.busy || !this.ready || !this.el('stockInForm').reportValidity()) return;
+        const flower = this.model.flower(this.el('inFlower').value);
+        const batch = this.model.batches.find(item => item.id === this.editing);
+        const payload = {
+            request_key: this.requestKeys.stockIn,
+            quantity: Number(this.el('inQuantity').value),
+            unit: this.el('inUnit').value,
+            received: this.el('inReceived').value,
+            harvest: this.el('inHarvest').value,
+            expiry: this.el('inExpiry').value || null,
+            remarks: this.el('inRemarks').value.trim(),
+        };
+        if (!batch) payload.flower_id = flower.id;
+        await this.submit(batch ? this.endpoint('correctionUrl', batch.dbId) : this.endpoint('stockInUrl'),
+            payload, 'stockInError', this.formModal);
+    },
+
+    /* ==================================================
+       ISSUE STOCK WITH SERVER-ENFORCED FIFO / RESERVATIONS
+    ================================================== */
+
+    
+
+    async saveOut() {
+        if (this.busy || !this.ready || !this.el('stockOutForm').reportValidity()) return;
+        const data = this.outData();
+        const flower = this.model.flower(data.flower);
+        const batch = this.model.batches.find(item => item.id === data.batch);
+        await this.submit(this.endpoint('stockOutUrl'), {
+            request_key: this.requestKeys.stockOut,
+            flower_id: flower.id, quantity: data.quantity, reason: data.reason,
+            batch_id: batch?.dbId || null, remarks: data.remarks,
+        }, 'stockOutError', this.outModal);
+    },
+
+    /* ==================================================
+       SAVE UNIT SETTINGS FOR FUTURE RECEIPTS ONLY
+    ================================================== */
+
+    
+
+    async saveUnits() {
+        if (this.busy || !this.ready || !this.el('inventoryUnitForm').reportValidity()) return;
+        const flower = this.model.flower(this.el('unitFlowerCode').value);
+        await this.submit(this.endpoint('unitsUrl', flower.id), {
+            bunch_factor: Number(this.el('unitBunch').value),
+            bundle_factor: Number(this.el('unitBundle').value),
+            box_factor: Number(this.el('unitBox').value),
+        }, 'inventoryUnitError', this.unitModal);
     }
+
 };
 
 if (document.readyState === 'loading') {
@@ -1120,4 +957,5 @@ if (document.readyState === 'loading') {
 } else {
     InventoryUI.init();
 }
+
 

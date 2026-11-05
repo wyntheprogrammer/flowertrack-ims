@@ -3,7 +3,12 @@
 @section('title', 'Inventory Management')
 
 @section('content')
-<div class="inv-page" id="inventoryPage">
+<div class="inv-page" id="inventoryPage"
+    data-url="{{ route('supplier.inventory.data') }}"
+    data-stock-in-url="{{ route('supplier.inventory.stock-in') }}"
+    data-stock-out-url="{{ route('supplier.inventory.stock-out') }}"
+    data-correction-url="{{ route('supplier.inventory.correct-receipt', ['batch' => '__BATCH__']) }}"
+    data-units-url="{{ route('supplier.inventory.units', ['flower' => '__FLOWER__']) }}">
     <div class="inv-card">
 
         <div class="inv-header">
@@ -27,7 +32,7 @@
 
         <div class="inv-demo-note">
             <i class="bi bi-info-circle" aria-hidden="true"></i>
-            Sample data. Changes reset when you refresh.
+            Stock is tracked in stems or finished bouquets. Record spoilage through Stock-Out.
         </div>
 
         <div class="inv-stats">
@@ -159,7 +164,7 @@
             <div class="modal-header">
                 <div>
                     <h2 class="modal-title" id="stockInTitle">Stock-In</h2>
-                    <p>Receive stock and create its batch record.</p>
+                    <p>Receive stock and create its batch record. Receipt corrections are recorded in history.</p>
                 </div>
                 <button type="button"
                         class="btn-close"
@@ -168,6 +173,7 @@
             </div>
 
             <form id="stockInForm">
+                @csrf
                 <div class="modal-body">
                     <div class="inv-error" id="stockInError" role="alert" hidden></div>
 
@@ -220,7 +226,7 @@
                             <label for="inRemarks">Remarks</label>
                             <textarea id="inRemarks"
                                       rows="3"
-                                      placeholder="Receipt notes or reason for a correction"></textarea>
+                                      maxlength="5000" placeholder="Receipt notes or reason for a correction"></textarea>
                         </div>
                     </div>
                 </div>
@@ -263,6 +269,7 @@
             </div>
 
             <form id="stockOutForm">
+                @csrf
                 <div class="modal-body">
                     <div class="inv-error" id="stockOutError" role="alert" hidden></div>
 
@@ -272,7 +279,7 @@
                             <select id="outReason" required>
                                 <option value="Other use">Other use</option>
                                 <option value="Spoilage">Spoilage</option>
-                                <option value="Customer order">Customer order</option>
+                                
                             </select>
                         </div>
 
@@ -285,8 +292,7 @@
                             <label for="outOrder">Eligible Order <span>*</span></label>
                             <select id="outOrder"></select>
                             <small>
-                                Delivery: Delivered only. Pickup: Ready for Pickup.
-                                Full quantities only.
+                                Customer order stock deductions will be handled by the Order/Delivery completion workflow.
                             </small>
                         </div>
 
@@ -321,7 +327,7 @@
                             <label for="outRemarks">Remarks</label>
                             <textarea id="outRemarks"
                                       rows="3"
-                                      placeholder="Required for spoilage or a FIFO override"></textarea>
+                                      maxlength="5000" placeholder="Required for spoilage or a FIFO override"></textarea>
                         </div>
                     </div>
                 </div>
@@ -393,6 +399,7 @@
             </div>
 
             <form id="inventoryUnitForm">
+                @csrf
                 <div class="modal-body">
                     <div class="inv-error"
                          id="inventoryUnitError"
@@ -440,3 +447,4 @@
     </div>
 </div>
 @endsection
+
