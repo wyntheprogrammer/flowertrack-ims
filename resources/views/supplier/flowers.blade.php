@@ -35,7 +35,10 @@
             </div>
 
             <div class="flower-table-container">
-                <table id="flowerTable" class="flower-table">
+                <table id="flowerTable" class="flower-table"
+                    data-url="{{ route('supplier.flowers.data') }}"
+                    data-update-url="{{ route('supplier.flowers.update', ['flower' => '__FLOWER__']) }}"
+                    data-deactivate-url="{{ route('supplier.flowers.deactivate', ['flower' => '__FLOWER__']) }}">
                     <thead>
                         <tr>
                             <th>Flower Details</th>
@@ -64,7 +67,8 @@
                     </div>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <form id="flowerForm">
+                <form id="flowerForm" action="{{ route('supplier.flowers.store') }}" method="POST" enctype="multipart/form-data">
+                    @csrf
                     <div class="modal-body flower-modal-body">
                         <input type="hidden" id="flowerEditingCode">
                         <div class="flower-form-grid">
@@ -94,7 +98,7 @@
                             </div>
                             <div class="flower-form-group">
                                 <label for="flowerName">Item Name <span>*</span></label>
-                                <input type="text" id="flowerName" placeholder="Enter flower or bouquet name" required>
+                                <input type="text" id="flowerName" maxlength="150" placeholder="Enter flower or bouquet name" required>
                             </div>
                             <div class="flower-form-group">
                                 <label for="flowerCategory">Category <span>*</span></label>
@@ -114,19 +118,19 @@
                             </div>
                             <div class="flower-form-group">
                                 <label for="flowerMinimumStock">Minimum Stock <span>*</span></label>
-                                <input type="number" id="flowerMinimumStock" min="1" step="1"
+                                <input type="number" id="flowerMinimumStock" min="1" max="4294967295" step="1"
                                     placeholder="Enter minimum stock" required>
                                 <small id="flowerMinimumStockHelp">Minimum quantity in stems.</small>
                             </div>
                             <div class="flower-form-group flower-form-full">
                                 <label for="flowerDescription">Description <span>*</span></label>
-                                <textarea id="flowerDescription" rows="4" placeholder="Enter flower description"
+                                <textarea id="flowerDescription" rows="4" maxlength="5000" placeholder="Enter flower description"
                                     required></textarea>
                             </div>
                             <div class="flower-form-group flower-form-full">
                                 <label for="flowerImage">Primary Flower Image</label>
-                                <input type="file" id="flowerImage" accept="image/*">
-                                <small>Image is optional. Select one primary image.</small>
+                                <input type="file" id="flowerImage" accept="image/jpeg,image/png,image/webp">
+                                <small>Optional JPG, PNG or WebP image. Maximum 2 MB.</small>
                                 <div id="flowerImagePreviewWrapper" class="flower-image-preview-wrapper d-none">
                                     <img id="flowerImagePreview" alt="Flower preview">
                                     <button type="button" id="removeFlowerImage" class="flower-remove-image">
@@ -168,3 +172,4 @@
 @push('scripts')
     @vite('resources/js/supplier/flowers.js')
 @endpush
+

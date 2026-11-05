@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Supplier\FlowerController;
 
 // Public home
 Route::view('/', 'welcome');
@@ -44,8 +45,26 @@ Route::middleware('auth')->group(function () {
                 Route::view('/dashboard', 'supplier.dashboard')
                     ->name('dashboard');
 
-                Route::view('/flowers', 'supplier.flowers')
+
+                    
+                Route::get('/flowers', [FlowerController::class, 'index'])
                     ->name('flowers');
+
+                Route::get('/flowers/data', [FlowerController::class, 'data'])
+                    ->name('flowers.data');
+
+                Route::post('/flowers', [FlowerController::class, 'store'])
+                    ->name('flowers.store');
+
+                Route::post('/flowers/{flower}/update', [FlowerController::class, 'update'])
+                    ->whereNumber('flower')
+                    ->name('flowers.update');
+
+                Route::post('/flowers/{flower}/deactivate', [FlowerController::class, 'deactivate'])
+                    ->whereNumber('flower')
+                    ->name('flowers.deactivate');
+
+
 
                 Route::view('/inventory', 'supplier.inventory')
                     ->name('inventory');
