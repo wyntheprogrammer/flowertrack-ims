@@ -19,8 +19,7 @@
 
             <div class="client-notice">
                 <i class="bi bi-info-circle" aria-hidden="true"></i>
-                UI preview uses sample data. Account creation and authentication
-                will be connected during backend development.
+                Manage client accounts and contact details. Deactivation preserves existing records.
             </div>
 
             
@@ -49,7 +48,12 @@
             </div>
 
             <div class="client-table-container">
-                <table id="clientTable">
+                <table id="clientTable"
+                    data-url="{{ route('supplier.clients.data') }}"
+                    data-store-url="{{ route('supplier.clients.store') }}"
+                    data-show-url="{{ route('supplier.clients.show', ['client' => '__CLIENT__']) }}"
+                    data-update-url="{{ route('supplier.clients.update', ['client' => '__CLIENT__']) }}"
+                    data-status-url="{{ route('supplier.clients.status', ['client' => '__CLIENT__']) }}">
                     <thead>
                         <tr>
                             <th scope="col">Client Details</th>
@@ -63,7 +67,7 @@
                 </table>
             </div>
 
-            <div id="clientAnnouncement" class="visually-hidden" role="status"></div>
+            <p id="clientAnnouncement" class="client-form-note px-4 py-2" role="status" aria-live="polite" hidden></p>
         </div>
     </div>
 
@@ -91,6 +95,7 @@
                 </div>
 
                 <form id="clientForm">
+                    @csrf
                     <div class="modal-body">
                         <div id="clientFormError" class="client-form-error" role="alert" hidden></div>
 
@@ -151,14 +156,14 @@
                                 <input
                                     type="password"
                                     id="clientPassword"
-                                    minlength="8"
-                                    maxlength="128"
+                                    minlength="12"
+                                    maxlength="72"
                                     autocomplete="new-password"
                                     aria-describedby="clientPasswordHelp"
                                 >
                                 <small id="clientPasswordHelp">
-                                    Preview only. Use a dummy password of at least 8 characters.
-                                    It will not be stored.
+                                    Use at least 12 characters, up to 72 bytes.
+                                    The password is stored securely and is not shown after saving.
                                 </small>
                             </div>
 
@@ -175,8 +180,7 @@
                         </div>
 
                         <p class="client-form-note" id="clientAccountNote">
-                            In the completed system, new clients must change their
-                            temporary password at first login.
+                            New client accounts require a password change at their first sign-in.
                         </p>
                     </div>
 
@@ -259,6 +263,7 @@
 
                 <div class="modal-body">
                     <p class="client-status-message" id="clientStatusMessage"></p>
+                    <div id="clientStatusError" class="client-form-error" role="alert" hidden></div>
                 </div>
 
                 <div class="modal-footer">

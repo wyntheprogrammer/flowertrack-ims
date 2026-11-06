@@ -1,196 +1,70 @@
 import DataTable from 'datatables.net-bs5';
 import { Modal } from 'bootstrap';
 
-const escapeHtml = (value) =>
-    String(value ?? '').replace(/[&<>"']/g, (character) => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;',
-    })[character]);
+/* ==================================================
+   SHARED DISPLAY HELPERS
+================================================== */
 
-const money = (value) =>
-    new Intl.NumberFormat('en-PH', {
-        style: 'currency',
-        currency: 'PHP',
-    }).format(value);
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+})[character]);
 
 function formatDate(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return '—';
     const [year, month, day] = value.split('-').map(Number);
-
-    return new Intl.DateTimeFormat('en-PH', {
-        month: 'short',
-        day: '2-digit',
-        year: 'numeric',
-    }).format(new Date(year, month - 1, day));
-}
-
-function localToday() {
-    const date = new Date();
-
-    return [
-        date.getFullYear(),
-        String(date.getMonth() + 1).padStart(2, '0'),
-        String(date.getDate()).padStart(2, '0'),
-    ].join('-');
+    return new Intl.DateTimeFormat('en-PH', {month: 'short', day: '2-digit', year: 'numeric'})
+        .format(new Date(year, month - 1, day));
 }
 
 function initials(name) {
-    return name.trim()
-        .split(/\s+/)
-        .slice(0, 2)
-        .map((part) => Array.from(part)[0])
-        .join('')
-        .toUpperCase();
+    return name.trim().split(/\s+/).slice(0, 2).map(part => Array.from(part)[0]).join('').toUpperCase();
 }
 
 function statusBadge(status) {
-    return `
-        <span class="client-badge ${status.toLowerCase()}">
-            ${escapeHtml(status)}
-        </span>
-    `;
+    return `<span class="client-badge ${status.toLowerCase()}">${escapeHtml(status)}</span>`;
 }
 
-/*
- * UI sample data only.
- * Passwords are never included in these records.
- */
-const sampleClients = [
-    {
-        id: 'CLI-001',
-        name: 'Maria Santos',
-        email: 'maria@example.com',
-        phone: '0917 000 1001',
-        address: 'Quezon City, Metro Manila',
-        registered: '2026-10-01',
-        status: 'Active',
-    },
-    {
-        id: 'CLI-002',
-        name: 'Carlo Reyes',
-        email: 'carlo@example.com',
-        phone: '0917 000 1002',
-        address: 'Makati City, Metro Manila',
-        registered: '2026-10-05',
-        status: 'Active',
-    },
-    {
-        id: 'CLI-003',
-        name: 'Angela Cruz',
-        email: 'angela@example.com',
-        phone: '0917 000 1003',
-        address: 'Pasig City, Metro Manila',
-        registered: '2026-10-08',
-        status: 'Inactive',
-    },
-    {
-        id: 'CLI-004',
-        name: 'Daniel Garcia',
-        email: 'daniel@example.com',
-        phone: '0917 000 1004',
-        address: 'Marikina City, Metro Manila',
-        registered: '2026-10-12',
-        status: 'Active',
-    },
-    {
-        id: 'CLI-005',
-        name: 'Isabel Ramos',
-        email: 'isabel@example.com',
-        phone: '0917 000 1005',
-        address: 'Manila, Metro Manila',
-        registered: '2026-10-18',
-        status: 'Active',
-    },
-    {
-        id: 'CLI-006',
-        name: 'Paolo Mendoza',
-        email: 'paolo@example.com',
-        phone: '0917 000 1006',
-        address: 'Antipolo City, Rizal',
-        registered: '2026-10-25',
-        status: 'Inactive',
-    },
-];
-
-/*
- * Separate sample order records.
- * Profile totals are derived from these records, never edited manually.
- * Final order/payment definitions will be integrated with the backend.
- */
-const sampleOrders = [
-    {
-        id: 'ORD-001',
-        clientId: 'CLI-001',
-        date: '2026-10-10',
-        status: 'Completed',
-        amount: 2500,
-    },
-    {
-        id: 'ORD-002',
-        clientId: 'CLI-001',
-        date: '2026-10-26',
-        status: 'Completed',
-        amount: 1800,
-    },
-    {
-        id: 'ORD-003',
-        clientId: 'CLI-001',
-        date: '2026-11-03',
-        status: 'Pending',
-        amount: 3200,
-    },
-    {
-        id: 'ORD-004',
-        clientId: 'CLI-002',
-        date: '2026-10-22',
-        status: 'Completed',
-        amount: 4200,
-    },
-    {
-        id: 'ORD-005',
-        clientId: 'CLI-003',
-        date: '2026-10-15',
-        status: 'Completed',
-        amount: 1500,
-    },
-    {
-        id: 'ORD-006',
-        clientId: 'CLI-004',
-        date: '2026-11-02',
-        status: 'Confirmed',
-        amount: 2800,
-    },
-    {
-        id: 'ORD-007',
-        clientId: 'CLI-005',
-        date: '2026-10-30',
-        status: 'Cancelled',
-        amount: 1200,
-    },
-];
+/* ==================================================
+   CLIENT MANAGEMENT — DATABASE-BACKED ACCOUNTS
+================================================== */
 
 class ClientManagementUI {
+    /* ==================================================
+       CONSTRUCTOR
+    ================================================== */
+
     constructor(element) {
         this.element = element;
-        this.clients = sampleClients.map((client) => ({ ...client }));
-        this.orders = sampleOrders;
+        this.clients = [];
+        this.ready = false;
+        this.loading = false;
+        this.saving = false;
+        this.profileLoading = false;
+        this.committed = false;
+        this.editingId = null;
+        this.editingVersion = null;
         this.pendingStatusId = null;
-
+        this.pendingStatusVersion = null;
+        this.pendingDesiredStatus = null;
         this.form = this.el('clientForm');
         this.formModal = Modal.getOrCreateInstance(this.el('clientFormModal'));
         this.viewModal = Modal.getOrCreateInstance(this.el('clientViewModal'));
         this.statusModal = Modal.getOrCreateInstance(this.el('clientStatusModal'));
-
         this.initializeTable();
         this.mountScroller();
         this.bindEvents();
+        this.loadClients();
     }
 
-    el(id) {
-        return document.getElementById(id);
-    }
+    /* ==================================================
+       EL
+    ================================================== */
+
+    el(id) { return document.getElementById(id); }
+
+    /* ==================================================
+       INITIALIZE TABLE
+    ================================================== */
 
     initializeTable() {
         this.table = new DataTable(this.element, {
@@ -324,6 +198,10 @@ class ClientManagementUI {
         });
     }
 
+    /* ==================================================
+       MOUNT SCROLLER
+    ================================================== */
+
     mountScroller() {
         const wrapper = document.createElement('div');
 
@@ -339,358 +217,456 @@ class ClientManagementUI {
         wrapper.append(this.element);
     }
 
+    /* ==================================================
+       BIND EVENTS
+    ================================================== */
+
     bindEvents() {
         this.el('addClientBtn').addEventListener('click', () => this.openForm());
-
-        this.el('clientSearch').addEventListener('input', (event) => {
-            this.table.search(event.target.value).draw();
+        ['input', 'search'].forEach(event => {
+            this.el('clientSearch').addEventListener(event, () => this.applySearch());
         });
-
-        this.el('clientPageLength').addEventListener('change', (event) => {
-            this.table.page.len(Number(event.target.value)).draw();
+        this.el('clientPageLength').addEventListener('change', event => {
+            const length = Number(event.target.value);
+            if ([5, 10, 25, 50].includes(length)) this.table.page.len(length).draw();
         });
-
-        this.element.addEventListener('click', (event) => {
+        this.table.on('length', (_event, _settings, length) => {
+            this.el('clientPageLength').value = String(length);
+        });
+        this.element.addEventListener('click', event => {
             const button = event.target.closest('[data-client-action]');
-
-            if (!button) {
-                return;
-            }
-
-            const client = this.clients.find(
-                (item) => item.id === button.dataset.clientId,
-            );
-
-            if (!client) {
-                return;
-            }
-
-            switch (button.dataset.clientAction) {
-                case 'view':
-                    this.showProfile(client);
-                    break;
-                case 'edit':
-                    this.openForm(client);
-                    break;
-                case 'status':
-                    this.openStatusConfirmation(client);
-                    break;
-            }
+            if (!button || button.disabled || !this.ready || this.saving || this.profileLoading) return;
+            const client = this.clients.find(item => item.id === button.dataset.clientId);
+            if (!client) return;
+            if (button.dataset.clientAction === 'view') this.showProfile(client);
+            if (button.dataset.clientAction === 'edit') this.openForm(client);
+            if (button.dataset.clientAction === 'status') this.openStatusConfirmation(client);
         });
-
-        this.form.addEventListener('submit', (event) => {
+        this.form.addEventListener('submit', event => {
             event.preventDefault();
             this.saveClient();
         });
-
-        this.el('confirmClientStatus').addEventListener('click', () => {
-            this.confirmStatus();
+        this.el('confirmClientStatus').addEventListener('click', () => this.confirmStatus());
+        ['clientFormModal', 'clientStatusModal'].forEach(id => {
+            this.el(id).addEventListener('hide.bs.modal', event => {
+                if (this.saving && !this.committed) event.preventDefault();
+            });
         });
-
         this.el('clientFormModal').addEventListener('hidden.bs.modal', () => {
             this.form.reset();
             this.el('clientPassword').value = '';
+            this.editingId = null;
+            this.editingVersion = null;
             this.hideFormError();
         });
-
         this.el('clientStatusModal').addEventListener('hidden.bs.modal', () => {
             this.pendingStatusId = null;
+            this.pendingStatusVersion = null;
+            this.pendingDesiredStatus = null;
         });
     }
 
-    refreshTable(resetPaging = true) {
+    /* ==================================================
+       ACCEPT ONLY PUBLIC CLIENT FIELDS — NEVER PASSWORDS
+    ================================================== */
+
+    
+
+    mapClient(row) {
+        if (!row || !Number.isSafeInteger(row.dbId) || row.dbId < 1
+            || typeof row.id !== 'string' || !row.id.startsWith('CLI-')
+            || !['Active', 'Inactive'].includes(row.status)
+            || !/^[a-f0-9]{64}$/.test(row.version)
+            || !/^\d{4}-\d{2}-\d{2}$/.test(row.registered)) {
+            throw new Error('Invalid client response. Refresh the list before retrying.');
+        }
+        return {
+            dbId: row.dbId, id: row.id, name: row.name, email: row.email,
+            phone: row.phone, address: row.address, registered: row.registered,
+            status: row.status, version: row.version,
+        };
+    }
+
+    /* ==================================================
+       BUILD ENDPOINTS FROM LARAVEL NAMED ROUTES
+    ================================================== */
+
+    
+
+    endpoint(name, id = null) {
+        let url = this.element.dataset[name];
+        if (!url) throw new Error('Missing client endpoint. Replace the Blade file too.');
+        if (id !== null) {
+            if (!url.includes('__CLIENT__')) throw new Error('Invalid client URL template.');
+            url = url.replace('__CLIENT__', encodeURIComponent(String(id)));
+        }
+        return url;
+    }
+
+    /* ==================================================
+       FETCH JSON WITH SESSION AND CSRF PROTECTION
+    ================================================== */
+
+    
+
+    async request(url, payload = null) {
+        const headers = {Accept: 'application/json'};
+        if (payload !== null) {
+            const token = this.form.querySelector('[name="_token"]')?.value;
+            if (!token) throw new Error('Missing CSRF token. Add @csrf inside the client form.');
+            headers['X-CSRF-TOKEN'] = token;
+            headers['Content-Type'] = 'application/json';
+        }
+        const response = await fetch(url, {
+            method: payload === null ? 'GET' : 'POST', headers,
+            credentials: 'same-origin', redirect: 'error',
+            ...(payload === null ? {} : {body: JSON.stringify(payload)}),
+        });
+        const isJson = (response.headers.get('content-type') || '').includes('application/json');
+        const result = isJson ? await response.json() : {};
+        if (!response.ok) {
+            const messages = {
+                401: 'Your session has expired. Please log in again.',
+                403: 'Your account cannot perform this action.',
+                404: 'The client or endpoint was not found. Refresh the page.',
+                419: 'Your session token has expired. Refresh the page.',
+            };
+            const error = new Error(messages[response.status]
+                || (response.status >= 500 ? 'The server could not complete the request.' : result.message)
+                || 'Unable to complete the request.');
+            error.status = response.status;
+            error.errors = result.errors || {};
+            throw error;
+        }
+        if (!isJson) throw new Error('Unexpected response. Refresh the page and check your login.');
+        return result;
+    }
+
+    /* ==================================================
+       LOAD ACTUAL CLIENT ACCOUNTS
+    ================================================== */
+
+    
+
+    async loadClients() {
+        if (this.loading || this.saving) return;
+        this.loading = true;
+        this.ready = false;
+        this.updateControls();
+        this.announce('Loading client records...');
+        try {
+            const result = await this.request(this.endpoint('url'));
+            if (!Array.isArray(result.data)) throw new Error('Invalid client list response.');
+            const records = result.data.map(row => this.mapClient(row));
+            this.clients = records;
+            this.refreshTable(false);
+            this.ready = true;
+            this.announce(records.length ? '' : 'No client accounts yet. Click Add New Client to begin.');
+        } catch (error) {
+            this.announce(error.message || 'Unable to load client records.', true);
+        } finally {
+            this.loading = false;
+            this.updateControls();
+        }
+    }
+
+    /* ==================================================
+       PRESERVE APPROVED SEARCH, SORTING AND PAGINATION
+    ================================================== */
+
+    
+
+    refreshTable(resetPaging = false) {
         this.table.clear();
         this.table.rows.add(this.clients);
         this.table.draw(resetPaging);
     }
 
-    nextId() {
-        const maximum = this.clients.reduce((highest, client) =>
-            Math.max(highest, Number(client.id.split('-')[1]) || 0), 0);
+    /* ==================================================
+       APPLY SEARCH
+    ================================================== */
 
-        return `CLI-${String(maximum + 1).padStart(3, '0')}`;
+    applySearch() {
+        this.table.search(this.el('clientSearch').value.trim(), {
+            regex: false, smart: true, caseInsensitive: true,
+        }).draw();
     }
+
+    /* ==================================================
+       UPDATE ONE RECORD ONLY AFTER BACKEND SUCCESS
+    ================================================== */
+
+    
+
+    upsertClient(data) {
+        const client = this.mapClient(data);
+        const index = this.clients.findIndex(item => item.dbId === client.dbId);
+        if (index === -1) this.clients.unshift(client);
+        else this.clients.splice(index, 1, client);
+        this.refreshTable(false);
+        this.updateControls();
+        return client;
+    }
+
+    /* ==================================================
+       LOCK WRITE ACTIONS AND FORMS DURING REQUESTS
+    ================================================== */
+
+    
+
+    updateControls() {
+        const unavailable = !this.ready || this.loading || this.saving || this.profileLoading;
+        this.el('addClientBtn').disabled = unavailable;
+        this.element.querySelectorAll('[data-client-action]').forEach(button => {button.disabled = unavailable;});
+        for (const id of ['clientName', 'clientEmail', 'clientPhone', 'clientAddress', 'clientStatus']) {
+            this.el(id).disabled = this.saving;
+        }
+        this.el('clientPassword').disabled = this.saving || this.editingId !== null;
+        this.form.querySelector('[type="submit"]').disabled = unavailable;
+        this.el('confirmClientStatus').disabled = unavailable;
+        this.form.setAttribute('aria-busy', String(this.saving));
+    }
+
+    /* ==================================================
+       OPEN CREATE / EDIT FORM
+       Temporary password exists only in the creation form.
+    ================================================== */
+
+    
+
+    openForm(client = null) {
+        if (!this.ready || this.saving || this.profileLoading) return;
+        this.form.reset();
+        this.hideFormError();
+        this.editingId = client?.dbId || null;
+        this.editingVersion = client?.version || null;
+        const editing = this.editingId !== null;
+        this.el('clientFormTitle').textContent = editing ? 'Edit Client' : 'Add New Client';
+        this.el('clientEditingId').value = client?.id || '';
+        this.el('clientCode').value = client?.id || 'Generated after saving';
+        this.el('clientName').value = client?.name || '';
+        this.el('clientEmail').value = client?.email || '';
+        this.el('clientPhone').value = client?.phone || '';
+        this.el('clientAddress').value = client?.address || '';
+        this.el('clientStatus').value = client?.status || 'Active';
+        this.el('clientPasswordField').hidden = editing;
+        this.el('clientPassword').required = !editing;
+        this.el('clientPassword').value = '';
+        this.el('clientAccountNote').hidden = editing;
+        this.updateControls();
+        this.formModal.show();
+    }
+
+    /* ==================================================
+       SAVE CLIENT PROFILE AND FIXED-ROLE ACCOUNT
+    ================================================== */
+
+    
+
+    async saveClient() {
+        if (!this.ready || this.saving || !this.form.reportValidity()) return;
+        this.hideFormError();
+        const editing = this.editingId !== null;
+        const payload = {
+            name: this.el('clientName').value.trim(),
+            email: this.el('clientEmail').value.trim().toLowerCase(),
+            phone: this.el('clientPhone').value.trim(),
+            address: this.el('clientAddress').value.trim(),
+            status: this.el('clientStatus').value,
+        };
+        if (editing) payload.version = this.editingVersion;
+        else payload.password = this.el('clientPassword').value;
+        this.saving = true;
+        this.committed = false;
+        this.updateControls();
+        try {
+            const url = editing ? this.endpoint('updateUrl', this.editingId) : this.endpoint('storeUrl');
+            const result = await this.request(url, payload);
+            const client = this.upsertClient(result.data);
+            this.el('clientPassword').value = '';
+            this.committed = true;
+            this.formModal.hide();
+            this.announce(result.message || `${client.name} saved successfully.`);
+        } catch (error) {
+            this.showFormError(this.errorText(error));
+        } finally {
+            this.saving = false;
+            this.committed = false;
+            this.updateControls();
+        }
+    }
+
+    /* ==================================================
+       CONFIRM EXPLICIT ACCOUNT STATUS — NEVER BLIND TOGGLE
+    ================================================== */
+
+    
+
+    openStatusConfirmation(client) {
+        if (!this.ready || this.saving || this.profileLoading) return;
+        this.pendingStatusId = client.dbId;
+        this.pendingStatusVersion = client.version;
+        this.pendingDesiredStatus = client.status === 'Active' ? 'Inactive' : 'Active';
+        const deactivate = this.pendingDesiredStatus === 'Inactive';
+        this.el('clientStatusError').hidden = true;
+        this.el('clientStatusTitle').textContent = deactivate ? 'Deactivate Client' : 'Activate Client';
+        this.el('clientStatusMessage').textContent = deactivate
+            ? `Deactivate ${client.name}? The account will become inactive. Existing records will be retained.`
+            : `Activate ${client.name}? The account will become active again.`;
+        this.el('confirmClientStatus').textContent = deactivate ? 'Deactivate' : 'Activate';
+        this.statusModal.show();
+    }
+
+    /* ==================================================
+       CONFIRM STATUS
+    ================================================== */
+
+    async confirmStatus() {
+        if (!this.ready || this.saving || this.pendingStatusId === null) return;
+        this.el('clientStatusError').hidden = true;
+        this.saving = true;
+        this.committed = false;
+        this.updateControls();
+        try {
+            const result = await this.request(this.endpoint('statusUrl', this.pendingStatusId), {
+                status: this.pendingDesiredStatus,
+                version: this.pendingStatusVersion,
+            });
+            this.upsertClient(result.data);
+            this.committed = true;
+            this.statusModal.hide();
+            this.announce(result.message || 'Client account status updated.');
+        } catch (error) {
+            this.el('clientStatusError').textContent = this.errorText(error);
+            this.el('clientStatusError').hidden = false;
+        } finally {
+            this.saving = false;
+            this.committed = false;
+            this.updateControls();
+        }
+    }
+
+    /* ==================================================
+       CLEAR AND DISPLAY SERVER VALIDATION ERRORS
+    ================================================== */
+
+    
 
     hideFormError() {
         this.el('clientFormError').hidden = true;
         this.el('clientFormError').textContent = '';
     }
 
+    /* ==================================================
+       SHOW FORM ERROR
+    ================================================== */
+
     showFormError(message) {
         this.el('clientFormError').textContent = message;
         this.el('clientFormError').hidden = false;
     }
 
-    openForm(client = null) {
-        this.form.reset();
-        this.hideFormError();
+    /* ==================================================
+       ERROR TEXT
+    ================================================== */
 
-        const editing = Boolean(client);
-
-        this.el('clientFormTitle').textContent =
-            editing ? 'Edit Client' : 'Add New Client';
-
-        this.el('clientEditingId').value = client?.id || '';
-        this.el('clientCode').value = client?.id || this.nextId();
-        this.el('clientName').value = client?.name || '';
-        this.el('clientEmail').value = client?.email || '';
-        this.el('clientPhone').value = client?.phone || '';
-        this.el('clientAddress').value = client?.address || '';
-        this.el('clientStatus').value = client?.status || 'Active';
-
-        this.el('clientPasswordField').hidden = editing;
-        this.el('clientPassword').disabled = editing;
-        this.el('clientPassword').required = !editing;
-        this.el('clientPassword').value = '';
-        this.el('clientAccountNote').hidden = editing;
-
-        this.formModal.show();
+    errorText(error) {
+        const messages = Object.values(error.errors || {}).flat();
+        let text = messages.length ? messages.join('\n') : error.message || 'Unable to complete saving.';
+        if (error.errors?.version) text += ' Close the form, refresh the page, and reopen the client.';
+        if (!messages.length && ![401, 403, 404, 419, 422].includes(error.status)) {
+            text += ' Refresh to check whether saving succeeded before retrying.';
+        }
+        return text;
     }
 
-    saveClient() {
-        this.hideFormError();
+    /* ==================================================
+       ANNOUNCE
+    ================================================== */
 
-        if (!this.form.reportValidity()) {
-            return;
-        }
-
-        const editingId = this.el('clientEditingId').value;
-        const existing = this.clients.find((client) => client.id === editingId);
-
-        if (editingId && !existing) {
-            this.showFormError('Client record was not found. Reopen the form.');
-            return;
-        }
-
-        const name = this.el('clientName').value.trim();
-        const email = this.el('clientEmail').value.trim().toLowerCase();
-        const phone = this.el('clientPhone').value.trim();
-        const address = this.el('clientAddress').value.trim();
-        const status = this.el('clientStatus').value;
-
-        if (!name || !email || !phone || !address) {
-            this.showFormError('Complete all required fields.');
-            return;
-        }
-
-        if (!['Active', 'Inactive'].includes(status)) {
-            this.showFormError('Select a valid account status.');
-            return;
-        }
-
-        const duplicate = this.clients.some((client) =>
-            client.id !== editingId
-            && client.email.toLowerCase() === email,
-        );
-
-        if (duplicate) {
-            this.showFormError('This email address already belongs to another client.');
-            this.el('clientEmail').focus();
-            return;
-        }
-
-        /*
-         * Explicit allowlist: the temporary password is never copied,
-         * logged, persisted or included in a client record.
-         */
-        const record = {
-            id: existing?.id || this.nextId(),
-            name,
-            email,
-            phone,
-            address,
-            registered: existing?.registered || localToday(),
-            status,
-        };
-
-        if (existing) {
-            this.clients = this.clients.map((client) =>
-                client.id === editingId ? record : client,
-            );
-        } else {
-            this.clients.push(record);
-        }
-
-        this.el('clientPassword').value = '';
-        this.refreshTable(false);
-        this.formModal.hide();
-        this.announce(`${record.name} ${existing ? 'updated' : 'added'} in this preview.`);
+    announce(message, isError = false) {
+        const element = this.el('clientAnnouncement');
+        element.textContent = message;
+        element.hidden = !message;
+        element.classList.toggle('text-danger', isError);
     }
 
-    openStatusConfirmation(client) {
-        this.pendingStatusId = client.id;
+    /* ==================================================
+       LOAD AUTHORITATIVE PROFILE
+       Order history remains unavailable until Orders integration.
+    ================================================== */
 
-        const deactivate = client.status === 'Active';
+    
 
-        this.el('clientStatusTitle').textContent =
-            deactivate ? 'Deactivate Client' : 'Activate Client';
-
-        this.el('clientStatusMessage').textContent = deactivate
-            ? `Deactivate ${client.name}? In the completed system, inactive clients cannot place new orders. Existing orders and history remain accessible. This preview only changes the displayed status.`
-            : `Activate ${client.name}? In the completed system, reactivation restores eligibility to place new orders. This preview only changes the displayed status.`;
-
-        this.el('confirmClientStatus').textContent =
-            deactivate ? 'Deactivate' : 'Activate';
-
-        this.statusModal.show();
-    }
-
-    confirmStatus() {
-        const client = this.clients.find(
-            (item) => item.id === this.pendingStatusId,
-        );
-
-        if (!client) {
-            return;
+    async showProfile(client) {
+        if (!this.ready || this.saving || this.profileLoading) return;
+        this.profileLoading = true;
+        this.updateControls();
+        this.announce('Loading client details...');
+        try {
+            const result = await this.request(this.endpoint('showUrl', client.dbId));
+            const current = this.upsertClient(result.data);
+            this.renderProfile(current);
+            this.viewModal.show();
+            this.announce('');
+        } catch (error) {
+            this.announce(error.message || 'Unable to load client details.', true);
+        } finally {
+            this.profileLoading = false;
+            this.updateControls();
         }
-
-        client.status = client.status === 'Active' ? 'Inactive' : 'Active';
-
-        this.refreshTable(false);
-        this.statusModal.hide();
-        this.announce(`${client.name} is now ${client.status.toLowerCase()} in this preview.`);
     }
 
-    announce(message) {
-        this.el('clientAnnouncement').textContent = message;
-    }
+    /* ==================================================
+       RENDER PROFILE WITHOUT SAMPLE ORDERS OR FAKE TOTALS
+    ================================================== */
 
-    showProfile(client) {
-        const orders = this.orders
-            .filter((order) => order.clientId === client.id)
-            .slice()
-            .sort((a, b) => b.date.localeCompare(a.date));
+    
 
-        const completed = orders.filter((order) => order.status === 'Completed');
-        const ongoing = orders.filter((order) =>
-            ['Pending', 'Confirmed', 'Processing', 'Ready for Delivery', 'Out for Delivery', 'Ready for Pickup']
-                .includes(order.status),
-        );
-
-        // Explicit prototype definition: completed sample order amounts.
-        const purchases = completed.reduce((sum, order) => sum + order.amount, 0);
-
-        const history = orders.length
-            ? orders.map((order) => `
-                <tr>
-                    <td>${escapeHtml(order.id)}</td>
-                    <td>${formatDate(order.date)}</td>
-                    <td>
-                        <span class="client-badge order">
-                            ${escapeHtml(order.status)}
-                        </span>
-                    </td>
-                    <td>${money(order.amount)}</td>
-                </tr>
-            `).join('')
-            : `
-                <tr>
-                    <td colspan="4" class="client-history-empty">
-                        No sample orders for this client.
-                    </td>
-                </tr>
-            `;
-
+    renderProfile(client) {
         this.el('clientViewTitle').textContent = `Client Details — ${client.id}`;
-
         this.el('clientViewContent').innerHTML = `
             <div class="client-profile-heading">
-                <span class="client-avatar" aria-hidden="true">
-                    ${escapeHtml(initials(client.name))}
-                </span>
-                <div>
-                    <h3>${escapeHtml(client.name)}</h3>
-                    <p>${escapeHtml(client.id)}</p>
-                </div>
+                <span class="client-avatar" aria-hidden="true">${escapeHtml(initials(client.name))}</span>
+                <div><h3>${escapeHtml(client.name)}</h3><p>${escapeHtml(client.id)}</p></div>
                 ${statusBadge(client.status)}
             </div>
-
             <dl class="client-profile-grid">
-                <div>
-                    <dt>Email Address</dt>
-                    <dd>${escapeHtml(client.email)}</dd>
-                </div>
-                <div>
-                    <dt>Contact Number</dt>
-                    <dd>${escapeHtml(client.phone)}</dd>
-                </div>
-                <div>
-                    <dt>Registration Date</dt>
-                    <dd>${formatDate(client.registered)}</dd>
-                </div>
-                <div>
-                    <dt>Address</dt>
-                    <dd>${escapeHtml(client.address)}</dd>
-                </div>
+                <div><dt>Email Address</dt><dd>${escapeHtml(client.email)}</dd></div>
+                <div><dt>Contact Number</dt><dd>${escapeHtml(client.phone)}</dd></div>
+                <div><dt>Registration Date</dt><dd>${formatDate(client.registered)}</dd></div>
+                <div><dt>Address</dt><dd>${escapeHtml(client.address)}</dd></div>
             </dl>
-
             <h4 class="client-section-title">Purchase Summary</h4>
-
             <div class="client-purchase-summary">
-                <div>
-                    <span>Total Orders</span>
-                    <strong>${orders.length}</strong>
-                </div>
-                <div>
-                    <span>Completed Purchases</span>
-                    <strong>${money(purchases)}</strong>
-                </div>
-                <div>
-                    <span>Completed Orders</span>
-                    <strong>${completed.length}</strong>
-                </div>
-                <div>
-                    <span>Pending / Ongoing</span>
-                    <strong>${ongoing.length}</strong>
-                </div>
+                <div><span>Total Orders</span><strong>—</strong></div>
+                <div><span>Completed Purchases</span><strong>—</strong></div>
+                <div><span>Completed Orders</span><strong>—</strong></div>
+                <div><span>Pending / Ongoing</span><strong>—</strong></div>
             </div>
-
-            <p class="client-form-note">
-                Sample order records only. Completed Purchases is the sum of
-                completed sample order amounts, not a payment balance.
-                Backend integration will use authoritative order and payment rules.
-            </p>
-
+            <p class="client-form-note">Order history and purchase totals are not yet available.</p>
             <h4 class="client-section-title">Order History</h4>
-
-            <div
-                class="client-history-scroll"
-                tabindex="0"
-                role="region"
-                aria-label="Client order history"
-            >
+            <div class="client-history-scroll" tabindex="0" role="region" aria-label="Client order history">
                 <table class="client-history">
-                    <thead>
-                        <tr>
-                            <th scope="col">Order ID</th>
-                            <th scope="col">Date</th>
-                            <th scope="col">Status</th>
-                            <th scope="col">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>${history}</tbody>
+                    <thead><tr><th scope="col">Order ID</th><th scope="col">Date</th><th scope="col">Status</th><th scope="col">Amount</th></tr></thead>
+                    <tbody><tr><td colspan="4" class="client-history-empty">Order history is not yet available.</td></tr></tbody>
                 </table>
-            </div>
-        `;
-
-        this.viewModal.show();
+            </div>`;
     }
 }
 
+/* ==================================================
+   START ONLY ON THE CLIENT MANAGEMENT PAGE
+================================================== */
+
 function initializeClientManagement() {
     const table = document.getElementById('clientTable');
-
-    if (!table || DataTable.isDataTable(table)) {
-        return;
-    }
-
+    if (!table || DataTable.isDataTable(table)) return;
     new ClientManagementUI(table);
 }
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeClientManagement, {
-        once: true,
-    });
+    document.addEventListener('DOMContentLoaded', initializeClientManagement, {once: true});
 } else {
     initializeClientManagement();
 }

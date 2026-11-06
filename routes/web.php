@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Supplier\FlowerController;
 use App\Http\Controllers\Supplier\InventoryController;
 use App\Http\Controllers\Supplier\BatchController;
-
+use App\Http\Controllers\Supplier\ClientController;
 
 // Public home
 Route::view('/', 'welcome');
@@ -106,8 +106,30 @@ Route::middleware('auth')->group(function () {
                 Route::view('/spoilage-prediction', 'supplier.spoilage-prediction')
                     ->name('spoilage-prediction');
 
-                Route::view('/clients', 'supplier.clients')
+
+
+                Route::get('/clients', [ClientController::class, 'index'])
                     ->name('clients');
+
+                Route::get('/clients/data', [ClientController::class, 'data'])
+                    ->name('clients.data');
+
+                Route::get('/clients/{client}', [ClientController::class, 'show'])
+                    ->whereNumber('client')
+                    ->name('clients.show');
+
+                Route::post('/clients', [ClientController::class, 'store'])
+                    ->name('clients.store');
+
+                Route::post('/clients/{client}/update', [ClientController::class, 'update'])
+                    ->whereNumber('client')
+                    ->name('clients.update');
+
+                Route::post('/clients/{client}/status', [ClientController::class, 'status'])
+                    ->whereNumber('client')
+                    ->name('clients.status');
+
+
 
                 Route::view('/orders', 'supplier.orders')
                     ->name('orders');
