@@ -4,6 +4,8 @@ use App\Http\Controllers\AuthController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Supplier\FlowerController;
 use App\Http\Controllers\Supplier\InventoryController;
+use App\Http\Controllers\Supplier\BatchController;
+
 
 // Public home
 Route::view('/', 'welcome');
@@ -89,8 +91,17 @@ Route::middleware('auth')->group(function () {
 
 
 
-                Route::view('/batches', 'supplier.batches')
+                Route::get('/batches', [BatchController::class, 'index'])
                     ->name('batches');
+
+                Route::get('/batches/data', [BatchController::class, 'data'])
+                    ->name('batches.data');
+
+                Route::post('/batches/{batch}/update', [BatchController::class, 'update'])
+                    ->whereNumber('batch')
+                    ->name('batches.update');
+
+
 
                 Route::view('/spoilage-prediction', 'supplier.spoilage-prediction')
                     ->name('spoilage-prediction');

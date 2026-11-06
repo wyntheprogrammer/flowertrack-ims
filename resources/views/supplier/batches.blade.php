@@ -3,7 +3,9 @@
 @section('title', 'Batch Management')
 
 @section('content')
-<div class="batch-page" id="batchPage">
+<div class="batch-page" id="batchPage"
+    data-url="{{ route('supplier.batches.data') }}"
+    data-update-url="{{ route('supplier.batches.update', ['batch' => '__BATCH__']) }}">
     <div class="batch-card">
 
         {{-- Header --}}
@@ -13,7 +15,7 @@
                 <p>Monitor flower batches, freshness, and movement history.</p>
             </div>
 
-            <a href="{{ url('/supplier/inventory') }}"
+            <a href="{{ route('supplier.inventory') }}"
                class="batch-primary-btn">
                 <i class="bi bi-box-seam" aria-hidden="true"></i>
                 Go to Inventory
@@ -136,7 +138,7 @@
 
                 <div class="batch-history-heading">
                     <h3>Movement History</h3>
-                    <p>Stock-In and Stock-Out records for this batch.</p>
+                    <p>Stock receipts, issues, receipt corrections, and information changes.</p>
                 </div>
 
                 <div class="batch-history-container">
@@ -191,6 +193,7 @@
             </div>
 
             <form id="batchEditForm">
+                @csrf
                 <div class="modal-body">
                     <div class="batch-error"
                          id="batchEditError"
@@ -246,7 +249,7 @@
                         <div class="batch-form-field batch-form-full">
                             <label for="batchEditRemarks">Remarks</label>
                             <textarea id="batchEditRemarks"
-                                      rows="3"
+                                      rows="3" maxlength="5000"
                                       placeholder="Enter batch notes..."></textarea>
                         </div>
                     </div>
@@ -275,74 +278,4 @@
     </div>
 </div>
 
-{{-- Mark Batch as Spoiled --}}
-<div class="modal fade batch-modal"
-     id="batchSpoilModal"
-     tabindex="-1"
-     aria-labelledby="batchSpoilTitle"
-     aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-
-            <div class="modal-header">
-                <div>
-                    <h2 class="modal-title" id="batchSpoilTitle">
-                        Mark Batch as Spoiled
-                    </h2>
-                    <p>Record the reason and preserve batch history.</p>
-                </div>
-
-                <button type="button"
-                        class="btn-close"
-                        data-bs-dismiss="modal"
-                        aria-label="Close"></button>
-            </div>
-
-            <form id="batchSpoilForm">
-                <div class="modal-body">
-                    <input type="hidden" id="batchSpoilingId">
-
-                    <div id="batchSpoilSummary"></div>
-
-                    <div class="batch-warning">
-                        Record the remaining spoiled quantity as a Stock-Out
-                        with spoilage remarks in Inventory Management first.
-                        This action does not deduct stock.
-                    </div>
-
-                    <div class="batch-error"
-                         id="batchSpoilError"
-                         role="alert"
-                         hidden></div>
-
-                    <div class="batch-form-field">
-                        <label for="batchSpoilReason">
-                            Spoilage Reason <span>*</span>
-                        </label>
-                        <textarea id="batchSpoilReason"
-                                  rows="3"
-                                  placeholder="Explain why the batch is spoiled..."
-                                  required></textarea>
-                    </div>
-                </div>
-
-                <div class="modal-footer">
-                    <button type="button"
-                            class="batch-secondary-btn"
-                            data-bs-dismiss="modal">
-                        Cancel
-                    </button>
-
-                    <button type="submit"
-                            class="batch-danger-btn"
-                            id="batchSpoilConfirm"
-                            disabled>
-                        Mark as Spoiled
-                    </button>
-                </div>
-            </form>
-
-        </div>
-    </div>
-</div>
 @endsection

@@ -17,17 +17,6 @@ const escapeHTML = (value) => String(value ?? '').replace(
 
 const number = (value) => Number(value).toLocaleString();
 
-const dateOffset = (offset = 0) => {
-    const date = new Date();
-    date.setDate(date.getDate() + offset);
-
-    return [
-        date.getFullYear(),
-        String(date.getMonth() + 1).padStart(2, '0'),
-        String(date.getDate()).padStart(2, '0')
-    ].join('-');
-};
-
 const dayNumber = (value) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return NaN;
 
@@ -45,113 +34,86 @@ const dayNumber = (value) => {
     return date.getTime() / 86400000;
 };
 
-// UI demonstration setting, not a finalized freshness policy.
-const FRESHNESS_WARNING_DAYS = 3;
-
-/* SAMPLE DATA AND BATCH RULES */
-
+/* ==================================================
+   DATABASE SNAPSHOT — NO LOCAL STOCK MUTATIONS
+================================================== */
 class BatchModel {
+    /* ==================================================
+       CONSTRUCTOR
+    ================================================== */
+
     constructor() {
-        this.flowers = [
-            ['FLW-001', 'Red Rose', 'Roses'],
-            ['FLW-002', 'White Rose', 'Roses'],
-            ['FLW-003', 'Sunflower', 'Sunflowers'],
-            ['FLW-004', 'Pink Tulip', 'Tulips'],
-            ['FLW-005', 'White Lily', 'Lilies'],
-            ['FLW-006', 'Pink Carnation', 'Carnations'],
-            ['FLW-007', 'Gerbera Daisy', 'Gerberas'],
-            ['FLW-008', "Baby's Breath", 'Fillers'],
-            ['FLW-009', 'Classic Rose Bouquet', 'Roses', 'Bouquet'],
-            ['FLW-010', 'Mixed Flower Bouquet', 'Mixed Flowers', 'Bouquet']
-        ].map(([code, name, category, itemType = 'Stem']) => ({
-            code,
-            name,
-            category,
-            itemType,
-            baseUnit: itemType
-        }));
-
-        // Separate frontend samples.
-        // These are not synchronized with Inventory yet.
-        const samples = [
-            // Flower, initial, remaining, age, expiry offset,
-            // spoilage Stock-Out recorded, already marked Spoiled
-            ['FLW-001', 100, 80, 8, 2, false, false],
-            ['FLW-001', 150, 150, 3, 6, false, false],
-            ['FLW-002', 50, 50, 4, 1, false, false],
-            ['FLW-003', 120, 100, 3, -1, false, false],
-            ['FLW-004', 30, 30, 2, null, false, false],
-            ['FLW-006', 75, 25, 5, 2, false, false],
-            ['FLW-007', 60, 60, 2, 5, false, false],
-            ['FLW-008', 30, 0, 7, -2, false, false],
-            ['FLW-005', 40, 0, 6, -1, true, false],
-            ['FLW-002', 60, 0, 9, -3, true, true],
-            ['FLW-009', 12, 10, 2, 3, false, false],
-            ['FLW-010', 8, 8, 1, 4, false, false]
-        ];
-
-        this.batches = samples.map(([
-            flower,
-            initial,
-            remaining,
-            age,
-            expiry,
-            spoilageOut,
-            spoiled
-        ], index) => {
-            const received = dateOffset(-age);
-
-            const history = [{
-                date: `${received} 08:00:00`,
-                type: 'Stock-In',
-                quantity: initial,
-                remarks: 'Sample receipt from Inventory.',
-                user: 'Administrator',
-                reason: 'Receipt'
-            }];
-
-            if (initial > remaining) {
-                history.push({
-                    date: `${received} 10:00:00`,
-                    type: 'Stock-Out',
-                    quantity: initial - remaining,
-                    remarks: spoilageOut
-                        ? 'Spoiled flowers issued through Inventory.'
-                        : 'Sample stock usage.',
-                    user: 'Administrator',
-                    reason: spoilageOut ? 'Spoilage' : 'Other use'
-                });
-            }
-
-            return {
-                id: `BAT-${String(index + 1).padStart(3, '0')}`,
-                flower,
-                initial,
-                remaining,
-                received,
-                harvest: dateOffset(-age - 1),
-                expiry: expiry === null ? '' : dateOffset(expiry),
-                remarks: 'Sample batch record.',
-                spoiled,
-                spoilageReason: spoiled
-                    ? 'Flowers deteriorated; spoilage Stock-Out already recorded.'
-                    : '',
-                history
-            };
-        });
+        this.flowers = [];
+        this.batches = [];
+        this.today = '';
+        this.warningDays = 3;
     }
+
+    /* ==================================================
+       HYDRATE
+    ================================================== */
+
+    hydrate(result) {
+        const data = result?.data;
+        if (!data || !Array.isArray(data.flowers) || !Array.isArray(data.batches)
+            || !Number.isFinite(dayNumber(result.today))
+            || !Number.isInteger(result.warning_days) || result.warning_days < 0) {
+            throw new Error('Invalid batch response. Refresh the page.');
+        }
+        for (const flower of data.flowers) {
+            if (!['Stem', 'Bouquet'].includes(flower.baseUnit)) throw new Error('Invalid batch item unit.');
+        }
+        for (const batch of data.batches) {
+            if (!Number.isSafeInteger(batch.dbId) || batch.dbId < 1
+                || !Number.isSafeInteger(batch.initial) || batch.initial < 1
+                || !Number.isSafeInteger(batch.remaining) || batch.remaining < 0
+                || batch.remaining > batch.initial
+                || typeof batch.spoiled !== 'boolean'
+                || !/^[a-f0-9]{64}$/.test(batch.version)
+                || !data.flowers.some(flower => flower.code === batch.flower)
+                || !Number.isFinite(dayNumber(batch.received))
+                || !Number.isFinite(dayNumber(batch.harvest))
+                || (batch.expiry && !Number.isFinite(dayNumber(batch.expiry)))
+                || !Array.isArray(batch.history)) {
+                throw new Error('Invalid batch record. Refresh the page.');
+            }
+            for (const movement of batch.history) {
+                if (!Number.isSafeInteger(movement.quantity)) throw new Error('Invalid movement quantity.');
+            }
+        }
+        this.flowers = data.flowers;
+        this.batches = data.batches;
+        this.today = result.today;
+        this.warningDays = result.warning_days;
+    }
+
+    /* ==================================================
+       FLOWER
+    ================================================== */
 
     flower(code) {
         return this.flowers.find((flower) => flower.code === code);
     }
 
+    /* ==================================================
+       UNIT LABEL
+    ================================================== */
+
     unitLabel(batch) {
         return this.flower(batch.flower).baseUnit === 'Bouquet' ? 'bouquets' : 'stems';
     }
 
+    /* ==================================================
+       FIND
+    ================================================== */
+
     find(id) {
         return this.batches.find((batch) => batch.id === id);
     }
+
+    /* ==================================================
+       STATUS
+    ================================================== */
 
     status(batch) {
         if (batch.spoiled) return 'Spoiled';
@@ -161,6 +123,10 @@ class BatchModel {
             ? 'Available'
             : 'Partially Used';
     }
+
+    /* ==================================================
+       FRESHNESS
+    ================================================== */
 
     freshness(batch) {
         if (batch.spoiled || batch.remaining === 0) {
@@ -179,7 +145,7 @@ class BatchModel {
             };
         }
 
-        const days = dayNumber(batch.expiry) - dayNumber(dateOffset());
+        const days = dayNumber(batch.expiry) - dayNumber(this.today);
 
         if (days < 0) {
             return {
@@ -197,7 +163,7 @@ class BatchModel {
             };
         }
 
-        if (days <= FRESHNESS_WARNING_DAYS) {
+        if (days <= this.warningDays) {
             return {
                 style: 'soon',
                 text: `Due in ${days} day${days === 1 ? '' : 's'}`,
@@ -212,119 +178,30 @@ class BatchModel {
         };
     }
 
-    update(id, data) {
-        const batch = this.find(id);
-
-        if (!batch) {
-            throw new Error('Batch not found.');
-        }
-
-        if (!Number.isFinite(dayNumber(data.harvest))) {
-            throw new Error('Enter a valid harvest date.');
-        }
-
-        if (data.harvest > batch.received) {
-            throw new Error(
-                'Harvest date cannot be later than Date Received.'
-            );
-        }
-
-        if (
-            data.expiry &&
-            (
-                !Number.isFinite(dayNumber(data.expiry)) ||
-                data.expiry < data.harvest
-            )
-        ) {
-            throw new Error(
-                'Freshness / expiry date must be on or after the harvest date.'
-            );
-        }
-
-        // Metadata only.
-        // Quantities, flower, received date and history remain unchanged.
-        batch.harvest = data.harvest;
-        batch.expiry = data.expiry;
-        batch.remarks = data.remarks.trim();
-    }
-
-    spoilBlocker(batch) {
-        if (!batch) {
-            return 'Batch not found.';
-        }
-
-        if (batch.spoiled) {
-            return 'This batch is already marked as Spoiled.';
-        }
-
-        if (batch.remaining !== 0) {
-            return (
-                `Record the remaining ${number(batch.remaining)} ${this.unitLabel(batch)} ` +
-                'as a spoilage Stock-Out in Inventory first.'
-            );
-        }
-
-        const outs = batch.history.filter(
-            (movement) => movement.type === 'Stock-Out'
-        );
-
-        const last = outs[outs.length - 1];
-
-        if (
-            !last ||
-            last.reason !== 'Spoilage' ||
-            last.quantity <= 0
-        ) {
-            return (
-                'No matching final spoilage Stock-Out was found. ' +
-                'A normally depleted batch cannot be marked as Spoiled here.'
-            );
-        }
-
-        const issued = outs.reduce(
-            (total, movement) => total + movement.quantity,
-            0
-        );
-
-        if (issued !== batch.initial) {
-            return (
-                'Batch quantity and Stock-Out history do not reconcile. ' +
-                'Review Inventory first.'
-            );
-        }
-
-        return '';
-    }
-
-    markSpoiled(id, reason) {
-        const batch = this.find(id);
-        const blocker = this.spoilBlocker(batch);
-
-        if (blocker) {
-            throw new Error(blocker);
-        }
-
-        if (!reason.trim()) {
-            throw new Error('Enter a spoilage reason.');
-        }
-
-        batch.spoiled = true;
-        batch.spoilageReason = reason.trim();
-
-        // Status change only.
-        // Do not deduct stock or create another Stock-Out.
-    }
 }
-
-/* PAGE INTERACTIONS */
 
 const BatchUI = {
     model: new BatchModel(),
     table: null,
+    ready: false,
+    loading: false,
+    saving: false,
+    committed: false,
+    editingId: null,
+    editingVersion: null,
+    requestKey: null,
+
+    /* ==================================================
+       EL
+    ================================================== */
 
     el(id) {
         return document.getElementById(id);
     },
+
+    /* ==================================================
+       INIT
+    ================================================== */
 
     init() {
         if (
@@ -340,10 +217,6 @@ const BatchUI = {
 
         this.editModal = Modal.getOrCreateInstance(
             this.el('batchEditModal')
-        );
-
-        this.spoilModal = Modal.getOrCreateInstance(
-            this.el('batchSpoilModal')
         );
 
         this.table = new DataTable('#batchTable', {
@@ -395,7 +268,7 @@ const BatchUI = {
                                 <div>
                                     <strong>${escapeHTML(flower.name)}</strong>
                                     <small>
-                                        ${flower.code} · ${flower.category} · ${flower.baseUnit}
+                                        ${escapeHTML(flower.code)} · ${escapeHTML(flower.category)} · ${escapeHTML(flower.baseUnit)}
                                     </small>
                                 </div>
                             </div>
@@ -468,8 +341,12 @@ const BatchUI = {
 
         this.mountTableScroller();
         this.bindEvents();
-        this.refresh();
+        this.reload();
     },
+
+    /* ==================================================
+       MOUNT TABLE SCROLLER
+    ================================================== */
 
     mountTableScroller() {
         const table = this.el('batchTable');
@@ -493,6 +370,10 @@ const BatchUI = {
         scroller.append(table);
     },
 
+    /* ==================================================
+       BADGE
+    ================================================== */
+
     badge(batch) {
         const status = this.model.status(batch);
 
@@ -509,6 +390,10 @@ const BatchUI = {
             </span>
         `;
     },
+
+    /* ==================================================
+       ACTIONS
+    ================================================== */
 
     actions(batch) {
         return `
@@ -535,100 +420,60 @@ const BatchUI = {
     },
 
 
+    /* ==================================================
+       BIND EVENTS
+    ================================================== */
+
     bindEvents() {
-        this.el('batchSearch').addEventListener(
-            'input',
-            () => this.applySearch()
-        );
-
-        this.el('batchSearch').addEventListener(
-            'search',
-            () => this.applySearch()
-        );
-
-        this.el('batchPageLength').addEventListener('change', (event) => {
-            this.table.page.len(Number(event.target.value)).draw();
+        ['input', 'search'].forEach(event => {
+            this.el('batchSearch').addEventListener(event, () => this.applySearch());
         });
-
+        this.el('batchPageLength').addEventListener('change', event => {
+            const length = Number(event.target.value);
+            if ([5, 10, 25, 50].includes(length)) this.table.page.len(length).draw();
+        });
         this.table.on('length', (_event, _settings, length) => {
             this.el('batchPageLength').value = String(length);
         });
-
-        this.el('batchTableBody').addEventListener('click', (event) => {
+        this.el('batchTableBody').addEventListener('click', event => {
             const button = event.target.closest('[data-batch-action]');
-
-            if (!button || button.disabled) return;
-
+            if (!button || button.disabled || !this.ready || this.saving) return;
             const batch = this.model.find(button.dataset.id);
-
             if (!batch) return;
-
-            if (button.dataset.batchAction === 'view') {
-                this.view(batch);
-            }
-
-            if (button.dataset.batchAction === 'edit') {
-                this.edit(batch);
-            }
-
-            if (button.dataset.batchAction === 'spoil') {
-                this.openSpoil(batch);
-            }
+            if (button.dataset.batchAction === 'view') this.view(batch);
+            if (button.dataset.batchAction === 'edit') this.edit(batch);
         });
-
-        this.el('batchEditForm').addEventListener('submit', (event) => {
+        this.el('batchEditForm').addEventListener('submit', event => {
             event.preventDefault();
-
-            this.attempt('batchEditError', () => {
-                this.model.update(this.el('batchEditingId').value, {
-                    harvest: this.el('batchEditHarvest').value,
-                    expiry: this.el('batchEditExpiry').value,
-                    remarks: this.el('batchEditRemarks').value
-                });
-
-                this.editModal.hide();
-                this.refresh();
-
-                this.notice(
-                    'Batch metadata updated in this UI session. Quantities are unchanged.'
-                );
-            });
+            this.save();
         });
-
-        this.el('batchSpoilForm').addEventListener('submit', (event) => {
-            event.preventDefault();
-
-            this.attempt('batchSpoilError', () => {
-                this.model.markSpoiled(
-                    this.el('batchSpoilingId').value,
-                    this.el('batchSpoilReason').value
-                );
-
-                this.spoilModal.hide();
-                this.refresh();
-
-                this.notice(
-                    'Batch marked as Spoiled. No additional stock was deducted.'
-                );
-            });
+        this.el('batchEditModal').addEventListener('hide.bs.modal', event => {
+            if (this.saving && !this.committed) event.preventDefault();
+        });
+        this.el('batchEditModal').addEventListener('hidden.bs.modal', () => {
+            this.editingId = null;
+            this.editingVersion = null;
+            this.requestKey = null;
+        });
+        window.addEventListener('focus', () => {
+            const modalOpen = this.el('batchEditModal').classList.contains('show')
+                || this.el('batchViewModal').classList.contains('show');
+            if (this.ready && !this.saving && !this.loading && !modalOpen) this.reload();
         });
     },
 
-    attempt(id, action) {
-        this.el(id).hidden = true;
-
-        try {
-            action();
-        } catch (error) {
-            this.el(id).textContent = error.message;
-            this.el(id).hidden = false;
-        }
-    },
+    /* ==================================================
+       NOTICE
+    ================================================== */
 
     notice(message) {
         this.el('batchNotice').textContent = message;
         this.el('batchNotice').hidden = false;
     },
+
+    /* ==================================================
+       APPLY SEARCH
+    ================================================== */
 
     applySearch() {
         this.table.search(
@@ -641,8 +486,13 @@ const BatchUI = {
         ).draw();
     },
 
+    /* ==================================================
+       REFRESH
+    ================================================== */
+
     refresh() {
-        this.table.rows().invalidate('data');
+        this.table.clear();
+        this.table.rows.add(this.model.batches);
         this.applySearch();
 
         const statuses = {
@@ -669,6 +519,10 @@ const BatchUI = {
             'reached or are approaching the expected freshness date. ' +
             'Review them; dates do not automatically change stock or batch status.';
     },
+
+    /* ==================================================
+       VIEW
+    ================================================== */
 
     view(batch) {
         const flower = this.model.flower(batch.flower);
@@ -717,16 +571,16 @@ const BatchUI = {
 
         this.el('batchMovementBody').innerHTML = batch.history
             .slice()
-            .sort((a, b) => b.date.localeCompare(a.date))
+            .sort((a, b) => b.id - a.id)
             .map((movement) => `
                 <tr>
                     <td>${escapeHTML(movement.date)}</td>
-                    <td>${movement.type}</td>
+                    <td>${escapeHTML(movement.type)}</td>
                     <td>
-                        ${movement.type === 'Stock-In' ? '+' : '−'}${number(movement.quantity)}
+                        ${movement.quantity > 0 ? '+' : ''}${number(movement.quantity)}
                         ${this.model.unitLabel(batch)}
                     </td>
-                    <td>${escapeHTML(movement.remarks || '—')}</td>
+                    <td>${escapeHTML(movement.remarks || '—')}${this.changeDetails(movement)}</td>
                     <td>${escapeHTML(movement.user)}</td>
                 </tr>
             `).join('') ||
@@ -735,7 +589,15 @@ const BatchUI = {
         this.viewModal.show();
     },
 
+    /* ==================================================
+       EDIT
+    ================================================== */
+
     edit(batch) {
+        if (!this.ready || this.saving) return;
+        this.editingId = batch.dbId;
+        this.editingVersion = batch.version;
+        this.requestKey = this.newRequestKey();
         this.el('batchEditForm').reset();
         this.el('batchEditError').hidden = true;
 
@@ -759,31 +621,187 @@ const BatchUI = {
         this.editModal.show();
     },
 
-    openSpoil(batch) {
-        this.el('batchSpoilForm').reset();
-        this.el('batchSpoilingId').value = batch.id;
+    /* ==================================================
+       SHOW BEFORE / AFTER VALUES IN MOVEMENT HISTORY
+    ================================================== */
 
-        this.el('batchSpoilSummary').innerHTML = `
-            <div class="batch-spoil-summary">
-                <strong>
-                    ${batch.id} ·
-                    ${escapeHTML(this.model.flower(batch.flower).name)}
-                </strong>
-                <p>
-                    Initial: ${number(batch.initial)} ${this.model.unitLabel(batch)} ·
-                    Remaining: ${number(batch.remaining)} ${this.model.unitLabel(batch)}
-                </p>
-            </div>
-        `;
+    
 
-        const blocker = this.model.spoilBlocker(batch);
+    changeDetails(movement) {
+        const before = movement.metadata?.before;
+        const after = movement.metadata?.after;
+        if (!before || !after) return '';
+        const labels = {
+            received: 'Received', harvest: 'Harvest', expiry: 'Freshness / expiry',
+            quantity: 'Receiving quantity', unit: 'Receiving unit', factor: 'Conversion factor',
+            initial: 'Initial', remaining: 'Remaining', remarks: 'Remarks',
+        };
+        const changes = Object.entries(labels).filter(([key]) => before[key] !== after[key]);
+        if (!changes.length) return '';
+        return `<details class="mt-1"><summary>View changes</summary><ul class="mb-0">${changes.map(([key, label]) =>
+            `<li>${label}: ${escapeHTML(before[key] ?? '—')} → ${escapeHTML(after[key] ?? '—')}</li>`
+        ).join('')}</ul></details>`;
+    },
 
-        this.el('batchSpoilError').hidden = !blocker;
-        this.el('batchSpoilError').textContent = blocker;
-        this.el('batchSpoilConfirm').disabled = Boolean(blocker);
+    /* ==================================================
+       GENERATE UUID AND RETAIN IT FOR SAFE SAVE RETRIES
+    ================================================== */
 
-        this.spoilModal.show();
+    
+
+    newRequestKey() {
+        if (globalThis.crypto.randomUUID) return globalThis.crypto.randomUUID();
+        const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+        bytes[6] = (bytes[6] & 15) | 64;
+        bytes[8] = (bytes[8] & 63) | 128;
+        const hex = [...bytes].map(value => value.toString(16).padStart(2, '0')).join('');
+        return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+    },
+
+    /* ==================================================
+       READ ENDPOINTS FROM LARAVEL NAMED ROUTES
+    ================================================== */
+
+    
+
+    endpoint(update = false) {
+        const url = this.el('batchPage').dataset[update ? 'updateUrl' : 'url'];
+        if (!url) throw new Error('Missing batch endpoint. Replace the Blade file too.');
+        if (!update) return url;
+        if (!url.includes('__BATCH__') || !this.editingId) throw new Error('Invalid batch update endpoint.');
+        return url.replace('__BATCH__', encodeURIComponent(String(this.editingId)));
+    },
+
+    /* ==================================================
+       FETCH JSON WITH SESSION AND CSRF HANDLING
+    ================================================== */
+
+    
+
+    async request(url, payload = null) {
+        const headers = { Accept: 'application/json' };
+        if (payload !== null) {
+            const token = this.el('batchEditForm').querySelector('[name="_token"]')?.value;
+            if (!token) throw new Error('Missing CSRF token. Add @csrf inside the batch form.');
+            headers['X-CSRF-TOKEN'] = token;
+            headers['Content-Type'] = 'application/json';
+        }
+        const response = await fetch(url, {
+            method: payload === null ? 'GET' : 'POST', headers,
+            credentials: 'same-origin', redirect: 'error',
+            ...(payload === null ? {} : { body: JSON.stringify(payload) }),
+        });
+        const isJson = (response.headers.get('content-type') || '').includes('application/json');
+        const result = isJson ? await response.json() : {};
+        if (!response.ok) {
+            const messages = {
+                401: 'Your session has expired. Log in again.',
+                403: 'Your account cannot perform this action.',
+                404: 'The batch or endpoint was not found. Refresh the page.',
+                419: 'Your session token has expired. Refresh the page.',
+            };
+            const error = new Error(messages[response.status]
+                || (response.status >= 500 ? 'The server could not complete the request.' : result.message)
+                || 'Unable to complete the request.');
+            error.errors = result.errors || {};
+            error.status = response.status;
+            throw error;
+        }
+        if (!isJson) throw new Error('Unexpected response. Refresh the page and check your login.');
+        return result;
+    },
+
+    /* ==================================================
+       LOAD SHARED INVENTORY BATCHES AND REAL MOVEMENTS
+    ================================================== */
+
+    
+
+    async reload(successMessage = '') {
+        if (this.loading) return false;
+        this.loading = true;
+        this.ready = false;
+        this.updateAvailability();
+        this.notice('Loading batch records...');
+        try {
+            const result = await this.request(this.endpoint());
+            this.model.hydrate(result);
+            this.refresh();
+            this.ready = true;
+            this.notice(successMessage || (this.model.batches.length
+                ? '' : 'No batches yet. Receive stock in Inventory Management first.'));
+            this.el('batchNotice').hidden = !this.el('batchNotice').textContent;
+            return true;
+        } catch (error) {
+            console.error('Batch loading failed:', error);
+            this.notice(successMessage
+                ? `${successMessage} The list could not refresh. Reload this page before making another change.`
+                : error.message);
+            return false;
+        } finally {
+            this.loading = false;
+            this.updateAvailability();
+        }
+    },
+
+    /* ==================================================
+       DISABLE ACTIONS DURING LOADING OR SAVING
+    ================================================== */
+
+    
+
+    updateAvailability() {
+        const disabled = !this.ready || this.loading || this.saving;
+        this.el('batchTableBody').querySelectorAll('[data-batch-action]').forEach(button => {
+            button.disabled = disabled;
+        });
+        ['batchEditHarvest', 'batchEditExpiry', 'batchEditRemarks'].forEach(id => {
+            this.el(id).disabled = this.saving;
+        });
+        this.el('batchEditForm').querySelector('[type="submit"]').disabled = disabled;
+        this.el('batchEditForm').setAttribute('aria-busy', String(this.saving));
+    },
+
+    /* ==================================================
+       SAVE METADATA ONLY — NEVER CHANGE STOCK IN THIS PAGE
+    ================================================== */
+
+    
+
+    async save() {
+        if (!this.ready || this.saving || !this.el('batchEditForm').reportValidity()) return;
+        this.el('batchEditError').hidden = true;
+        this.saving = true;
+        this.committed = false;
+        this.updateAvailability();
+        try {
+            const result = await this.request(this.endpoint(true), {
+                request_key: this.requestKey,
+                version: this.editingVersion,
+                harvest: this.el('batchEditHarvest').value,
+                expiry: this.el('batchEditExpiry').value || null,
+                remarks: this.el('batchEditRemarks').value.trim(),
+            });
+            this.committed = true;
+            this.editModal.hide();
+            await this.reload(result.message || 'Batch information updated. Stock quantities are unchanged.');
+        } catch (error) {
+            console.error('Batch update failed:', error);
+            const validation = Object.values(error.errors || {}).flat();
+            let message = validation.length ? validation.join('\n') : error.message;
+            if (error.errors?.version) message += ' Close this form, refresh the page, and reopen Edit.';
+            if (!validation.length && ![401, 403, 404, 419, 422].includes(error.status)) {
+                message += ' Retry this same form to reuse the request key, or refresh to check history.';
+            }
+            this.el('batchEditError').textContent = message;
+            this.el('batchEditError').hidden = false;
+        } finally {
+            this.saving = false;
+            this.committed = false;
+            this.updateAvailability();
+        }
     }
+
 };
 
 if (document.readyState === 'loading') {
@@ -795,3 +813,4 @@ if (document.readyState === 'loading') {
 } else {
     BatchUI.init();
 }
+

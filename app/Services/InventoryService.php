@@ -202,6 +202,65 @@ class InventoryService
     }
 
     /**
+     * Update descriptive dates and notes without changing any physical stock state.
+     */
+    public function updateBatchMetadata(InventoryBatch $batch, array $input, User $actor): array
+    {
+        $payload = [
+            'batch_id' => (int) $batch->id,
+            'harvest' => $input['harvest'],
+            'expiry' => $this->text($input['expiry'] ?? null),
+            'remarks' => $this->text($input['remarks'] ?? null),
+            'version' => strtolower($input['version']),
+        ];
+
+        return $this->operate($input['request_key'], 'BatchMetadataUpdate', (int) $batch->flower_id, $payload, $actor,
+            function (Flower $flower, InventoryOperation $operation) use ($payload): array {
+                $locked = InventoryBatch::query()->lockForUpdate()->findOrFail($payload['batch_id']);
+                if ((int) $locked->flower_id !== (int) $flower->id) {
+                    $this->invalid('batch_id', 'The batch does not belong to this item.');
+                }
+                if (! hash_equals($this->batchVersion($locked), $payload['version'])) {
+                    $this->invalid('version', 'This batch changed after you opened it. Refresh and review the latest details before saving.');
+                }
+                if ($payload['harvest'] > $locked->received_date->format('Y-m-d')) {
+                    $this->invalid('harvest', 'Harvest date cannot be after the recorded received date.');
+                }
+                if ($payload['expiry'] !== null && $payload['expiry'] < $payload['harvest']) {
+                    $this->invalid('expiry', 'Freshness date cannot be before the harvest date.');
+                }
+                $before = $this->receiptSnapshot($locked);
+                $locked->harvest_date = $payload['harvest'];
+                $locked->expiry_date = $payload['expiry'];
+                $locked->remarks = $payload['remarks'];
+                $locked->save();
+                $this->movement($operation, $locked, 'Batch Metadata Update', 0, $payload['remarks'], [
+                    'before' => $before,
+                    'after' => $this->receiptSnapshot($locked),
+                ]);
+
+                return ['batch_id' => $locked->id];
+            });
+    }
+
+    /**
+     * Fingerprint meaningful receipt and stock state, excluding timestamps and relations.
+     */
+    public function batchVersion(InventoryBatch $batch): string
+    {
+        $snapshot = [
+            'id' => (int) $batch->id,
+            'flower_id' => (int) $batch->flower_id,
+            'code' => $batch->code,
+            ...$this->receiptSnapshot($batch),
+            'spoiled' => (bool) $batch->spoiled,
+        ];
+        ksort($snapshot);
+
+        return hash('sha256', json_encode($snapshot, JSON_THROW_ON_ERROR));
+    }
+
+    /**
      * Serialize all writes per item and replay matching UUID operations exactly once.
      */
     private function operate(string $requestKey, string $kind, int $flowerId, array $payload, User $actor, Closure $write): array
