@@ -1,7 +1,7 @@
 @extends('layouts.supplier')
 @section('title', 'User Management')
 @section('content')
-    <div class="user-page" id="userPage">
+    <div class="user-page" id="userPage" data-url="{{ route('supplier.users') }}" data-csrf="{{ csrf_token() }}">
         <div class="user-card">
             <div class="user-header">
                 <div>
@@ -11,8 +11,8 @@
                 <button type="button" class="user-primary-btn" id="addUserBtn"><i class="bi bi-plus-lg"
                         aria-hidden="true"></i> Add New User</button>
             </div>
-            <p class="user-notice">Admin account-management preview. Sample changes reset on refresh. Authentication,
-                permissions and session invalidation will be enforced by the backend.</p>
+            <p class="user-notice">Manage Admin, Supplier/Staff and Delivery Personnel accounts. Client accounts remain in Client Management.
+                <a href="{{ route('password.change') }}">Change your own password</a>.</p>
             <div class="user-toolbar">
                 <div class="user-length"><label for="userLength">Show</label><select id="userLength">
                         <option>5</option>
@@ -62,21 +62,20 @@
                             <div class="user-field"><label for="userEmail">Email Address *</label><input id="userEmail"
                                     type="email" maxlength="254" autocomplete="email" required></div>
                             <div class="user-field"><label for="userRole">Role *</label><select id="userRole" required>
-                                    <option>Admin</option>
-                                    <option>Supplier/Staff</option>
-                                    <option>Delivery Personnel</option>
+                                    <option value="admin">Admin</option>
+                                    <option value="supplier">Supplier/Staff</option>
+                                    <option value="delivery">Delivery Personnel</option>
                                 </select></div>
                             <div class="user-field"><label for="userStatus">Status</label><select id="userStatus">
                                     <option>Active</option>
                                     <option>Inactive</option>
                                 </select></div>
                             <div class="user-field" id="userPasswordField"><label for="userPassword">Temporary Password
-                                    *</label><input id="userPassword" type="password" minlength="8" maxlength="128"
-                                    autocomplete="new-password"><small>Use a dummy password for this preview. It is not
-                                    stored.</small></div>
+                                    *</label><input id="userPassword" type="password" minlength="12" maxlength="72"
+                                    autocomplete="new-password"><small>At least 12 characters, maximum 72 UTF-8 bytes. Share privately; the user must change it after signing in.</small></div>
                         </div>
                         <p class="user-help">Roles use fixed permissions. New accounts and Admin password resets require a
-                            password change at the next login in the completed system.</p>
+                            password change at the next login.</p>
                     </div>
                     <div class="modal-footer"><button type="button" class="user-secondary-btn"
                             data-bs-dismiss="modal">Cancel</button><button type="submit" class="user-primary-btn">Save
@@ -98,9 +97,8 @@
                         <div id="userActionError" class="user-error" role="alert" hidden></div>
                         <p id="userActionMessage" class="user-help"></p>
                         <div class="user-field" id="userResetField" hidden><label for="userResetPassword">New Temporary
-                                Password *</label><input id="userResetPassword" type="password" minlength="8"
-                                maxlength="128" autocomplete="new-password"><small>Preview only; the password is never
-                                retained or logged.</small></div>
+                                Password *</label><input id="userResetPassword" type="password" minlength="12"
+                                maxlength="72" autocomplete="new-password"><small>At least 12 characters, maximum 72 UTF-8 bytes. Previous sessions will be revoked.</small></div>
                     </div>
                     <div class="modal-footer"><button type="button" class="user-secondary-btn"
                             data-bs-dismiss="modal">Cancel</button><button type="submit"

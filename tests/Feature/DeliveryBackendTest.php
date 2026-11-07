@@ -31,6 +31,7 @@ use Tests\TestCase;
 use App\Models\Delivery;
 use App\Models\DeliveryHistory;
 use App\Services\DeliveryService;
+use App\Support\AccountSession;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
@@ -272,6 +273,76 @@ class DeliveryBackendTest extends TestCase
         $this->assertSame('Out for Delivery', $order->fresh()->status);
         $this->assertSame(2, InventoryReservation::where('status', 'Active')->count());
         $this->assertSame(20, $this->remaining($this->stem));
+        $this->assertSame(0, SalesRecord::count());
+    }
+
+    /** Personnel lists, details and mutations are scoped to the locked assignment. */
+    public function test_personnel_can_only_read_their_own_assigned_deliveries(): void
+    {
+        [, $delivery] = $this->dispatched();
+        $person = User::findOrFail($delivery->assigned_to);
+        $other = $this->user('other-courier', User::ROLE_DELIVERY);
+        $service = app(DeliveryService::class);
+        $this->assertCount(1, $service->data($person)['data']);
+        $this->assertCount(0, $service->data($other)['data']);
+        $this->assertSame([], $service->data($person)['personnel']);
+        $this->assertSame($delivery->code, $service->row($delivery, $person)['id']);
+        try {
+            $service->row($delivery, $other);
+            $this->fail('Another courier must not read this delivery.');
+        } catch (HttpException $exception) {
+            $this->assertSame(403, $exception->getStatusCode());
+        }
+        foreach (['schedule', 'assign', 'dispatch', 'cancel'] as $action) {
+            try {
+                $service->action($delivery, $this->deliveryInput($delivery, ['action' => $action]), $person);
+                $this->fail('Personnel cannot manage assignment or dispatch.');
+            } catch (HttpException $exception) {
+                $this->assertSame(403, $exception->getStatusCode());
+            }
+        }
+    }
+
+    /** Actual assigned personnel may complete delivery; other personnel cannot access proof. */
+    public function test_personnel_completion_and_private_proof_routes_enforce_ownership(): void
+    {
+        [$order, $delivery] = $this->dispatched();
+        $person = User::findOrFail($delivery->assigned_to);
+        $other = $this->user('other-courier', User::ROLE_DELIVERY);
+        $service = app(DeliveryService::class);
+        $payload = $this->deliveryInput($delivery, [
+            'action' => 'deliver', 'recipient_name' => 'Recipient', 'proof' => $this->photo(),
+        ]);
+        try {
+            $service->action($delivery, $payload, $other);
+            $this->fail('A different courier must not complete this delivery.');
+        } catch (HttpException $exception) {
+            $this->assertSame(403, $exception->getStatusCode());
+        }
+        $this->assertSame(0, SalesRecord::count());
+        $result = $service->action($delivery, $payload, $person);
+        $this->assertSame('Delivered', $result->status);
+        $this->assertSame('Completed', $order->fresh()->status);
+        $this->assertSame(1, SalesRecord::count());
+        $this->actingAs($person)->withSession([AccountSession::KEY => AccountSession::signature($person)])
+            ->get('/delivery/deliveries/'.$delivery->id.'/proof')->assertOk();
+        $this->actingAs($other)->withSession([AccountSession::KEY => AccountSession::signature($other)])
+            ->getJson('/delivery/deliveries/'.$delivery->id.'/proof')->assertForbidden();
+        $this->getJson('/supplier/deliveries/data')->assertForbidden();
+    }
+
+    /** Personnel may record a failure without consuming stock or releasing holds. */
+    public function test_assigned_personnel_can_record_failed_attempt_without_stock_deduction(): void
+    {
+        [$order, $delivery] = $this->dispatched();
+        $person = User::findOrFail($delivery->assigned_to);
+        $result = app(DeliveryService::class)->action($delivery, $this->deliveryInput($delivery, [
+            'action' => 'fail', 'reason' => 'Recipient unavailable.',
+        ]), $person);
+        $this->assertSame('Failed', $result->status);
+        $this->assertSame('Out for Delivery', $order->fresh()->status);
+        $this->assertSame(20, $this->remaining($this->stem));
+        $this->assertSame(2, InventoryReservation::where('status', 'Active')->count());
         $this->assertSame(0, SalesRecord::count());
     }
 

@@ -59,6 +59,7 @@ class DeliveryManagementUI {
         this.element = element;
         this.base = element.dataset.url.replace(/\/$/, '');
         this.csrf = element.dataset.csrf;
+        this.isPersonnel = element.dataset.role === 'delivery';
         this.deliveries = [];
         this.personnel = [];
         this.selected = null;
@@ -100,6 +101,7 @@ class DeliveryManagementUI {
             return delivery.orderStatus === 'Out for Delivery'
                 ? [['deliver', 'Mark Delivered'], ['fail', 'Record Failed Attempt']] : [];
         }
+        if (this.isPersonnel) return [];
         const states = ['Pending', 'Scheduled', 'Assigned', 'Rescheduled', 'Failed'];
         const orderReady = delivery.orderStatus === 'Ready for Delivery';
         const failedAttempt = delivery.status === 'Failed' && delivery.orderStatus === 'Out for Delivery';
@@ -290,7 +292,7 @@ class DeliveryManagementUI {
             this.deliveries = result.data;
             this.personnel = result.personnel;
             this.refresh();
-            this.announce(this.deliveries.length ? '' : 'No delivery records yet. Mark a Delivery order Ready for Delivery.');
+            this.announce(this.deliveries.length ? '' : (this.isPersonnel ? 'No deliveries are assigned to your account.' : 'No delivery records yet. Mark a Delivery order Ready for Delivery.'));
         } finally { this.loading = false; }
     }
 
@@ -626,3 +628,4 @@ function initializeDeliveryManagement() {
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initializeDeliveryManagement, { once: true });
 } else { initializeDeliveryManagement(); }
+

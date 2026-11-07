@@ -1,4 +1,4 @@
-@extends('layouts.supplier')
+@extends(auth()->user()->isDeliveryPersonnel() ? 'layouts.delivery' : 'layouts.supplier')
 
 @section('title', 'Delivery Management')
 
@@ -8,7 +8,7 @@
             <div class="delivery-header">
                 <div>
                     <h1>Delivery Management</h1>
-                    <p>Manage delivery assignments, schedules, and fulfillment updates.</p>
+                    <p>{{ auth()->user()->isDeliveryPersonnel() ? 'View your assigned deliveries and record actual delivery results.' : 'Manage delivery assignments, schedules, and fulfillment updates.' }}</p>
                 </div>
 
             </div>
@@ -49,7 +49,8 @@
 
             <div class="delivery-table-container">
                 <table id="deliveryTable"
-                    data-url="{{ route('supplier.deliveries') }}"
+                    data-url="{{ route(auth()->user()->isDeliveryPersonnel() ? 'delivery.deliveries' : 'supplier.deliveries') }}"
+                    data-role="{{ auth()->user()->role }}"
                     data-csrf="{{ csrf_token() }}">
                     <thead>
                         <tr>
@@ -162,3 +163,4 @@
         </div>
     </div>
 @endsection
+

@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Rules\SafeAccountPassword;
+use App\Support\AccountSession;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -32,7 +35,7 @@ class AuthController extends Controller
 
         $credentials = $request->validate([
             'email' => ['required', 'email', 'max:254'],
-            'password' => ['required', 'string'],
+            'password' => ['required', 'string', new SafeAccountPassword()],
         ]);
 
         $key = 'login:'.hash(
@@ -86,16 +89,13 @@ class AuthController extends Controller
 
         // Prevent reuse of the session ID from before login.
         $request->session()->regenerate();
+        AccountSession::remember($request, $user);
 
         return $this->redirectAfterLogin($user);
     }
 
     public function showChangePassword(Request $request): View|RedirectResponse
     {
-        if (! $request->user()->must_change_password) {
-            return $this->redirectAfterLogin($request->user());
-        }
-
         return view('auth.change-password');
     }
 
@@ -112,24 +112,33 @@ class AuthController extends Controller
                 'string',
                 'confirmed',
                 Password::min(12),
+                new SafeAccountPassword(),
             ],
         ]);
 
-        $user = $request->user();
+        $user = DB::transaction(function () use ($request, $validated) {
+            $locked = User::query()->lockForUpdate()->findOrFail($request->user()->id);
+            if (!$locked->is_active || !Hash::check($validated['current_password'], $locked->password)) {
+                throw ValidationException::withMessages([
+                    'current_password' => 'Account credentials changed. Sign in again.',
+                ]);
+            }
+            if (Hash::check($validated['password'], $locked->password)) {
+                throw ValidationException::withMessages([
+                    'password' => 'Choose a different password from your current password.',
+                ]);
+            }
+            $locked->password = $validated['password'];
+            $locked->must_change_password = false;
+            $locked->remember_token = Str::random(60);
+            $locked->save();
+            return $locked;
+        });
 
-        if (Hash::check($validated['password'], $user->password)) {
-            throw ValidationException::withMessages([
-                'password' => 'Choose a different password from your current password.',
-            ]);
-        }
-
-        // The User model hashes this automatically.
-        $user->password = $validated['password'];
-        $user->must_change_password = false;
-        $user->save();
-
+        Auth::setUser($user);
         $request->session()->regenerate();
         $request->session()->regenerateToken();
+        AccountSession::remember($request, $user);
 
         return $this->redirectAfterLogin($user)
             ->with('status', 'Your password has been changed.');
@@ -152,7 +161,7 @@ class AuthController extends Controller
         }
 
         if ($user->isDeliveryPersonnel()) {
-            return redirect()->route('supplier.deliveries');
+            return redirect()->route('delivery.deliveries');
         }
 
         return redirect()->route('supplier.dashboard');

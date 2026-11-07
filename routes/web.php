@@ -7,8 +7,9 @@ use App\Http\Controllers\Supplier\InventoryController;
 use App\Http\Controllers\Supplier\BatchController;
 use App\Http\Controllers\Supplier\ClientController;
 use App\Http\Controllers\Supplier\OrderController;
+use App\Http\Controllers\Supplier\UserController;
+use App\Http\Middleware\EnsureAccountSessionIsCurrent;
 use App\Http\Controllers\Supplier\DeliveryController;
-
 
 // Public home
 Route::view('/', 'welcome');
@@ -26,7 +27,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])
         ->name('logout');
 
-    Route::middleware('account.active')->group(function () {
+    Route::middleware(['account.active', EnsureAccountSessionIsCurrent::class])->group(function () {
         // These routes must remain accessible while a password change is required.
         Route::get('/change-password', [
             AuthController::class,
@@ -40,6 +41,26 @@ Route::middleware('auth')->group(function () {
             ->middleware('throttle:5,1')
             ->name('password.update');
 
+        // Delivery personnel can access only their own assigned records.
+        Route::prefix('delivery')
+            ->name('delivery.')
+            ->middleware(['password.changed', 'role:delivery'])
+            ->group(function () {
+                Route::get('/deliveries', [DeliveryController::class, 'index'])
+                    ->name('deliveries');
+                Route::get('/deliveries/data', [DeliveryController::class, 'data'])
+                    ->name('deliveries.data');
+                Route::get('/deliveries/{delivery}/proof', [DeliveryController::class, 'proof'])
+                    ->whereNumber('delivery')->name('deliveries.proof');
+                Route::get('/deliveries/{delivery}/proof', [DeliveryController::class, 'proof'])
+                    ->whereNumber('delivery')->name('deliveries.proof');
+
+                Route::get('/deliveries/{delivery}', [DeliveryController::class, 'show'])
+                    ->whereNumber('delivery')->name('deliveries.show');
+                Route::post('/deliveries/{delivery}/action', [DeliveryController::class, 'action'])
+                    ->whereNumber('delivery')->name('deliveries.action');
+            });
+
         // Supplier/Admin operational screens
         Route::prefix('supplier')
             ->name('supplier.')
@@ -50,8 +71,6 @@ Route::middleware('auth')->group(function () {
             ->group(function () {
                 Route::view('/dashboard', 'supplier.dashboard')
                     ->name('dashboard');
-
-
 
                 Route::get('/flowers', [FlowerController::class, 'index'])
                     ->name('flowers');
@@ -69,8 +88,6 @@ Route::middleware('auth')->group(function () {
                 Route::post('/flowers/{flower}/deactivate', [FlowerController::class, 'deactivate'])
                     ->whereNumber('flower')
                     ->name('flowers.deactivate');
-
-
 
                 Route::get('/inventory', [InventoryController::class, 'index'])
                     ->name('inventory');
@@ -92,8 +109,6 @@ Route::middleware('auth')->group(function () {
                     ->whereNumber('flower')
                     ->name('inventory.units');
 
-
-
                 Route::get('/batches', [BatchController::class, 'index'])
                     ->name('batches');
 
@@ -104,12 +119,8 @@ Route::middleware('auth')->group(function () {
                     ->whereNumber('batch')
                     ->name('batches.update');
 
-
-
                 Route::view('/spoilage-prediction', 'supplier.spoilage-prediction')
                     ->name('spoilage-prediction');
-
-
 
                 Route::get('/clients', [ClientController::class, 'index'])
                     ->name('clients');
@@ -132,8 +143,6 @@ Route::middleware('auth')->group(function () {
                     ->whereNumber('client')
                     ->name('clients.status');
 
-
-
                 Route::get('/orders', [OrderController::class, 'index'])
                     ->name('orders');
 
@@ -155,9 +164,6 @@ Route::middleware('auth')->group(function () {
                     ->whereNumber('order')
                     ->name('orders.action');
 
-
-                    
-
                 Route::get('/deliveries', [DeliveryController::class, 'index'])
                     ->name('deliveries');
 
@@ -172,9 +178,6 @@ Route::middleware('auth')->group(function () {
                     ->whereNumber('delivery')
                     ->name('deliveries.action');
 
-
-                    
-
                 Route::view('/sales-payments', 'supplier.sales-payments')
                     ->name('sales-payments');
 
@@ -183,8 +186,17 @@ Route::middleware('auth')->group(function () {
                     Route::view('/reports', 'supplier.reports')
                         ->name('reports');
 
-                    Route::view('/users', 'supplier.users')
-                        ->name('users');
+                    Route::get('/users', [UserController::class, 'index'])->name('users');
+                    Route::get('/users/data', [UserController::class, 'data'])->name('users.data');
+                    Route::get('/users/{user}', [UserController::class, 'show'])
+                        ->whereNumber('user')->name('users.show');
+                    Route::post('/users', [UserController::class, 'store'])->name('users.store');
+                    Route::post('/users/{user}/update', [UserController::class, 'update'])
+                        ->whereNumber('user')->name('users.update');
+                    Route::post('/users/{user}/status', [UserController::class, 'status'])
+                        ->whereNumber('user')->name('users.status');
+                    Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword'])
+                        ->whereNumber('user')->name('users.reset-password');
 
                     Route::view('/audit-trail', 'supplier.audit-trail')
                         ->name('audit-trail');

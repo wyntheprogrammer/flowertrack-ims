@@ -6,51 +6,32 @@ const roles = ['Admin', 'Supplier/Staff', 'Delivery Personnel'];
 const rolePermissions = {
     Admin: ['All Supplier modules, including Reports, User Management and Audit Trail.', 'Create accounts, change roles/email/status, and issue temporary passwords.'],
     'Supplier/Staff': ['Operational Flower, Inventory, Batch, Prediction, Client, Order, Delivery and Sales/Payments access.', 'No Reports, User Management or Audit Trail access. Account administration remains Admin-only.'],
-    'Delivery Personnel': ['Assigned deliveries only: view delivery details, update delivery status and submit proof.', 'No order, inventory, payment, fee or assignment changes.'],
+    'Delivery Personnel': ['Assigned deliveries only: view details, record failed attempts and submit actual delivery proof.', 'No order, inventory, payment, fee or assignment changes.'],
 };
-const formatTime = (value) => new Intl.DateTimeFormat('en-PH', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+const formatTime = (value) => new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 const initials = (name) => name.trim().split(/\s+/).slice(0, 2).map((part) => Array.from(part)[0]).join('').toUpperCase();
 const badge = (status) => `<span class="user-badge ${status.toLowerCase()}">${escapeHTML(status)}</span>`;
 
-/* No passwords or password hashes are kept in this preview model. */
+/* Keep public account data only; credentials never enter table records. */
 class UserModel {
-    constructor() {
-        const date = new Date().toISOString();
-        this.users = [
-            { id: 'USR-001', name: 'Administrator', email: 'admin@example.com', role: 'Admin', status: 'Active', mustChangePassword: false, created: date },
-            { id: 'USR-002', name: 'Anna Santos', email: 'anna@example.com', role: 'Supplier/Staff', status: 'Active', mustChangePassword: false, created: date },
-            { id: 'USR-003', name: 'Juan Dela Cruz', email: 'juan@example.com', role: 'Delivery Personnel', status: 'Active', mustChangePassword: false, created: date },
-            { id: 'USR-004', name: 'Mark Reyes', email: 'mark@example.com', role: 'Delivery Personnel', status: 'Active', mustChangePassword: true, created: date },
-            { id: 'USR-005', name: 'Leo Santos', email: 'leo@example.com', role: 'Delivery Personnel', status: 'Inactive', mustChangePassword: false, created: date },
-            { id: 'USR-006', name: 'Carla Ramos', email: 'carla@example.com', role: 'Supplier/Staff', status: 'Active', mustChangePassword: true, created: date },
-        ];
-        this.history = [];
-    }
+    constructor() { this.users = []; }
     find(id) { return this.users.find((user) => user.id === id); }
-    nextId() { return `USR-${String(Math.max(0, ...this.users.map((user) => Number(user.id.split('-')[1]))) + 1).padStart(3, '0')}`; }
-    lastAdmin(user) { return user.role === 'Admin' && user.status === 'Active' && this.users.filter((item) => item.role === 'Admin' && item.status === 'Active').length === 1; }
-    log(id, note) { this.history.push({ id, note, date: new Date().toISOString(), actor: 'Administrator (preview)' }); }
-    save(data) {
-        const existing = data.id ? this.find(data.id) : null;
-        if (data.id && !existing) throw new Error('User not found.');
-        const name = String(data.name ?? '').trim(); const email = String(data.email ?? '').trim().toLowerCase();
-        if (!name || name.length > 120 || !email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid name and email address.');
-        if (!roles.includes(data.role) || !['Active', 'Inactive'].includes(data.status)) throw new Error('Select a valid role and status.');
-        if (this.users.some((user) => user.id !== existing?.id && user.email.toLowerCase() === email)) throw new Error('Email already belongs to another user.');
-        if (existing && this.lastAdmin(existing) && (data.role !== 'Admin' || data.status !== 'Active')) throw new Error('The last active Admin cannot be deactivated or changed to another role.');
-        const record = { id: existing?.id || this.nextId(), name, email, role: data.role, status: data.status, created: existing?.created || new Date().toISOString(), mustChangePassword: existing?.mustChangePassword ?? true };
-        const changes = existing ? ['name', 'email', 'role', 'status'].filter((key) => existing[key] !== record[key]).map((key) => `${key}: ${existing[key]} → ${record[key]}`).join('; ') : 'Account created; next-login password change required.';
-        if (existing) this.users = this.users.map((user) => user.id === existing.id ? record : user); else this.users.push(record);
-        this.log(record.id, changes || 'Account reviewed; no values changed.'); return record;
-    }
-    toggle(id) { const user = this.find(id); if (!user) throw new Error('User not found.'); return this.save({ ...user, status: user.status === 'Active' ? 'Inactive' : 'Active' }); }
-    reset(id) { const user = this.find(id); if (!user) throw new Error('User not found.'); user.mustChangePassword = true; this.log(id, 'Admin temporary-password reset requested; next-login password change required. No credential retained in preview.'); }
 }
 
 class UserManagementUI {
+    /* Preserve the approved table layout and initialize an empty database-backed list. */
     constructor() {
-        this.model = new UserModel(); this.pending = null;
-        this.formModal = Modal.getOrCreateInstance(this.el('userFormModal')); this.actionModal = Modal.getOrCreateInstance(this.el('userActionModal')); this.viewModal = Modal.getOrCreateInstance(this.el('userViewModal'));
+        const page = this.el('userPage');
+        this.base = page.dataset.url.replace(/\/$/, '');
+        this.csrf = page.dataset.csrf;
+        this.model = new UserModel();
+        this.pending = null;
+        this.editingVersion = null;
+        this.busy = false;
+        this.loading = false;
+        this.formModal = Modal.getOrCreateInstance(this.el('userFormModal'));
+        this.actionModal = Modal.getOrCreateInstance(this.el('userActionModal'));
+        this.viewModal = Modal.getOrCreateInstance(this.el('userViewModal'));
         this.table = new DataTable('#userTable', {
             data: this.model.users, autoWidth: false, pageLength: 5, order: [[0, 'asc']],
             layout: { topStart: null, topEnd: null, bottomStart: 'info', bottomEnd: 'paging' },
@@ -65,65 +46,234 @@ class UserManagementUI {
         });
         const table = this.el('userTable'); const wrapper = document.createElement('div'); wrapper.className = 'user-table-scroll'; wrapper.tabIndex = 0; wrapper.setAttribute('role', 'region'); wrapper.setAttribute('aria-label', 'Users table. Scroll horizontally for all columns.'); table.before(wrapper); wrapper.append(table);
         this.bindEvents();
+        this.load().catch((error) => this.announce(error.message));
     }
+
+    /* Find page and modal controls. */
     el(id) { return document.getElementById(id); }
+
+    /* Announce a canonical result or recovery instruction. */
+    announce(message) { this.el('userAnnouncement').textContent = message; }
+
+    /* Use server permissions for protected Admin and current-account actions. */
     actions(user) {
-        const button = (action, icon, label, disabled = false) => `<button type="button" class="user-icon-btn ${action}" data-user-action="${action}" data-user-id="${escapeHTML(user.id)}" title="${escapeHTML(label)}" aria-label="${escapeHTML(label)} ${escapeHTML(user.name)}" ${disabled ? 'disabled' : ''}><i class="bi bi-${icon}" aria-hidden="true"></i></button>`;
-        const deactivate = user.status === 'Active';
-        return `<div class="user-actions">${button('view', 'eye', 'View user')}${button('edit', 'pencil-square', 'Edit user')}${button('reset', 'key', 'Reset temporary password')}${button(deactivate ? 'deactivate' : 'activate', deactivate ? 'person-dash' : 'person-check', this.model.lastAdmin(user) ? 'Last active Admin is protected' : deactivate ? 'Deactivate' : 'Activate', this.model.lastAdmin(user))}</div>`;
+        const button = (action, icon, label, disabled = false) => `<button type="button" class="user-icon-btn ${action}"
+            data-user-action="${action}" data-user-id="${escapeHTML(user.id)}" title="${escapeHTML(label)}"
+            aria-label="${escapeHTML(label)} ${escapeHTML(user.name)}" ${disabled ? 'disabled' : ''}>
+            <i class="bi bi-${icon}" aria-hidden="true"></i></button>`;
+        const active = user.status === 'Active';
+        return `<div class="user-actions">${button('view', 'eye', 'View user')}
+            ${button('edit', 'pencil-square', 'Edit user')}
+            ${button('reset', 'key', user.isSelf ? 'Use Change Password for your own account' : 'Reset temporary password', !user.canReset)}
+            ${button(active ? 'deactivate' : 'activate', active ? 'person-dash' : 'person-check',
+                user.isSelf ? 'Your own account is protected' : user.isLastAdmin ? 'Last active Admin is protected'
+                : active ? 'Deactivate' : 'Activate', !user.canChangeStatus)}</div>`;
     }
+
+    /* Send explicit JSON inputs and surface Laravel validation/session responses. */
+    async request(url, body = null) {
+        const response = await fetch(url, {
+            method: body === null ? 'GET' : 'POST', credentials: 'same-origin',
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': this.csrf, ...(body === null ? {} : { 'Content-Type': 'application/json' }) },
+            ...(body === null ? {} : { body: JSON.stringify(body) }),
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result || response.redirected) {
+            const messages = { 401: 'Please sign in again.', 403: 'Only an active Admin can manage accounts.',
+                404: 'Operational account not found.', 419: 'Session expired. Refresh the page.' };
+            const error = new Error(messages[response.status]
+                || (result?.errors ? Object.values(result.errors).flat().join(' ') : null)
+                || (response.status >= 500 ? 'Server error. Refresh the account before retrying.' : result?.message)
+                || 'Could not verify the response. Refresh the list before retrying.');
+            error.errors = result?.errors || {};
+            throw error;
+        }
+        return result;
+    }
+
+    /* Load accounts without sample rows or stored passwords. */
+    async load() {
+        this.loading = true;
+        try {
+            const result = await this.request(`${this.base}/data`);
+            if (!Array.isArray(result.data)) throw new Error('Unexpected account response. Refresh the page.');
+            this.model.users = result.data;
+            this.refresh();
+        } finally { this.loading = false; }
+    }
+
+    /* Retain table search and pagination while replacing rows from the server. */
+    refresh(message = '') {
+        this.table.clear(); this.table.rows.add(this.model.users); this.table.draw(false);
+        this.announce(message);
+    }
+
+    /* Bind forms and prevent dismissal or duplicate submissions during writes. */
     bindEvents() {
-        this.el('addUserBtn').addEventListener('click', () => this.openForm());
+        this.el('addUserBtn').addEventListener('click', () => { if (!this.busy && !this.loading) this.openForm(); });
         this.el('userSearch').addEventListener('input', (event) => this.table.search(event.target.value).draw());
         this.el('userLength').addEventListener('change', (event) => this.table.page.len(Number(event.target.value)).draw());
-        this.el('userTable').addEventListener('click', (event) => { const button = event.target.closest('[data-user-action]'); if (!button || button.disabled) return; const user = this.model.find(button.dataset.userId); if (!user) return; const action = button.dataset.userAction; if (action === 'view') this.view(user); else if (action === 'edit') this.openForm(user); else this.openAction(user, action); });
+        this.el('userTable').addEventListener('click', (event) => {
+            const button = event.target.closest('[data-user-action]');
+            if (!button || button.disabled || this.busy || this.loading) return;
+            const user = this.model.find(button.dataset.userId);
+            if (user) this.openRecord(user, button.dataset.userAction);
+        });
         this.el('userForm').addEventListener('submit', (event) => { event.preventDefault(); this.save(); });
         this.el('userActionForm').addEventListener('submit', (event) => { event.preventDefault(); this.performAction(); });
-        this.el('userFormModal').addEventListener('hidden.bs.modal', () => { this.el('userForm').reset(); this.el('userPassword').value = ''; });
-        this.el('userActionModal').addEventListener('hidden.bs.modal', () => { this.el('userResetPassword').value = ''; this.pending = null; });
+        ['userFormModal', 'userActionModal'].forEach((id) => this.el(id).addEventListener('hide.bs.modal', (event) => {
+            if (this.busy) event.preventDefault();
+        }));
+        this.el('userFormModal').addEventListener('hidden.bs.modal', () => {
+            this.el('userForm').reset(); this.el('userPassword').value = ''; this.editingVersion = null;
+        });
+        this.el('userActionModal').addEventListener('hidden.bs.modal', () => {
+            this.el('userResetPassword').value = ''; this.pending = null;
+        });
     }
+
+    /* Fetch a fresh version before displaying details, edit or confirmation. */
+    async openRecord(user, action) {
+        this.loading = true;
+        try {
+            const result = await this.request(`${this.base}/${user.dbId}`);
+            if (!result.data?.version) throw new Error('Account details are unavailable.');
+            const fresh = result.data;
+            this.model.users = this.model.users.map((row) => row.dbId === fresh.dbId ? fresh : row);
+            this.refresh();
+            if (action === 'view') this.view(fresh);
+            else if (action === 'edit') this.openForm(fresh);
+            else this.openAction(fresh, action);
+        } catch (error) { this.announce(error.message); }
+        finally { this.loading = false; }
+    }
+
+    /* Display an error without copying credentials into account data. */
     error(id, message = '') { this.el(id).textContent = message; this.el(id).hidden = !message; }
-    refresh(message) { this.table.clear(); this.table.rows.add(this.model.users); this.table.draw(false); this.el('userAnnouncement').textContent = message; }
+
+    /* Populate the form; passwords are accepted only when creating an account. */
     openForm(user = null) {
         this.el('userForm').reset(); this.error('userFormError');
-        this.el('userFormTitle').textContent = user ? 'Edit User' : 'Add New User'; this.el('userEditingId').value = user?.id || ''; this.el('userCode').value = user?.id || this.model.nextId(); this.el('userName').value = user?.name || ''; this.el('userEmail').value = user?.email || ''; this.el('userRole').value = user?.role || 'Supplier/Staff'; this.el('userStatus').value = user?.status || 'Active';
-        this.el('userPasswordField').hidden = Boolean(user); this.el('userPassword').disabled = Boolean(user); this.el('userPassword').required = !user; this.el('userPassword').value = ''; this.formModal.show();
+        this.editingVersion = user?.version || null;
+        this.el('userFormTitle').textContent = user ? 'Edit User' : 'Add New User';
+        this.el('userEditingId').value = user?.dbId || '';
+        this.el('userCode').value = user?.id || 'Generated after saving';
+        this.el('userName').value = user?.name || '';
+        this.el('userEmail').value = user?.email || '';
+        this.el('userRole').value = user?.roleValue || 'supplier';
+        this.el('userStatus').value = user?.status || 'Active';
+        this.el('userPasswordField').hidden = Boolean(user);
+        this.el('userPassword').disabled = Boolean(user);
+        this.el('userPassword').required = !user;
+        this.el('userPassword').value = '';
+        this.formModal.show();
     }
-    save() {
-        this.error('userFormError'); if (!this.el('userForm').reportValidity()) return;
+
+    /* Check bcrypt's byte limit before sending a temporary password. */
+    passwordValid(value) {
+        if (Array.from(value).length < 12 || new TextEncoder().encode(value).length > 72 || value.includes('\0')) {
+            throw new Error('Use at least 12 characters, at most 72 UTF-8 bytes, with no null characters.');
+        }
+    }
+
+    /* Create or update using an allowlist; never merge credentials into the table model. */
+    async save() {
+        if (this.busy) return;
+        this.error('userFormError');
+        if (!this.el('userForm').reportValidity()) return;
+        const id = this.el('userEditingId').value;
+        const values = { name: this.el('userName').value.trim(), email: this.el('userEmail').value.trim().toLowerCase(),
+            role: this.el('userRole').value, status: this.el('userStatus').value };
         try {
-            const creating = !this.el('userEditingId').value;
-            if (creating && this.el('userPassword').value.length < 8) throw new Error('Use a dummy temporary password of at least 8 characters.');
-            // Explicit allowlist: never send the password into model records/history.
-            const user = this.model.save({ id: this.el('userEditingId').value, name: this.el('userName').value, email: this.el('userEmail').value, role: this.el('userRole').value, status: this.el('userStatus').value });
-            this.el('userPassword').value = ''; this.formModal.hide(); this.refresh(`${user.id} saved in this preview. Actual account access is not connected.`);
-        } catch (error) { this.error('userFormError', error.message); }
+            if (id) values.version = this.editingVersion;
+            else { values.password = this.el('userPassword').value; this.passwordValid(values.password); }
+            this.setBusy(true);
+            const result = await this.request(id ? `${this.base}/${Number(id)}/update` : this.base, values);
+            this.el('userPassword').value = '';
+            this.setBusy(false); this.formModal.hide();
+            await this.reloadAfterWrite(result);
+        } catch (error) { this.error('userFormError', error.message || 'Could not verify the update. Refresh before retrying.'); }
+        finally { delete values.password; this.setBusy(false); }
     }
+
+    /* Confirm an explicit status or a separate temporary-password reset. */
     openAction(user, action) {
-        this.pending = { id: user.id, action, expectedStatus: user.status }; this.error('userActionError');
-        const reset = action === 'reset'; this.el('userActionTitle').textContent = reset ? 'Reset Temporary Password' : action === 'activate' ? 'Activate User' : 'Deactivate User';
-        this.el('userActionMessage').textContent = reset ? `Issue a new temporary password for ${user.name}? The completed system will require a password change at next login. Enter a dummy value for this preview.` : `${action === 'activate' ? 'Activate' : 'Deactivate'} ${user.name}? Deactivation must block login and invalidate sessions in the backend. This preview changes the sample status only.`;
-        this.el('userResetField').hidden = !reset; this.el('userResetPassword').required = reset; this.el('userResetPassword').disabled = !reset; this.el('userResetPassword').value = ''; this.actionModal.show();
+        if ((action === 'reset' && !user.canReset) || (action !== 'reset' && !user.canChangeStatus)) return;
+        const reset = action === 'reset';
+        this.pending = { dbId: user.dbId, action, version: user.version };
+        this.error('userActionError');
+        this.el('userActionTitle').textContent = reset ? 'Reset Temporary Password' : action === 'activate' ? 'Activate User' : 'Deactivate User';
+        this.el('userActionMessage').textContent = reset
+            ? `Issue a new temporary password for ${user.name}? Previous sessions will be revoked and a password change will be required.`
+            : `${action === 'activate' ? 'Activate' : 'Deactivate'} ${user.name}? Deactivation blocks login and revokes existing access.`;
+        this.el('userResetField').hidden = !reset;
+        this.el('userResetPassword').required = reset;
+        this.el('userResetPassword').disabled = !reset;
+        this.el('userResetPassword').value = '';
+        this.actionModal.show();
     }
-    performAction() {
-        this.error('userActionError'); if (!this.pending || !this.el('userActionForm').reportValidity()) return;
+
+    /* Apply status/reset with the selected version; there is no unsafe status toggle. */
+    async performAction() {
+        if (this.busy || !this.pending) return;
+        this.error('userActionError');
+        if (!this.el('userActionForm').reportValidity()) return;
+        const pending = { ...this.pending };
+        const values = { version: pending.version };
         try {
-            const user = this.model.find(this.pending.id); if (!user || user.status !== this.pending.expectedStatus) throw new Error('Account changed. Close and reopen the dialog.');
-            if (this.pending.action === 'reset') {
-                if (this.el('userResetPassword').value.length < 8) throw new Error('Enter at least 8 characters.');
-                this.model.reset(user.id); this.el('userResetPassword').value = '';
-            } else this.model.toggle(user.id);
-            this.actionModal.hide(); this.refresh(`${user.id} updated in this preview. No credential was retained.`);
-        } catch (error) { this.error('userActionError', error.message); }
+            const reset = pending.action === 'reset';
+            if (reset) { values.password = this.el('userResetPassword').value; this.passwordValid(values.password); }
+            else values.status = pending.action === 'activate' ? 'Active' : 'Inactive';
+            this.setBusy(true);
+            const result = await this.request(`${this.base}/${pending.dbId}/${reset ? 'reset-password' : 'status'}`, values);
+            this.el('userResetPassword').value = '';
+            this.setBusy(false); this.actionModal.hide();
+            await this.reloadAfterWrite(result);
+        } catch (error) { this.error('userActionError', error.message || 'Could not verify the update. Refresh before retrying.'); }
+        finally { delete values.password; this.setBusy(false); }
     }
+
+    /* Preserve the returned saved row even if the subsequent list refresh fails. */
+    async reloadAfterWrite(result) {
+        if (!result.data?.version) throw new Error('Update response is incomplete. Refresh the page to verify.');
+        const index = this.model.users.findIndex((row) => row.dbId === result.data.dbId);
+        if (index < 0) this.model.users.push(result.data); else this.model.users[index] = result.data;
+        this.refresh(result.message || 'Account saved.');
+        try { await this.load(); this.announce(result.message || 'Account saved.'); }
+        catch { this.announce('Account saved. Refresh the page to reload the complete list.'); }
+    }
+
+    /* Lock controls while writing; restore password-field states afterward. */
+    setBusy(value) {
+        this.busy = value;
+        ['userFormModal', 'userActionModal'].forEach((id) => this.el(id)
+            .querySelectorAll('input, select, button').forEach((control) => { control.disabled = value; }));
+        this.el('addUserBtn').disabled = value;
+        if (!value) {
+            this.el('userPassword').disabled = Boolean(this.el('userEditingId').value);
+            this.el('userResetPassword').disabled = this.pending?.action !== 'reset';
+        }
+    }
+
+    /* Display saved account/security facts without fabricated session history or secrets. */
     view(user) {
-        const history = this.model.history.filter((entry) => entry.id === user.id).slice().reverse();
         this.el('userViewTitle').textContent = `User Details — ${user.id}`;
-        const fields = [['Name', user.name], ['Email', user.email], ['Role', user.role], ['Status', user.status], ['Registered', formatTime(user.created)], ['Password Change Required', user.mustChangePassword ? 'Yes — at next login' : 'No sample requirement']];
-        this.el('userViewContent').innerHTML = `<dl class="user-detail-grid">${fields.map(([label, value]) => `<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(value)}</dd></div>`).join('')}</dl><h6 class="user-section-title">Fixed Role Permissions</h6><ul class="user-permissions">${rolePermissions[user.role].map((value) => `<li>${escapeHTML(value)}</li>`).join('')}</ul><p class="user-help">Read-only permission reference. The backend must enforce these rules. No passwords are displayed or stored by this prototype.</p><h6 class="user-section-title">Session Activity</h6><ol class="user-history">${history.length ? history.map((entry) => `<li>${escapeHTML(entry.note)}<small>${escapeHTML(formatTime(entry.date))} · ${escapeHTML(entry.actor)}</small></li>`).join('') : '<li>No account changes in this preview session.</li>'}</ol>`;
+        const fields = [['Name', user.name], ['Email', user.email], ['Role', user.role], ['Status', user.status],
+            ['Registered', user.created ? formatTime(user.created) : '—'],
+            ['Password Change Required', user.mustChangePassword ? 'Yes — at next login' : 'No']];
+        this.el('userViewContent').innerHTML = `<dl class="user-detail-grid">${fields.map(([label, value]) =>
+            `<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(value)}</dd></div>`).join('')}</dl>
+            <h6 class="user-section-title">Fixed Role Permissions</h6>
+            <ul class="user-permissions">${(rolePermissions[user.role] || []).map((value) => `<li>${escapeHTML(value)}</li>`).join('')}</ul>
+            <p class="user-help">Passwords are never displayed. Account administration is restricted to active Admin accounts.</p>`;
         this.viewModal.show();
     }
 }
 
-function initializeUsers() { if (document.getElementById('userPage') && !DataTable.isDataTable('#userTable')) new UserManagementUI(); }
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeUsers, { once: true }); else initializeUsers();
+/* Initialize only on the User Management page. */
+function initializeUsers() {
+    if (document.getElementById('userPage') && !DataTable.isDataTable('#userTable')) new UserManagementUI();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeUsers, { once: true });
+else initializeUsers();

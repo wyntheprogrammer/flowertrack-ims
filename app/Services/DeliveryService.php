@@ -22,15 +22,19 @@ class DeliveryService
     /** Load real delivery records and active assignment options. */
     public function data(User $actor): array
     {
-        $this->assertActor($actor);
+        $this->assertActor($actor, true);
+        $query = Delivery::with(['order', 'personnel', 'histories']);
+        if ($actor->role === User::ROLE_DELIVERY) {
+            $query->where('assigned_to', $actor->id);
+        }
 
         return [
-            'data' => Delivery::with(['order', 'personnel', 'histories'])
+            'data' => $query
                 ->orderByDesc('id')
                 ->get()
                 ->map(fn (Delivery $delivery) => $this->row($delivery, $actor))
                 ->all(),
-            'personnel' => User::query()
+            'personnel' => $actor->role === User::ROLE_DELIVERY ? [] : User::query()
                 ->where('role', User::ROLE_DELIVERY)
                 ->where('is_active', true)
                 ->orderBy('name')
@@ -46,7 +50,10 @@ class DeliveryService
     /** Return browser fields without exposing the stored proof path. */
     public function row(Delivery $delivery, User $actor): array
     {
-        $this->assertActor($actor);
+        $this->assertActor($actor, true);
+        if ($actor->role === User::ROLE_DELIVERY) {
+            abort_unless((int) $delivery->assigned_to === (int) $actor->id, 403);
+        }
         $delivery->loadMissing(['order', 'personnel', 'histories']);
 
         return [
@@ -85,7 +92,7 @@ class DeliveryService
     }
 
     /** Limit service access to active operational accounts. */
-    private function assertActor(User $actor): void
+    private function assertActor(User $actor, bool $allowDelivery = false): void
     {
         abort_unless(
             $actor->is_active
@@ -93,6 +100,7 @@ class DeliveryService
             && in_array($actor->role, [
                 User::ROLE_ADMIN,
                 User::ROLE_SUPPLIER,
+                ...($allowDelivery ? [User::ROLE_DELIVERY] : []),
             ], true),
             403
         );
@@ -162,9 +170,12 @@ class DeliveryService
         array $input,
         User $actor
     ): Delivery {
-        $this->assertActor($actor);
+        $this->assertActor($actor, true);
 
         $action = $input['action'];
+        if ($actor->role === User::ROLE_DELIVERY) {
+            abort_unless(in_array($action, ['deliver', 'fail'], true), 403);
+        }
 
         if (!in_array($action, ['schedule', 'assign', 'dispatch', 'fail', 'deliver', 'cancel'], true)) {
             throw ValidationException::withMessages([
@@ -252,6 +263,10 @@ class DeliveryService
                 $locked = Delivery::query()
                     ->lockForUpdate()
                     ->findOrFail($delivery->id);
+
+                if ($actor->role === User::ROLE_DELIVERY) {
+                    abort_unless((int) $locked->assigned_to === (int) $actor->id, 403);
+                }
 
                 $previous = DeliveryHistory::query()
                     ->where('request_key', $input['request_key'])
@@ -614,4 +629,5 @@ class DeliveryService
         }
     }
 }
+
 
