@@ -20,9 +20,7 @@
             <div class="order-notice">
                 <i class="bi bi-info-circle" aria-hidden="true"></i>
                 <span>
-                    Sample data only. Stock reservations and pickup stock movements
-                    are simulated in this screen. Delivery, Inventory, and Payments
-                    are not connected yet.
+                    Confirmation reserves stock. Actual pickup collection deducts stock once; ready statuses do not deduct stock.
                 </span>
             </div>
 
@@ -51,7 +49,12 @@
             </div>
 
             <div class="order-table-container">
-                <table id="orderTable">
+                <table id="orderTable"
+                    data-url="{{ route('supplier.orders.data') }}"
+                    data-store-url="{{ route('supplier.orders.store') }}"
+                    data-show-url="{{ route('supplier.orders.show', ['order' => '__ORDER__']) }}"
+                    data-update-url="{{ route('supplier.orders.update', ['order' => '__ORDER__']) }}"
+                    data-action-url="{{ route('supplier.orders.action', ['order' => '__ORDER__']) }}">
                     <thead>
                         <tr>
                             <th scope="col">Order / Client</th>
@@ -95,6 +98,7 @@
                 </div>
 
                 <form id="orderForm">
+                    @csrf
                     <div class="modal-body">
                         <div id="orderFormError" class="order-error" role="alert" hidden></div>
 
@@ -122,7 +126,7 @@
                             <div class="order-field">
                                 <label for="orderDeliveryFee">Delivery Fee</label>
                                 <input type="text" id="orderDeliveryFee" readonly>
-                                <small>Sample fixed fee; configured by the system later.</small>
+                                <small>System-configured fee, snapshotted when the order is saved.</small>
                             </div>
 
                             <div class="order-field order-full" id="orderAddressField">
@@ -142,8 +146,7 @@
                         <div id="orderItemList" class="order-item-list"></div>
 
                         <p class="order-help">
-                            Quantities follow each item’s Stem or Bouquet unit. Prices are sample selling-price
-                            snapshots and cannot be edited here.
+                            Quantities follow each item’s Stem or Bouquet unit. Prices are read-only snapshots. Final totals are calculated by the system when saving.
                         </p>
 
                         <div class="order-totals">
@@ -242,9 +245,14 @@
                 </div>
 
                 <form id="orderActionForm">
+                    @csrf
                     <div class="modal-body">
                         <div id="orderActionError" class="order-error" role="alert" hidden></div>
                         <p id="orderActionMessage" class="order-action-message"></p>
+                        <div class="form-check mb-3" id="orderCollectedField" hidden>
+                            <input class="form-check-input" type="checkbox" id="orderCollected">
+                            <label class="form-check-label" for="orderCollected">I confirm the customer has actually collected the complete order.</label>
+                        </div>
 
                         <div class="order-field" id="orderCancelField" hidden>
                             <label for="orderCancelReason">
@@ -275,3 +283,4 @@
         </div>
     </div>
 @endsection
+

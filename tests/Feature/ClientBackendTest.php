@@ -60,6 +60,12 @@ class ClientBackendTest extends TestCase
         $this->assertCount(1, $files, 'Expected exactly one create_clients_table migration.');
         (require $files[0])->up();
         $this->assertTrue(Schema::hasTable('clients'), 'The selected migration must create the clients table.');
+        // Client profiles now read persisted Order history; prepare its real schema here too.
+        foreach (['create_flowers_table', 'create_order_tables'] as $migrationName) {
+            $migrationFiles = glob(database_path('migrations/*_'.$migrationName.'.php')) ?: [];
+            $this->assertCount(1, $migrationFiles, 'Expected one '.$migrationName.' migration.');
+            (require $migrationFiles[0])->up();
+        }
         $this->clients = app(ClientService::class);
     }
 
@@ -103,15 +109,18 @@ class ClientBackendTest extends TestCase
     }
 
     /**
-     * Public JSON never includes credentials or fabricated order summaries.
+     * Public JSON excludes credentials and derives actual empty Order totals.
      */
-    public function test_public_responses_exclude_secrets_and_unknown_purchase_totals(): void
+    public function test_public_responses_exclude_secrets_and_derive_order_totals(): void
     {
         $client = $this->clients->store($this->input());
         $controller = app(ClientController::class);
         $details = $controller->show($client, $this->clients)->getData(true);
-        $this->assertFalse($details['order_history_available']);
-        $this->assertNull($details['summary']);
+        $this->assertTrue($details['order_history_available']);
+        $this->assertSame([
+            'total_orders' => 0, 'completed_orders' => 0,
+            'ongoing_orders' => 0, 'completed_purchases_cents' => 0,
+        ], $details['summary']);
         $this->assertSame([], $details['orders']);
         $this->assertSame(['dbId', 'id', 'name', 'email', 'phone', 'address', 'registered', 'status', 'version'], array_keys($details['data']));
         $json = json_encode($details, JSON_THROW_ON_ERROR);

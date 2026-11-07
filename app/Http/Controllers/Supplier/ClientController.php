@@ -7,6 +7,7 @@ use App\Http\Requests\StoreClientRequest;
 use App\Http\Requests\UpdateClientRequest;
 use App\Http\Requests\UpdateClientStatusRequest;
 use App\Models\Client;
+use App\Models\Order;
 use App\Models\User;
 use App\Services\ClientService;
 use Illuminate\Http\JsonResponse;
@@ -24,7 +25,7 @@ class ClientController extends Controller
     }
 
     /**
-     * List real client accounts without fabricating purchase summaries.
+     * List real client accounts with persisted order history available.
      */
     public function data(ClientService $clients): JsonResponse
     {
@@ -32,19 +33,45 @@ class ClientController extends Controller
             ->whereHas('user', fn ($query) => $query->where('role', User::ROLE_CLIENT))
             ->orderBy('id')->get()->map(fn (Client $client) => $clients->row($client))->values());
 
-        return response()->json(['data' => $rows, 'order_history_available' => false]);
+        return response()->json(['data' => $rows, 'order_history_available' => true]);
     }
 
     /**
-     * Expose profile details while order persistence remains unavailable.
+     * Expose real order history and gross completed-order purchase totals.
      */
     public function show(Client $client, ClientService $clients): JsonResponse
     {
-        $row = DB::transaction(fn () => $clients->row(Client::query()->with('user')->findOrFail($client->id)));
+        $result = DB::transaction(function () use ($client, $clients): array {
+            $profile = Client::query()->with('user')->findOrFail($client->id);
+            $row = $clients->row($profile);
+            $orders = Order::query()->with('payment')->where('client_id', $profile->id)->orderByDesc('id')->get();
+            $completedPurchases = 0;
+            foreach ($orders->where('status', 'Completed') as $completed) {
+                abort_if($completedPurchases > PHP_INT_MAX - (int) $completed->total_cents, 422, 'The purchase summary exceeds the supported integer range.');
+                $completedPurchases += (int) $completed->total_cents;
+            }
 
-        return response()->json([
-            'data' => $row, 'orders' => [], 'summary' => null, 'order_history_available' => false,
-        ]);
+            return [
+                'data' => $row,
+                'orders' => $orders->map(fn (Order $order) => [
+                    'dbId' => (int) $order->id, 'id' => $order->code,
+                    'date' => $order->created_at->copy()->setTimezone('Asia/Manila')->format('Y-m-d'),
+                    'status' => $order->status, 'method' => $order->method,
+                    'totalCents' => (int) $order->total_cents,
+                    'payment' => $order->payment?->status === 'Refunded' ? 'Refunded'
+                        : ($order->payment?->status === 'Confirmed' ? 'Paid' : 'Unpaid'),
+                ])->values()->all(),
+                'summary' => [
+                    'total_orders' => $orders->count(),
+                    'completed_orders' => $orders->where('status', 'Completed')->count(),
+                    'ongoing_orders' => $orders->whereNotIn('status', ['Completed', 'Cancelled'])->count(),
+                    'completed_purchases_cents' => $completedPurchases,
+                ],
+                'order_history_available' => true,
+            ];
+        });
+
+        return response()->json($result);
     }
 
     /**

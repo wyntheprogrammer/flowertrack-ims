@@ -6,6 +6,8 @@ use App\Http\Controllers\Supplier\FlowerController;
 use App\Http\Controllers\Supplier\InventoryController;
 use App\Http\Controllers\Supplier\BatchController;
 use App\Http\Controllers\Supplier\ClientController;
+use App\Http\Controllers\Supplier\OrderController;
+
 
 // Public home
 Route::view('/', 'welcome');
@@ -131,8 +133,29 @@ Route::middleware('auth')->group(function () {
 
 
 
-                Route::view('/orders', 'supplier.orders')
+                Route::get('/orders', [OrderController::class, 'index'])
                     ->name('orders');
+
+                Route::get('/orders/data', [OrderController::class, 'data'])
+                    ->name('orders.data');
+
+                Route::get('/orders/{order}', [OrderController::class, 'show'])
+                    ->whereNumber('order')
+                    ->name('orders.show');
+
+                Route::post('/orders', [OrderController::class, 'store'])
+                    ->name('orders.store');
+
+                Route::post('/orders/{order}/update', [OrderController::class, 'update'])
+                    ->whereNumber('order')
+                    ->name('orders.update');
+
+                Route::post('/orders/{order}/action', [OrderController::class, 'action'])
+                    ->whereNumber('order')
+                    ->name('orders.action');
+
+
+                    
 
                 Route::view('/deliveries', 'supplier.deliveries')
                     ->name('deliveries');

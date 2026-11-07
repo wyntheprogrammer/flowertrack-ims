@@ -14,17 +14,7 @@ const money = (value) =>
     new Intl.NumberFormat('en-PH', {
         style: 'currency',
         currency: 'PHP',
-    }).format(value);
-
-function today() {
-    const date = new Date();
-
-    return [
-        date.getFullYear(),
-        String(date.getMonth() + 1).padStart(2, '0'),
-        String(date.getDate()).padStart(2, '0'),
-    ].join('-');
-}
+    }).format(Number(value) / 100);
 
 function formatDate(value) {
     const [year, month, day] = value.split('-').map(Number);
@@ -46,263 +36,83 @@ function badge(value) {
     `;
 }
 
-/*
- * Standalone UI prototype.
- * These records are not connected to Client, Inventory, Delivery or Sales.
- */
-const SAMPLE_DELIVERY_FEE = 150;
-
-const clients = [
-    {
-        id: 'CLI-001',
-        name: 'Maria Santos',
-        status: 'Active',
-        address: 'Quezon City, Metro Manila',
-    },
-    {
-        id: 'CLI-002',
-        name: 'Carlo Reyes',
-        status: 'Active',
-        address: 'Makati City, Metro Manila',
-    },
-    {
-        id: 'CLI-003',
-        name: 'Angela Cruz',
-        status: 'Inactive',
-        address: 'Pasig City, Metro Manila',
-    },
-    {
-        id: 'CLI-004',
-        name: 'Daniel Garcia',
-        status: 'Active',
-        address: 'Marikina City, Metro Manila',
-    },
-];
-
-/*
- * Prices simulate Sales-owned selling prices.
- * onHand represents current sample stock, before local reservations.
- */
-const flowers = [
-    { id: 'FLW-001', name: 'Red Rose', price: 60, onHand: 250 },
-    { id: 'FLW-002', name: 'White Rose', price: 65, onHand: 120 },
-    { id: 'FLW-003', name: 'Sunflower', price: 85, onHand: 100 },
-    { id: 'FLW-004', name: 'Pink Tulip', price: 95, onHand: 80 },
-    { id: 'FLW-005', name: 'White Lily', price: 110, onHand: 60 },
-    { id: 'FLW-009', name: 'Classic Rose Bouquet', price: 1200, onHand: 10, itemType: 'Bouquet' },
-    { id: 'FLW-010', name: 'Mixed Flower Bouquet', price: 1500, onHand: 8, itemType: 'Bouquet' },
-].map((item) => ({ ...item, itemType: item.itemType || 'Stem', baseUnit: item.itemType || 'Stem' }));
-
-function sampleOrder({
-    id,
-    clientId,
-    date,
-    method,
-    status,
-    payment = 'Unpaid',
-    paid = 0,
-    flowerId = 'FLW-001',
-    quantity = 10,
-    stockedOut = false,
-}) {
-    const client = clients.find((item) => item.id === clientId);
-    const flower = flowers.find((item) => item.id === flowerId);
-
-    return {
-        id,
-        clientId,
-        clientName: client.name,
-        date,
-        method,
-        address: method === 'Delivery' ? client.address : '',
-        deliveryFee: method === 'Delivery' ? SAMPLE_DELIVERY_FEE : 0,
-        status,
-        payment,
-        paid,
-        notes: '',
-        stockedOut,
-        items: [{
-            flowerId,
-            flowerName: flower.name,
-            quantity,
-            unitPrice: flower.price,
-            itemType: flower.itemType,
-            baseUnit: flower.baseUnit,
-        }],
-        history: [{
-            status,
-            date: `${date}T09:00:00+08:00`,
-            actor: 'Administrator (sample)',
-            note: 'Sample order loaded for UI review.',
-        }],
-    };
-}
-
-const initialOrders = [
-    sampleOrder({
-        id: 'ORD-001',
-        clientId: 'CLI-001',
-        date: '2026-11-03',
-        method: 'Delivery',
-        status: 'Pending',
-    }),
-    sampleOrder({
-        id: 'ORD-002',
-        clientId: 'CLI-002',
-        date: '2026-11-02',
-        method: 'Customer Pickup',
-        status: 'Confirmed',
-        flowerId: 'FLW-002',
-        quantity: 15,
-        payment: 'Paid',
-        paid: 975,
-    }),
-    sampleOrder({
-        id: 'ORD-003',
-        clientId: 'CLI-004',
-        date: '2026-11-02',
-        method: 'Delivery',
-        status: 'Processing',
-        flowerId: 'FLW-003',
-        quantity: 20,
-    }),
-    sampleOrder({
-        id: 'ORD-004',
-        clientId: 'CLI-001',
-        date: '2026-11-01',
-        method: 'Delivery',
-        status: 'Ready for Delivery',
-        flowerId: 'FLW-004',
-        quantity: 10,
-    }),
-    sampleOrder({
-        id: 'ORD-005',
-        clientId: 'CLI-002',
-        date: '2026-10-31',
-        method: 'Customer Pickup',
-        status: 'Ready for Pickup',
-        flowerId: 'FLW-005',
-        quantity: 5,
-        stockedOut: false,
-        payment: 'Paid',
-        paid: 550,
-    }),
-    sampleOrder({
-        id: 'ORD-006',
-        clientId: 'CLI-003',
-        date: '2026-10-25',
-        method: 'Customer Pickup',
-        status: 'Completed',
-        quantity: 10,
-        stockedOut: true,
-        payment: 'Paid',
-        paid: 600,
-    }),
-];
-
-
-const mixedSample = sampleOrder({
-    id: 'ORD-007', clientId: 'CLI-001', date: today(), method: 'Delivery',
-    status: 'Pending', flowerId: 'FLW-001', quantity: 5,
-});
-mixedSample.items.push({ flowerId: 'FLW-009', flowerName: 'Classic Rose Bouquet',
-    quantity: 1, unitPrice: 1200, itemType: 'Bouquet', baseUnit: 'Bouquet' });
-initialOrders.push(mixedSample);
+/* ==================================================
+   ORDER MANAGEMENT — SERVER-AUTHORITATIVE STOCK AND MONEY
+   Monetary values in JavaScript are integer centavos.
+================================================== */
 
 class OrderManagementUI {
+    /* ==================================================
+       CONSTRUCTOR
+    ================================================== */
+
     constructor(element) {
         this.element = element;
-        this.orders = structuredClone(initialOrders);
-        this.stock = new Map(flowers.map((flower) => [
-            flower.id,
-            flower.onHand,
-        ]));
-
+        this.orders = [];
+        this.clients = [];
+        this.flowers = [];
+        this.deliveryFeeCents = null;
         this.pendingAction = null;
         this.itemSequence = 0;
-
+        this.ready = false;
+        this.loading = false;
+        this.saving = false;
+        this.committed = false;
+        this.editingVersion = null;
+        this.requestKey = null;
+        this.autoCreateHandled = false;
         this.formModal = Modal.getOrCreateInstance(this.el('orderFormModal'));
         this.viewModal = Modal.getOrCreateInstance(this.el('orderViewModal'));
         this.actionModal = Modal.getOrCreateInstance(this.el('orderActionModal'));
-
         this.initializeTable();
         this.mountScroller();
         this.bindEvents();
+        this.loadOrders();
     }
 
-    el(id) {
-        return document.getElementById(id);
-    }
+    /* ==================================================
+       EL
+    ================================================== */
 
-    total(order) {
-        return order.items.reduce(
-            (sum, item) => sum + item.quantity * item.unitPrice,
-            0,
-        ) + order.deliveryFee;
-    }
+    el(id) { return document.getElementById(id); }
+    /* ==================================================
+       TOTAL
+    ================================================== */
+
+    total(order) { return order.totalCents; }
+    /* ==================================================
+       HAS RESERVATION
+    ================================================== */
 
     hasReservation(order) {
-        return !order.stockedOut
-            && ['Confirmed', 'Processing', 'Ready for Delivery', 'Ready for Pickup', 'Out for Delivery']
-                .includes(order.status);
+        return !order.stockedOut && ['Confirmed','Processing','Ready for Delivery','Ready for Pickup','Out for Delivery'].includes(order.status);
     }
+    /* ==================================================
+       AVAILABLE
+    ================================================== */
 
     available(flowerId, excludeOrderId = '') {
-        const reserved = this.orders
-            .filter((order) =>
-                order.id !== excludeOrderId && this.hasReservation(order),
-            )
-            .reduce((sum, order) =>
-                sum + order.items
-                    .filter((item) => item.flowerId === flowerId)
-                    .reduce((quantity, item) => quantity + item.quantity, 0),
-            0);
-
-        return (this.stock.get(flowerId) || 0) - reserved;
+        const own = this.orders.find(order => order.id === excludeOrderId);
+        return Number(this.flowers.find(flower => flower.id === flowerId)?.available || 0)
+            + (own && this.hasReservation(own) ? own.items.filter(item => item.flowerId === flowerId)
+                .reduce((sum, item) => sum + item.quantity, 0) : 0);
     }
-
-    allocationError(items, excludeOrderId = '') {
-        const quantities = new Map();
-
-        items.forEach((item) => {
-            quantities.set(
-                item.flowerId,
-                (quantities.get(item.flowerId) || 0) + item.quantity,
-            );
-        });
-
-        for (const [flowerId, required] of quantities) {
-            const available = this.available(flowerId, excludeOrderId);
-
-            if (required > available) {
-                const flower = flowers.find((item) => item.id === flowerId);
-
-                return `${flower.name}: ${required} ${flower.baseUnit.toLowerCase()} units requested, but only ${available} available after sample reservations.`;
-            }
-        }
-
-        return '';
-    }
+    /* ==================================================
+       NEXT STATUS
+    ================================================== */
 
     nextStatus(order) {
-        if (order.status === 'Pending') return 'Confirmed';
-        if (order.status === 'Confirmed') return 'Processing';
-
-        if (order.status === 'Processing') {
-            return order.method === 'Delivery'
-                ? 'Ready for Delivery'
-                : 'Ready for Pickup';
-        }
-
-        if (order.status === 'Ready for Pickup') return 'Completed';
-
-        // Delivery dispatch and Delivered belong to Delivery Management.
-        return null;
+        return order.status === 'Pending' && !order.canConfirm ? null : order.nextStatus;
     }
+    /* ==================================================
+       EDITABLE
+    ================================================== */
 
-    editable(order) {
-        return ['Pending', 'Confirmed'].includes(order.status);
-    }
+    editable(order) { return order.editable && ['Pending', 'Confirmed'].includes(order.status); }
+
+    /* ==================================================
+       INITIALIZE TABLE
+    ================================================== */
 
     initializeTable() {
         this.table = new DataTable(this.element, {
@@ -378,6 +188,10 @@ class OrderManagementUI {
         });
     }
 
+    /* ==================================================
+       ACTION BUTTONS
+    ================================================== */
+
     actionButtons(order) {
         const button = (action, icon, label) => `
             <button
@@ -408,6 +222,10 @@ class OrderManagementUI {
         `;
     }
 
+    /* ==================================================
+       MOUNT SCROLLER
+    ================================================== */
+
     mountScroller() {
         const wrapper = document.createElement('div');
 
@@ -420,21 +238,30 @@ class OrderManagementUI {
         wrapper.append(this.element);
     }
 
+    /* ==================================================
+       REFRESH
+    ================================================== */
+
     refresh() {
         this.table.clear();
         this.table.rows.add(this.orders);
         this.table.draw(false);
     }
 
+    /* ==================================================
+       BIND EVENTS
+    ================================================== */
+
     bindEvents() {
         this.el('addOrderBtn').addEventListener('click', () => this.openForm());
 
-        this.el('orderSearch').addEventListener('input', (event) => {
-            this.table.search(event.target.value).draw();
-        });
+        ['input', 'search'].forEach(event => this.el('orderSearch').addEventListener(event, () => {
+            this.table.search(this.el('orderSearch').value.trim(), {regex: false, smart: true, caseInsensitive: true}).draw();
+        }));
 
         this.el('orderPageLength').addEventListener('change', (event) => {
-            this.table.page.len(Number(event.target.value)).draw();
+            const length = Number(event.target.value);
+            if ([5, 10, 25, 50].includes(length)) this.table.page.len(length).draw();
         });
 
         this.el('orderMethod').addEventListener('change', () => {
@@ -442,7 +269,7 @@ class OrderManagementUI {
         });
 
         this.el('orderClient').addEventListener('change', () => {
-            const client = clients.find(
+            const client = this.clients.find(
                 (item) => item.id === this.el('orderClient').value,
             );
 
@@ -455,7 +282,7 @@ class OrderManagementUI {
             const row = event.target.closest('.order-item-row');
 
             if (event.target.matches('[data-flower]')) {
-                const flower = flowers.find(
+                const flower = this.flowers.find(
                     (item) => item.id === event.target.value,
                 );
 
@@ -473,7 +300,7 @@ class OrderManagementUI {
         this.el('orderItemList').addEventListener('click', (event) => {
             const button = event.target.closest('[data-remove-item]');
 
-            if (!button) return;
+            if (!button || this.saving) return;
 
             button.closest('.order-item-row').remove();
             this.updateTotals();
@@ -487,7 +314,7 @@ class OrderManagementUI {
         this.element.addEventListener('click', (event) => {
             const button = event.target.closest('[data-order-action]');
 
-            if (!button) return;
+            if (!button || button.disabled || !this.ready || this.saving) return;
 
             const order = this.orders.find(
                 (item) => item.id === button.dataset.orderId,
@@ -507,37 +334,43 @@ class OrderManagementUI {
             this.performAction();
         });
 
+        this.table.on('length', (_event, _settings, length) => { this.el('orderPageLength').value = String(length); });
+        ['orderFormModal', 'orderActionModal'].forEach(id => this.el(id).addEventListener('hide.bs.modal', event => {
+            if (this.saving && !this.committed) event.preventDefault();
+        }));
         this.el('orderActionModal').addEventListener('hidden.bs.modal', () => {
             this.pendingAction = null;
         });
     }
 
-    nextId() {
-        const maximum = this.orders.reduce(
-            (highest, order) => Math.max(highest, Number(order.id.split('-')[1])),
-            0,
-        );
-
-        return `ORD-${String(maximum + 1).padStart(3, '0')}`;
-    }
+    /* ==================================================
+       ERROR
+    ================================================== */
 
     error(id, message = '') {
         this.el(id).textContent = message;
         this.el(id).hidden = !message;
     }
 
+    /* ==================================================
+       OPEN FORM
+    ================================================== */
+
     openForm(order = null) {
+        if (!this.ready || this.saving) return;
         if (order && !this.editable(order)) return;
 
         this.el('orderForm').reset();
+        this.editingVersion = order?.version || null;
+        this.requestKey = order ? null : this.newRequestKey();
         this.error('orderFormError');
         this.el('orderEditingId').value = order?.id || '';
-        this.el('orderCode').value = order?.id || this.nextId();
+        this.el('orderCode').value = order?.id || 'Generated after saving';
         this.el('orderFormTitle').textContent = order ? 'Edit Order' : 'Add New Order';
 
         this.el('orderClient').innerHTML = `
             <option value="">Select client</option>
-            ${clients.map((client) => `
+            ${this.clients.map((client) => `
                 <option
                     value="${escapeHtml(client.id)}"
                     ${client.id === order?.clientId ? 'selected' : ''}
@@ -549,7 +382,7 @@ class OrderManagementUI {
             `).join('')}
         `;
 
-        this.el('orderMethod').value = order?.method || 'Delivery';
+        this.el('orderMethod').value = order?.method || (this.deliveryFeeCents === null ? 'Customer Pickup' : 'Delivery');
         this.el('orderAddress').value = order?.address || '';
         this.el('orderNotes').value = order?.notes || '';
         this.el('orderItemList').innerHTML = '';
@@ -561,7 +394,12 @@ class OrderManagementUI {
         this.formModal.show();
     }
 
+    /* ==================================================
+       ADD ITEM
+    ================================================== */
+
     addItem(item = null) {
+        if (this.saving || this.el('orderItemList').querySelectorAll('.order-item-row').length >= 50) return;
         const row = document.createElement('div');
         const sequence = ++this.itemSequence;
 
@@ -573,12 +411,13 @@ class OrderManagementUI {
                 <label for="orderFlower${sequence}">Flower *</label>
                 <select id="orderFlower${sequence}" data-flower required>
                     <option value="">Select flower</option>
-                    ${flowers.map((flower) => `
+                    ${this.flowers.map((flower) => `
                         <option
                             value="${escapeHtml(flower.id)}"
                             ${flower.id === item?.flowerId ? 'selected' : ''}
+                            ${(flower.status !== 'Active' || flower.price === null) && flower.id !== item?.flowerId ? 'disabled' : ''}
                         >
-                            ${escapeHtml(flower.name)} · ${flower.baseUnit} · ${money(item?.flowerId === flower.id ? item.unitPrice : flower.price)} / ${flower.baseUnit}
+                            ${escapeHtml(flower.name)} · ${flower.baseUnit} · ${(item?.flowerId === flower.id || flower.price !== null) ? money(item?.flowerId === flower.id ? item.unitPrice : flower.price) : 'Not priced'} / ${flower.baseUnit}
                         </option>
                     `).join('')}
                 </select>
@@ -618,10 +457,14 @@ class OrderManagementUI {
         this.updateTotals();
     }
 
+    /* ==================================================
+       READ ITEMS
+    ================================================== */
+
     readItems() {
         return [...this.el('orderItemList').querySelectorAll('.order-item-row')]
             .map((row) => {
-                const flower = flowers.find(
+                const flower = this.flowers.find(
                     (item) => item.id === row.querySelector('[data-flower]').value,
                 );
 
@@ -636,6 +479,10 @@ class OrderManagementUI {
             });
     }
 
+    /* ==================================================
+       FORM DELIVERY FEE
+    ================================================== */
+
     formDeliveryFee() {
         if (this.el('orderMethod').value !== 'Delivery') return 0;
 
@@ -645,8 +492,12 @@ class OrderManagementUI {
 
         return existing?.method === 'Delivery'
             ? existing.deliveryFee
-            : SAMPLE_DELIVERY_FEE;
+            : this.deliveryFeeCents;
     }
+
+    /* ==================================================
+       SYNC FULFILLMENT
+    ================================================== */
 
     syncFulfillment() {
         const delivery = this.el('orderMethod').value === 'Delivery';
@@ -657,6 +508,10 @@ class OrderManagementUI {
 
         this.updateTotals();
     }
+
+    /* ==================================================
+       UPDATE TOTALS
+    ================================================== */
 
     updateTotals() {
         let subtotal = 0;
@@ -672,272 +527,292 @@ class OrderManagementUI {
 
         const fee = this.formDeliveryFee();
 
-        this.el('orderDeliveryFee').value = money(fee);
+        this.el('orderDeliveryFee').value = fee === null ? 'Not configured' : money(fee);
         this.el('orderSubtotal').textContent = money(subtotal);
-        this.el('orderFeeTotal').textContent = money(fee);
-        this.el('orderGrandTotal').textContent = money(subtotal + fee);
+        this.el('orderFeeTotal').textContent = fee === null ? 'Not configured' : money(fee);
+        this.el('orderGrandTotal').textContent = fee === null ? 'Delivery fee required' : money(subtotal + fee);
     }
 
-    saveOrder() {
+    /* ==================================================
+       SUBMIT CREATE / EDIT WITHOUT CLIENT-SUPPLIED PRICES
+    ================================================== */
+
+    
+
+    async saveOrder() {
+        if (!this.ready || this.saving || !this.el('orderForm').reportValidity()) return;
         this.error('orderFormError');
-
-        if (!this.el('orderForm').reportValidity()) return;
-
-        const existing = this.orders.find(
-            (order) => order.id === this.el('orderEditingId').value,
-        );
-
-        if (existing && !this.editable(existing)) {
-            this.error('orderFormError', 'This order can no longer be edited.');
-            return;
-        }
-
-        const client = clients.find(
-            (item) => item.id === this.el('orderClient').value,
-        );
-
-        if (!client || (!existing && client.status !== 'Active')
-            || (existing && existing.clientId !== client.id && client.status !== 'Active')) {
-            this.error('orderFormError', 'Select an active registered client.');
-            return;
-        }
-
+        const existing = this.orders.find(order => order.id === this.el('orderEditingId').value);
+        if (existing && !this.editable(existing)) { this.error('orderFormError', 'This order is no longer editable.'); return; }
+        const client = this.clients.find(item => item.id === this.el('orderClient').value);
         const items = this.readItems();
-
-        if (!items.length || items.some((item) =>
-            !item.flowerId
-            || !Number.isSafeInteger(item.quantity)
-            || item.quantity < 1
-            || item.quantity > 100000
-            || !Number.isFinite(item.unitPrice)
-            || item.unitPrice <= 0,
-        )) {
-            this.error('orderFormError', 'Add at least one valid flower item and positive whole quantity.');
-            return;
+        if (!client || !items.length || items.some(item => !item.flowerId || !Number.isSafeInteger(item.quantity) || item.quantity < 1 || item.quantity > 100000)) {
+            this.error('orderFormError', 'Select a client and at least one valid item with a positive whole quantity.'); return;
         }
-
-        const method = this.el('orderMethod').value;
-        const address = this.el('orderAddress').value.trim();
-
-        if (!['Delivery', 'Customer Pickup'].includes(method)
-            || (method === 'Delivery' && !address)) {
-            this.error('orderFormError', 'Enter a delivery address for Delivery orders.');
-            return;
-        }
-
-        const stockError = this.allocationError(items, existing?.id);
-
-        if (stockError) {
-            this.error('orderFormError', stockError);
-            return;
-        }
-
-        /*
-         * Retain price snapshots for existing flower items.
-         * New flower selections use current sample prices.
-         */
-        if (existing) {
-            for (const item of items) {
-                const original = existing.items.find(
-                    (entry) => entry.flowerId === item.flowerId,
-                );
-
-                if (original) {
-                    item.unitPrice = original.unitPrice;
-                    item.itemType = original.itemType;
-                    item.baseUnit = original.baseUnit;
-                }
-            }
-        }
-
-        const record = {
-            id: existing?.id || this.nextId(),
-            clientId: client.id,
-            clientName: client.name,
-            date: existing?.date || today(),
-            method,
-            address: method === 'Delivery' ? address : '',
-            deliveryFee: this.formDeliveryFee(),
+        if (this.formDeliveryFee() === null) { this.error('orderFormError', 'Configure the fixed delivery fee before saving Delivery orders.'); return; }
+        const payload = {
+            client_id: client.dbId,
+            method: this.el('orderMethod').value,
+            address: this.el('orderAddress').value.trim(),
             notes: this.el('orderNotes').value.trim(),
-            items,
-            status: existing?.status || 'Pending',
-            payment: existing?.payment || 'Unpaid',
-            paid: existing?.paid || 0,
-            stockedOut: false,
-            history: [
-                ...(existing?.history || []),
-                {
-                    status: existing?.status || 'Pending',
-                    date: new Date().toISOString(),
-                    actor: 'Administrator (preview)',
-                    note: existing ? 'Order information updated.' : 'Order created manually.',
-                },
-            ],
+            items: items.map(item => ({flower_id: this.flowers.find(flower => flower.id === item.flowerId).dbId, quantity: item.quantity})),
         };
-
-        // Avoid changing financial terms after sample payments exist.
-        if (existing?.paid > 0 && this.total(record) !== this.total(existing)) {
-            this.error(
-                'orderFormError',
-                'This sample order has payments. Amount changes require the future Sales/Payments adjustment workflow.',
-            );
-            return;
-        }
-
-        if (existing) {
-            this.orders = this.orders.map((order) =>
-                order.id === existing.id ? record : order,
-            );
-        } else {
-            this.orders.push(record);
-        }
-
-        this.refresh();
-        this.formModal.hide();
-        this.announce(`${record.id} saved in this preview.`);
+        if (existing) payload.version = this.editingVersion;
+        else payload.request_key = this.requestKey;
+        await this.submit(existing ? this.endpoint('updateUrl', existing.dbId) : this.endpoint('storeUrl'), payload,
+            'orderFormError', this.formModal);
     }
+
+    /* ==================================================
+       EXPLICIT TRANSITION / CANCELLATION CONFIRMATION
+    ================================================== */
+
+    
 
     openAction(order, action) {
+        if (!this.ready || this.saving) return;
         const next = this.nextStatus(order);
-
         if (action === 'advance' && !next) return;
-        if (action === 'cancel' && ['Completed', 'Cancelled'].includes(order.status)) return;
-
-        this.pendingAction = { id: order.id, action, expectedStatus: order.status };
-        this.error('orderActionError');
-
+        if (action === 'cancel' && ['Completed','Cancelled'].includes(order.status)) return;
         const cancelling = action === 'cancel';
-
+        const status = cancelling ? 'Cancelled' : next;
+        this.pendingAction = {dbId: order.dbId, status, version: order.version};
+        this.error('orderActionError');
         this.el('orderCancelField').hidden = !cancelling;
         this.el('orderCancelReason').required = cancelling;
         this.el('orderCancelReason').value = '';
-
-        this.el('orderActionTitle').textContent = cancelling
-            ? `Cancel ${order.id}`
-            : `${order.id} — ${next}`;
-
-        this.el('orderActionConfirm').textContent = cancelling
-            ? 'Cancel Order'
-            : `Mark ${next}`;
-
-        let message = cancelling
-            ? 'Enter a cancellation reason. Any active sample reservation will be released. Orders already stocked out require Inventory restoration before cancellation.'
-            : `Move this order from ${order.status} to ${next}?`;
-
-        if (next === 'Confirmed' && !cancelling) {
-            message += ' Full sample stock availability will be checked. Confirmation reserves stock without deducting on-hand quantity.';
-        }
-
-        if (next === 'Ready for Pickup' && !cancelling) {
-            message += ' Stock stays reserved while awaiting collection. No on-hand deduction occurs at this stage.';
-        }
-
-        if (next === 'Ready for Delivery' && !cancelling) {
-            message += ' Delivery assignment and dispatch will be handled in Delivery Management; no delivery record is created by this prototype.';
-        }
-
-        if (next === 'Completed' && !cancelling) {
-            message += ' Confirm the customer has actually collected the order. This simulates pickup Stock-Out once and consumes its reservation. Actual Inventory/FIFO and Sales integration are not connected.';
-        }
-
-        this.el('orderActionMessage').textContent = message;
+        this.el('orderCollectedField').hidden = status !== 'Completed';
+        this.el('orderCollected').required = status === 'Completed';
+        this.el('orderCollected').checked = false;
+        this.el('orderActionTitle').textContent = cancelling ? `Cancel ${order.id}` : `${order.id} — ${status}`;
+        this.el('orderActionConfirm').textContent = cancelling ? 'Cancel Order' : `Mark ${status}`;
+        const messages = {
+            Confirmed: 'Confirmation checks all items and reserves the complete quantity. Physical stock is not deducted.',
+            Processing: 'Begin preparing this order. Its stock remains reserved.',
+            'Ready for Pickup': 'Mark ready while awaiting actual collection. Stock remains reserved.',
+            'Ready for Delivery': 'Mark ready for Delivery Management. This does not dispatch or deduct stock.',
+            Completed: 'Confirm actual collection of the complete order. This records FIFO Stock-Out once, consumes its reservation, and creates one Sales Record.',
+            Cancelled: 'Cancel this order and release its active stock reservations. Enter the reason. Existing payment records are retained.',
+        };
+        this.el('orderActionMessage').textContent = messages[status] || '';
         this.actionModal.show();
     }
 
-    performAction() {
-        this.error('orderActionError');
+    /* ==================================================
+       PERFORM ACTION
+    ================================================== */
 
+    async performAction() {
+        if (!this.ready || this.saving || !this.pendingAction || !this.el('orderActionForm').reportValidity()) return;
         const pending = this.pendingAction;
-        if (!pending) return;
-
-        const order = this.orders.find((item) => item.id === pending.id);
-
-        if (!order || order.status !== pending.expectedStatus) {
-            this.error('orderActionError', 'Order changed. Close this dialog and try again.');
-            return;
-        }
-
-        if (pending.action === 'cancel') {
-            if (['Completed', 'Cancelled'].includes(order.status)) return;
-
-            const reason = this.el('orderCancelReason').value.trim();
-
-            if (!reason) {
-                this.error('orderActionError', 'Enter a cancellation reason.');
-                return;
-            }
-
-            if (order.stockedOut) {
-                this.error(
-                    'orderActionError',
-                    'Cancellation is blocked: restore/correct the previous Stock-Out through Inventory first. That cross-module workflow is not connected in this preview.',
-                );
-                return;
-            }
-
-            this.setStatus(order, 'Cancelled', reason);
-        } else {
-            const next = this.nextStatus(order);
-            if (!next) return;
-
-            if (next === 'Confirmed' || (next === 'Completed' && order.method === 'Customer Pickup')) {
-                const stockError = this.allocationError(order.items, order.id);
-
-                if (stockError) {
-                    this.error('orderActionError', stockError);
-                    return;
-                }
-            }
-
-            if (next === 'Completed' && order.method === 'Customer Pickup' && !order.stockedOut) {
-                // Sample aggregate deduction only; real FIFO is Inventory-owned.
-                order.items.forEach((item) => {
-                    this.stock.set(
-                        item.flowerId,
-                        this.stock.get(item.flowerId) - item.quantity,
-                    );
-                });
-
-                order.stockedOut = true;
-            }
-
-            this.setStatus(order, next, 'Status updated in UI preview.');
-        }
-
-        this.refresh();
-        this.actionModal.hide();
-        this.announce(`${order.id} is now ${order.status}. Preview data only.`);
+        await this.submit(this.endpoint('actionUrl', pending.dbId), {
+            status: pending.status, version: pending.version,
+            reason: this.el('orderCancelReason').value.trim(),
+            collected: pending.status === 'Completed' && this.el('orderCollected').checked,
+        }, 'orderActionError', this.actionModal);
     }
 
-    setStatus(order, status, note) {
-        order.status = status;
-        order.history.push({
-            status,
-            note,
-            date: new Date().toISOString(),
-            actor: 'Administrator (preview)',
+    /* ==================================================
+       POST ONCE; ALWAYS RELOAD REAL STOCK / RESERVATIONS
+    ================================================== */
+
+    
+
+    async submit(url, payload, errorId, modal) {
+        if (this.saving || !this.ready) return;
+        this.error(errorId);
+        this.saving = true;
+        this.committed = false;
+        this.updateControls();
+        try {
+            const result = await this.request(url, payload);
+            this.mapOrder(result.data);
+            this.committed = true;
+            modal.hide();
+            await this.loadOrders(result.message || 'Order saved successfully.');
+        } catch (error) {
+            const messages = Object.values(error.errors || {}).flat();
+            let message = messages.length ? messages.join('\n') : error.message;
+            if (error.errors?.version) message += ' Close this dialog, refresh, and reopen the order.';
+            if (!messages.length && ![401,403,404,419,422].includes(error.status)) {
+                message += ' Refresh to check the saved order before retrying; keep the same create form to reuse its request key.';
+            }
+            this.error(errorId, message);
+        } finally {
+            this.saving = false;
+            this.committed = false;
+            this.updateControls();
+        }
+    }
+
+    /* ==================================================
+       PUBLIC ORDER RESPONSE MAPPING — ALL MONEY IN CENTAVOS
+    ================================================== */
+
+    
+
+    mapOrder(row) {
+        if (!row || !Number.isSafeInteger(row.dbId) || row.dbId < 1 || !/^[a-f0-9]{64}$/.test(row.version)
+            || !Number.isSafeInteger(row.totalCents) || row.totalCents < 1
+            || !Number.isSafeInteger(row.subtotalCents) || row.subtotalCents < 1
+            || !Number.isSafeInteger(row.deliveryFeeCents) || row.deliveryFeeCents < 0
+            || !Number.isSafeInteger(row.paidCents) || row.paidCents < 0
+            || !['Delivery', 'Customer Pickup'].includes(row.method)
+            || !Array.isArray(row.items) || !Array.isArray(row.history)) {
+            throw new Error('Invalid order response. Refresh before retrying.');
+        }
+        if (row.items.some(item => !Number.isSafeInteger(item.quantity) || item.quantity < 1
+            || !Number.isSafeInteger(item.unitPriceCents) || item.unitPriceCents < 1
+            || !['Stem', 'Bouquet'].includes(item.baseUnit))) {
+            throw new Error('Invalid order item snapshot. Refresh before retrying.');
+        }
+        return {...row, deliveryFee: row.deliveryFeeCents, paid: row.paidCents,
+            items: row.items.map(item => ({...item, unitPrice: item.unitPriceCents}))};
+    }
+
+    /* ==================================================
+       ENDPOINTS AND CSRF-PROTECTED JSON REQUESTS
+    ================================================== */
+
+    
+
+    endpoint(name, id = null) {
+        let url = this.element.dataset[name];
+        if (!url) throw new Error('Missing order endpoint. Replace the Blade file too.');
+        if (id !== null) {
+            if (!url.includes('__ORDER__')) throw new Error('Invalid order endpoint template.');
+            url = url.replace('__ORDER__', encodeURIComponent(String(id)));
+        }
+        return url;
+    }
+
+    /* ==================================================
+       REQUEST
+    ================================================== */
+
+    async request(url, payload = null) {
+        const headers = {Accept: 'application/json'};
+        if (payload !== null) {
+            const token = this.el('orderForm').querySelector('[name="_token"]')?.value;
+            if (!token) throw new Error('Missing CSRF token. Replace the Blade form too.');
+            headers['X-CSRF-TOKEN'] = token;
+            headers['Content-Type'] = 'application/json';
+        }
+        const response = await fetch(url, {method: payload === null ? 'GET' : 'POST', headers,
+            credentials: 'same-origin', redirect: 'error', ...(payload === null ? {} : {body: JSON.stringify(payload)})});
+        const isJson = (response.headers.get('content-type') || '').includes('application/json');
+        const result = isJson ? await response.json() : {};
+        if (!response.ok) {
+            const messages = {401:'Your session expired. Log in again.',403:'Your account cannot perform this action.',404:'The order or endpoint was not found. Refresh.',419:'Your session token expired. Refresh.'};
+            const error = new Error(messages[response.status] || (response.status >= 500 ? 'The server could not complete the request.' : result.message) || 'Unable to complete the request.');
+            error.status = response.status; error.errors = result.errors || {}; throw error;
+        }
+        if (!isJson) throw new Error('Unexpected response. Refresh and check your login.');
+        return result;
+    }
+
+    /* ==================================================
+       LOAD AUTHORITATIVE ORDERS, CATALOG AND AVAILABILITY
+    ================================================== */
+
+    
+
+    async loadOrders(successMessage = '') {
+        if (this.loading) return false;
+        this.loading = true; this.ready = false; this.updateControls();
+        this.announce('Loading orders and available stock...');
+        try {
+            const result = await this.request(this.endpoint('url'));
+            if (!Array.isArray(result.data) || !Array.isArray(result.clients) || !Array.isArray(result.flowers)) throw new Error('Invalid order list response.');
+            this.orders = result.data.map(row => this.mapOrder(row));
+            this.clients = result.clients;
+            this.flowers = result.flowers.map(flower => ({...flower,price:flower.priceCents}));
+            this.deliveryFeeCents = result.deliveryFeeCents;
+            this.refresh(); this.ready = true;
+            this.announce(successMessage || (this.orders.length ? '' : 'No orders yet. Create an order using an active client and priced catalog items.'));
+            return true;
+        } catch (error) {
+            this.announce(successMessage ? `${successMessage} The list could not reload. Refresh before another transaction.` : error.message);
+            return false;
+        } finally {
+            this.loading = false; this.updateControls();
+            if (this.ready && !this.saving && !this.autoCreateHandled && new URLSearchParams(window.location.search).get('create') === '1') {
+                this.autoCreateHandled = true; this.openForm();
+            }
+        }
+    }
+
+    /* ==================================================
+       DISABLE WRITES WHILE REQUESTS ARE RUNNING
+    ================================================== */
+
+    
+
+    updateControls() {
+        const disabled = !this.ready || this.loading || this.saving;
+        this.el('addOrderBtn').disabled = disabled;
+        this.element.querySelectorAll('[data-order-action]').forEach(button => {button.disabled = disabled;});
+        ['orderForm','orderActionForm'].forEach(id => {
+            this.el(id).querySelectorAll('input,select,textarea,button').forEach(field => {
+                if (field.type !== 'hidden') field.disabled = this.saving;
+            });
         });
+        this.el('orderAddress').disabled = this.saving || this.el('orderMethod').value !== 'Delivery';
     }
 
-    announce(message) {
-        this.el('orderAnnouncement').textContent = message;
+    /* ==================================================
+       LOAD REAL DETAILS INCLUDING PAYMENT / STATUS HISTORY
+    ================================================== */
+
+    
+
+    async showOrder(order) {
+        if (!this.ready || this.saving) return;
+        try {
+            const result = await this.request(this.endpoint('showUrl', order.dbId));
+            this.renderOrder(this.mapOrder(result.data));
+        } catch (error) { this.announce(error.message || 'Unable to load order details.'); }
     }
 
-    showOrder(order) {
+    /* ==================================================
+       ANNOUNCE
+    ================================================== */
+
+    announce(message) { this.el('orderAnnouncement').textContent = message; }
+
+    /* ==================================================
+       UUID RETAINED FOR SAME-FORM CREATION RETRIES
+    ================================================== */
+
+    
+
+    newRequestKey() {
+        if (globalThis.crypto.randomUUID) return globalThis.crypto.randomUUID();
+        const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+        bytes[6]=(bytes[6]&15)|64; bytes[8]=(bytes[8]&63)|128;
+        const h=[...bytes].map(value=>value.toString(16).padStart(2,'0')).join('');
+        return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+    }
+
+    /* ==================================================
+       RENDER ORDER
+    ================================================== */
+
+    renderOrder(order) {
         this.el('orderViewTitle').textContent = `Order Details — ${order.id}`;
 
         const stockState = order.stockedOut
-            ? 'Sample Stock-Out already recorded'
+            ? 'Stock-Out recorded at actual fulfillment'
             : this.hasReservation(order)
-                ? 'Sample stock reserved; on-hand not deducted'
-                : 'No active sample reservation';
+                ? 'Stock reserved; on-hand not deducted'
+                : 'No active reservation';
 
         const history = order.history.map((entry) => `
             <li>
                 <strong>${escapeHtml(entry.status)}</strong>
                 — ${escapeHtml(entry.note)}
                 <small>
-                    ${escapeHtml(new Date(entry.date).toLocaleString('en-PH'))}
+                    ${escapeHtml(new Date(entry.date).toLocaleString('en-PH', {timeZone: 'Asia/Manila'}))}
                     · ${escapeHtml(entry.actor)}
                 </small>
             </li>
@@ -966,7 +841,7 @@ class OrderManagementUI {
                     <dd>${badge(order.payment)}</dd>
                 </div>
                 <div>
-                    <dt>Sample Confirmed Payments</dt>
+                    <dt>Confirmed Payments</dt>
                     <dd>${money(order.paid)}</dd>
                 </div>
                 <div>
@@ -1029,7 +904,7 @@ class OrderManagementUI {
             </div>
 
             <p class="order-help">
-                Payment information is read-only sample data.
+                Payment information is read-only.
                 Sales & Payments owns payment recording and refunds.
                 Delivery Management owns dispatch and Delivered confirmation.
             </p>
@@ -1058,6 +933,7 @@ if (document.readyState === 'loading') {
 } else {
     initializeOrderManagement();
 }
+
 
 
 

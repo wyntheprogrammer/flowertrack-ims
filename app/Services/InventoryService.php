@@ -261,6 +261,70 @@ class InventoryService
     }
 
     /**
+     * Fulfill a held order reservation only at actual collection or completed delivery.
+     * Caller owns the order lock and ALL affected Flower locks in ascending ID order.
+     * Locking reads below deliberately avoid stale outer-transaction snapshots.
+     */
+    public function fulfillOrderReservation(InventoryReservation $reservation, string $requestKey, User $actor, string $orderCode): array
+    {
+        $payload = [
+            'reservation_id' => (int) $reservation->id,
+            'reference' => $reservation->reference,
+            'quantity' => (int) $reservation->quantity,
+            'order_code' => $orderCode,
+        ];
+
+        return $this->operate($requestKey, 'OrderFulfillment', (int) $reservation->flower_id, $payload, $actor,
+            function (Flower $flower, InventoryOperation $operation) use ($payload): array {
+                $held = InventoryReservation::query()->lockForUpdate()->findOrFail($payload['reservation_id']);
+                if ((int) $held->flower_id !== (int) $flower->id
+                    || $held->reference !== $payload['order_code']
+                    || $held->reference !== $payload['reference']
+                    || (int) $held->quantity !== $payload['quantity']
+                    || $held->status !== 'Active') {
+                    $this->invalid('reservation', 'The active reservation does not match this order and quantity.');
+                }
+                $this->checkQuantity((int) $held->quantity);
+                $active = InventoryReservation::query()->where('flower_id', $flower->id)
+                    ->where('status', 'Active')->orderBy('id')->lockForUpdate()->get();
+                $batches = InventoryBatch::query()->where('flower_id', $flower->id)
+                    ->where('spoiled', false)->where('remaining_quantity', '>', 0)
+                    ->orderBy('received_date')->orderBy('id')->lockForUpdate()->get();
+                $physical = (int) $batches->sum('remaining_quantity');
+                $reserved = (int) $active->sum('quantity');
+                $this->checkTotal($physical);
+                if ($physical < $reserved || $physical < (int) $held->quantity) {
+                    $this->invalid('reservation', 'Physical stock cannot satisfy the active reservations. Review inventory before completing this order.');
+                }
+                $pending = (int) $held->quantity;
+                $allocations = [];
+                foreach ($batches as $batch) {
+                    if ($pending === 0) {
+                        break;
+                    }
+                    $amount = min($pending, (int) $batch->remaining_quantity);
+                    $batch->remaining_quantity = (int) $batch->remaining_quantity - $amount;
+                    $batch->save();
+                    $this->movement($operation, $batch, 'Stock-Out', -$amount,
+                        'Customer order: '.$payload['order_code'], [
+                            'reason' => 'Customer order',
+                            'order_code' => $payload['order_code'],
+                            'reservation_id' => $held->id,
+                        ]);
+                    $allocations[] = ['batch_id' => $batch->id, 'quantity' => $amount];
+                    $pending -= $amount;
+                }
+                if ($pending !== 0) {
+                    $this->invalid('reservation', 'The reservation could not be fulfilled from usable batches.');
+                }
+                $held->status = 'Consumed';
+                $held->save();
+
+                return ['reservation_id' => $held->id, 'allocations' => $allocations];
+            });
+    }
+
+    /**
      * Serialize all writes per item and replay matching UUID operations exactly once.
      */
     private function operate(string $requestKey, string $kind, int $flowerId, array $payload, User $actor, Closure $write): array

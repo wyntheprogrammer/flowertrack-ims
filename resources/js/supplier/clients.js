@@ -593,7 +593,7 @@ class ClientManagementUI {
 
     /* ==================================================
        LOAD AUTHORITATIVE PROFILE
-       Order history remains unavailable until Orders integration.
+       Order history and gross completed-order totals come from the server.
     ================================================== */
 
     
@@ -606,7 +606,7 @@ class ClientManagementUI {
         try {
             const result = await this.request(this.endpoint('showUrl', client.dbId));
             const current = this.upsertClient(result.data);
-            this.renderProfile(current);
+            this.renderProfile(current, result);
             this.viewModal.show();
             this.announce('');
         } catch (error) {
@@ -618,12 +618,22 @@ class ClientManagementUI {
     }
 
     /* ==================================================
-       RENDER PROFILE WITHOUT SAMPLE ORDERS OR FAKE TOTALS
+       RENDER REAL PROFILE AND SERVER-DERIVED ORDER SUMMARY
     ================================================== */
 
     
 
-    renderProfile(client) {
+    renderProfile(client, profile = null) {
+        const available = Boolean(profile?.order_history_available && profile.summary && Array.isArray(profile.orders));
+        const summary = available ? profile.summary : null;
+        const currency = cents => new Intl.NumberFormat('en-PH', {style: 'currency', currency: 'PHP'}).format(Number(cents) / 100);
+        const metric = key => summary ? Number(summary[key]).toLocaleString('en-PH') : '—';
+        const rows = available && profile.orders.length ? profile.orders.map(order => `
+            <tr>
+                <td>${escapeHtml(order.id)}</td><td>${formatDate(order.date)}</td>
+                <td><span class="client-badge order">${escapeHtml(order.status)}</span></td>
+                <td>${currency(order.totalCents)}</td>
+            </tr>`).join('') : `<tr><td colspan="4" class="client-history-empty">${available ? 'No orders recorded for this client.' : 'Order history is not yet available.'}</td></tr>`;
         this.el('clientViewTitle').textContent = `Client Details — ${client.id}`;
         this.el('clientViewContent').innerHTML = `
             <div class="client-profile-heading">
@@ -639,17 +649,17 @@ class ClientManagementUI {
             </dl>
             <h4 class="client-section-title">Purchase Summary</h4>
             <div class="client-purchase-summary">
-                <div><span>Total Orders</span><strong>—</strong></div>
-                <div><span>Completed Purchases</span><strong>—</strong></div>
-                <div><span>Completed Orders</span><strong>—</strong></div>
-                <div><span>Pending / Ongoing</span><strong>—</strong></div>
+                <div><span>Total Orders</span><strong>${metric('total_orders')}</strong></div>
+                <div><span>Completed Purchases</span><strong>${summary ? currency(summary.completed_purchases_cents) : '—'}</strong></div>
+                <div><span>Completed Orders</span><strong>${metric('completed_orders')}</strong></div>
+                <div><span>Pending / Ongoing</span><strong>${metric('ongoing_orders')}</strong></div>
             </div>
-            <p class="client-form-note">Order history and purchase totals are not yet available.</p>
+            <p class="client-form-note">${summary ? 'Completed Purchases totals completed order amounts, including delivery fees. It is not a payment balance or a refund-adjusted collection total.' : 'Order history and purchase totals are not yet available.'}</p>
             <h4 class="client-section-title">Order History</h4>
             <div class="client-history-scroll" tabindex="0" role="region" aria-label="Client order history">
                 <table class="client-history">
                     <thead><tr><th scope="col">Order ID</th><th scope="col">Date</th><th scope="col">Status</th><th scope="col">Amount</th></tr></thead>
-                    <tbody><tr><td colspan="4" class="client-history-empty">Order history is not yet available.</td></tr></tbody>
+                    <tbody>${rows}</tbody>
                 </table>
             </div>`;
     }
