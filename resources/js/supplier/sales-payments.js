@@ -1,6 +1,7 @@
 import DataTable from 'datatables.net-bs5';
 import { Modal } from 'bootstrap';
 
+// Escape API text before inserting it into approved table and modal markup.
 const escapeHtml = (value) =>
     String(value ?? '').replace(/[&<>"']/g, (character) => ({
         '&': '&amp;',
@@ -10,56 +11,92 @@ const escapeHtml = (value) =>
         "'": '&#039;',
     })[character]);
 
-// Money is stored as integer centavos.
-const money = (centavos) =>
-    new Intl.NumberFormat('en-PH', {
-        style: 'currency',
-        currency: 'PHP',
-    }).format(centavos / 100);
+const MAX_CENTS = 999999999999;
 
+// Format integer centavos without losing fractional cents at large aggregate totals.
+function money(centavos) {
+    if (!Number.isSafeInteger(centavos)) throw new Error('Financial total exceeds safe integer precision.');
+    const absolute = Math.abs(centavos);
+    const whole = BigInt(Math.floor(absolute / 100));
+    const signed = centavos < 0 ? (whole === 0n ? -0 : -whole) : whole;
+    const fraction = String(absolute % 100).padStart(2, '0');
+    return new Intl.NumberFormat('en-PH', {style: 'currency', currency: 'PHP'})
+        .formatToParts(signed).map((part) => part.type === 'fraction' ? fraction : part.value).join('');
+}
+
+// Refuse unsafe addition instead of rounding an accumulated financial amount.
+function addCents(total, value) {
+    if (!Number.isSafeInteger(total) || !Number.isSafeInteger(value)
+        || !Number.isSafeInteger(total + value)) throw new Error('Financial total exceeds safe integer precision.');
+    return total + value;
+}
+
+// Multiply whole-unit quantities by integer-centavo snapshots with overflow checks.
+function itemTotal(item) {
+    if (!Number.isSafeInteger(item.quantity) || item.quantity < 1
+        || !Number.isSafeInteger(item.unitPrice) || item.unitPrice < 0 || item.unitPrice > MAX_CENTS
+        || !Number.isSafeInteger(item.quantity * item.unitPrice)) {
+        throw new Error('Invalid or unsafe order-item amount.');
+    }
+    return item.quantity * item.unitPrice;
+}
+
+// Reject partial decimals, negative values and floating-point parsing shortcuts.
 function parseMoney(value) {
     const text = String(value).trim();
 
-    if (!/^\d{1,7}(\.\d{1,2})?$/.test(text)) return null;
+    if (!/^\d{1,10}(\.\d{1,2})?$/.test(text)) return null;
 
     const [whole, decimal = ''] = text.split('.');
     const result = Number(whole) * 100 + Number(decimal.padEnd(2, '0'));
 
-    return Number.isSafeInteger(result) && result > 0 ? result : null;
+    return Number.isSafeInteger(result) && result > 0 && result <= MAX_CENTS ? result : null;
 }
 
+// Date-based summaries use the business timezone, including near midnight.
 function dateKey(value) {
     const date = new Date(value);
-
-    return [
-        date.getFullYear(),
-        String(date.getMonth() + 1).padStart(2, '0'),
-        String(date.getDate()).padStart(2, '0'),
-    ].join('-');
+    if (Number.isNaN(date.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-US', {timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit'}).formatToParts(date);
+    const part = (type) => parts.find((entry) => entry.type === type)?.value;
+    return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
+// Display server timestamps in the same timezone used for summary totals.
 function dateTime(value) {
-    return new Intl.DateTimeFormat('en-PH', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    }).format(new Date(value));
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return new Intl.DateTimeFormat('en-PH', {timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short'}).format(date);
 }
 
-function daysAgo(days) {
-    const date = new Date();
-    date.setDate(date.getDate() - days);
-    date.setHours(10, 0, 0, 0);
-    return date.toISOString();
+// Convert integer centavos to an exact decimal string for API writes.
+function decimalMoney(centavos) {
+    if (!Number.isSafeInteger(centavos) || centavos < 0) throw new Error('Invalid money amount.');
+    return `${Math.floor(centavos / 100)}.${String(centavos % 100).padStart(2, '0')}`;
 }
 
+// Generate one idempotency key for each intended mutation, retained on retry.
+function requestKey() {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+    if (!globalThis.crypto?.getRandomValues) throw new Error('A secure browser context is required to record financial changes.');
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    const hex = [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+// Render status labels without allowing markup from API values.
 function badge(value) {
     return `
-        <span class="sales-badge ${value.toLowerCase().replaceAll(' ', '-')}">
+        <span class="sales-badge ${String(value).toLowerCase().replaceAll(' ', '-').replace(/[^a-z0-9-]/g, '')}">
             ${escapeHtml(value)}
         </span>
     `;
 }
 
+// Keep primary and secondary identifiers visually grouped and escaped.
 function cell(primary, secondary = '') {
     return `
         <div class="sales-cell">
@@ -69,189 +106,74 @@ function cell(primary, secondary = '') {
     `;
 }
 
-/*
- * Standalone samples: no backend, payment gateway or live Orders integration.
- * Price snapshots and completed-order sales stay independent of current prices.
- */
-const initialPrices = [
-    { id: 'FLW-001', name: 'Red Rose', category: 'Roses', price: 6000, updated: daysAgo(3) },
-    { id: 'FLW-002', name: 'White Rose', category: 'Roses', price: 6500, updated: daysAgo(3) },
-    { id: 'FLW-003', name: 'Sunflower', category: 'Sunflowers', price: 8500, updated: daysAgo(2) },
-    { id: 'FLW-004', name: 'Pink Tulip', category: 'Tulips', price: 9500, updated: daysAgo(2) },
-    { id: 'FLW-005', name: 'White Lily', category: 'Lilies', price: 11000, updated: daysAgo(1) },
-    { id: 'FLW-006', name: 'Pink Carnation', category: 'Carnations', price: 4500, updated: daysAgo(1) },
-    { id: 'FLW-009', name: 'Classic Rose Bouquet', category: 'Roses', price: 120000, updated: daysAgo(0), itemType: 'Bouquet' },
-    { id: 'FLW-010', name: 'Mixed Flower Bouquet', category: 'Mixed Flowers', price: 150000, updated: daysAgo(0), itemType: 'Bouquet' },
-].map((item) => ({ ...item, itemType: item.itemType || 'Stem', baseUnit: item.itemType || 'Stem' }));
-
-const initialOrders = [
-    {
-        id: 'ORD-001',
-        client: 'Maria Santos',
-        status: 'Completed',
-        completedAt: daysAgo(0),
-        deliveryFee: 15000,
-        items: [{ flowerId: 'FLW-001', name: 'Red Rose', quantity: 20, price: 6000 }],
-    },
-    {
-        id: 'ORD-002',
-        client: 'Carlo Reyes',
-        status: 'Completed',
-        completedAt: daysAgo(1),
-        deliveryFee: 0,
-        items: [{ flowerId: 'FLW-002', name: 'White Rose', quantity: 10, price: 6500 }],
-    },
-    {
-        id: 'ORD-003',
-        client: 'Daniel Garcia',
-        status: 'Confirmed',
-        completedAt: null,
-        deliveryFee: 15000,
-        items: [{ flowerId: 'FLW-003', name: 'Sunflower', quantity: 10, price: 8500 }],
-    },
-    {
-        id: 'ORD-004',
-        client: 'Isabel Ramos',
-        status: 'Processing',
-        completedAt: null,
-        deliveryFee: 0,
-        items: [{ flowerId: 'FLW-004', name: 'Pink Tulip', quantity: 10, price: 9500 }],
-    },
-    {
-        id: 'ORD-005',
-        client: 'Paolo Mendoza',
-        status: 'Cancelled',
-        completedAt: null,
-        deliveryFee: 0,
-        items: [{ flowerId: 'FLW-005', name: 'White Lily', quantity: 5, price: 11000 }],
-    },
-    {
-        id: 'ORD-006',
-        client: 'Maria Santos',
-        status: 'Pending',
-        completedAt: null,
-        deliveryFee: 0,
-        items: [{ flowerId: 'FLW-006', name: 'Pink Carnation', quantity: 20, price: 4500 }],
-    },
-];
-
-const initialPayments = [
-    {
-        id: 'PAY-001',
-        orderId: 'ORD-001',
-        method: 'Cash',
-        reference: '',
-        amount: 135000,
-        status: 'Confirmed',
-        date: daysAgo(0),
-        confirmedAt: daysAgo(0),
-    },
-    {
-        id: 'PAY-002',
-        orderId: 'ORD-002',
-        method: 'Bank Transfer',
-        reference: 'SAMPLE-BANK-001',
-        amount: 65000,
-        status: 'Confirmed',
-        date: daysAgo(1),
-        confirmedAt: daysAgo(1),
-    },
-    {
-        id: 'PAY-003',
-        orderId: 'ORD-003',
-        method: 'E-wallet',
-        reference: 'SAMPLE-WALLET-001',
-        amount: 100000,
-        status: 'Confirmed',
-        date: daysAgo(0),
-        confirmedAt: daysAgo(0),
-    },
-    {
-        id: 'PAY-004',
-        orderId: 'ORD-004',
-        method: 'Bank Transfer',
-        reference: 'SAMPLE-BANK-002',
-        amount: 95000,
-        status: 'Pending',
-        date: daysAgo(0),
-        confirmedAt: null,
-    },
-];
-
-initialOrders.push({
-    id: 'ORD-007', client: 'Maria Santos', status: 'Completed', completedAt: daysAgo(0),
-    deliveryFee: 15000,
-    items: [
-        { flowerId: 'FLW-001', name: 'Red Rose', quantity: 5, price: 6000 },
-        { flowerId: 'FLW-009', name: 'Classic Rose Bouquet', quantity: 1, price: 120000 },
-    ],
-});
-initialOrders.forEach((order) => {
-    order.items = order.items.map((item) => {
-        const product = initialPrices.find((entry) => entry.id === item.flowerId);
-        return { ...item, itemType: product.itemType, baseUnit: product.baseUnit };
-    });
-});
-initialPayments.push({ id: 'PAY-005', orderId: 'ORD-007', method: 'Cash', reference: '',
-    amount: 165000, status: 'Confirmed', date: daysAgo(0), confirmedAt: daysAgo(0) });
-
 class SalesPaymentsUI {
+    // Initialize empty UI collections; database reads populate the tables.
     constructor() {
-        this.prices = structuredClone(initialPrices);
-        this.orders = structuredClone(initialOrders);
-        this.payments = structuredClone(initialPayments);
+        this.page = document.querySelector('.sales-page');
+        this.baseUrl = this.page.dataset.url.replace(/\/$/, '');
+        this.csrf = this.page.dataset.csrf || document.querySelector('meta[name="csrf-token"]')?.content || '';
+        this.prices = [];
+        this.orders = [];
+        this.payments = [];
         this.refunds = [];
         this.history = [];
         this.sales = [];
+        this.permissions = {};
         this.tables = {};
         this.action = null;
-
+        this.pendingOperation = null;
+        this.submitting = false;
+        this.loading = false;
+        this.loaded = false;
+        this.readPromise = null;
         this.actionModal = Modal.getOrCreateInstance(this.el('salesActionModal'));
         this.viewModal = Modal.getOrCreateInstance(this.el('salesViewModal'));
-
-        this.syncSales();
         this.initializeTables();
         this.bindEvents();
-        this.renderSummary();
+        this.loadData().catch((error) => this.pageError(error.message));
     }
 
+    // Resolve an existing element by its stable UI ID.
     el(id) {
         return document.getElementById(id);
     }
 
+    // Find a canonical order by its display code.
     order(id) {
         return this.orders.find((order) => order.id === id);
     }
 
+    // Calculate the immutable item-price snapshots and delivery fee in centavos.
     orderTotal(order) {
-        return order.items.reduce(
-            (sum, item) => sum + item.quantity * item.price,
-            0,
-        ) + order.deliveryFee;
+        return addCents(order.items.reduce((sum, item) => addCents(sum, itemTotal(item)), 0), order.deliveryFee);
     }
 
+    // Count confirmed receipts, including receipts later refunded.
     confirmedPaid(orderId) {
         return this.payments
             .filter((payment) =>
-                payment.orderId === orderId && payment.status === 'Confirmed',
+                payment.orderId === orderId && ['Confirmed', 'Refunded'].includes(payment.status),
             )
-            .reduce((sum, payment) => sum + payment.amount, 0);
+            .reduce((sum, payment) => addCents(sum, payment.amount), 0);
     }
 
+    // Sum recorded refund amounts for an order.
     refunded(orderId) {
         return this.refunds
             .filter((refund) => refund.orderId === orderId)
-            .reduce((sum, refund) => sum + refund.amount, 0);
+            .reduce((sum, refund) => addCents(sum, refund.amount), 0);
     }
 
+    // Sum receipts still awaiting manual verification.
     pendingPaid(orderId) {
         return this.payments
             .filter((payment) =>
                 payment.orderId === orderId && payment.status === 'Pending',
             )
-            .reduce((sum, payment) => sum + payment.amount, 0);
+            .reduce((sum, payment) => addCents(sum, payment.amount), 0);
     }
 
+    // Refunds take precedence; only full confirmed receipts mark an order Paid.
     paymentStatus(order) {
         if (this.refunded(order.id) > 0) return 'Refunded';
 
@@ -261,6 +183,7 @@ class SalesPaymentsUI {
         return paid === this.orderTotal(order) ? 'Paid' : 'Unpaid';
     }
 
+    // Allow one full receipt only for non-cancelled orders without any prior receipt or refund.
     eligibleForPayment(order) {
         return Boolean(order)
             && order.status !== 'Cancelled'
@@ -268,36 +191,7 @@ class SalesPaymentsUI {
             && !this.payments.some((payment) => payment.orderId === order.id);
     }
 
-    nextId(records, prefix) {
-        const maximum = records.reduce(
-            (highest, record) =>
-                Math.max(highest, Number(record.id.split('-')[1]) || 0),
-            0,
-        );
-
-        return `${prefix}-${String(maximum + 1).padStart(3, '0')}`;
-    }
-
-    syncSales() {
-        /*
-         * Exactly one sample Sales Record per completed order.
-         * Existing records are preserved instead of regenerated.
-         */
-        this.orders.filter((order) => order.status === 'Completed').forEach((order) => {
-            if (this.sales.some((sale) => sale.orderId === order.id)) return;
-
-            this.sales.push({
-                id: this.nextId(this.sales, 'SAL'),
-                orderId: order.id,
-                client: order.client,
-                date: order.completedAt,
-                items: structuredClone(order.items),
-                deliveryFee: order.deliveryFee,
-                gross: this.orderTotal(order),
-            });
-        });
-    }
-
+    // Render an accessible action button with escaped identifiers.
     icon(action, id, icon, label, extra = '') {
         return `
             <button
@@ -313,6 +207,7 @@ class SalesPaymentsUI {
         `;
     }
 
+    // Preserve native DataTables sorting and the approved financial table columns.
     initializeTables() {
         const moneyColumn = (getter) => ({
             data: null,
@@ -335,7 +230,12 @@ class SalesPaymentsUI {
                 width: '20%',
                 render: (value, type) => type === 'display' ? escapeHtml(value) : value,
             },
-            { ...moneyColumn((row) => row.price), width: '18%' },
+            {
+                data: 'price', width: '18%', className: 'sales-money',
+                render: (value, type) => type === 'display'
+                    ? (value === null ? 'Not set' : money(value))
+                    : (value ?? -1),
+            },
             {
                 data: 'updated',
                 width: '22%',
@@ -349,7 +249,8 @@ class SalesPaymentsUI {
                 searchable: false,
                 render: (_value, type, row) =>
                     type === 'display'
-                        ? this.icon('price', row.id, 'pencil-square', `Edit price ${row.name}`, 'edit')
+                        ? (this.permissions.managePrices && row.canEdit !== false
+                            ? this.icon('price', row.id, 'pencil-square', `Edit price ${row.name}`, 'edit') : '')
                         : '',
             },
         ]);
@@ -424,10 +325,11 @@ class SalesPaymentsUI {
                     return `
                         <div class="sales-actions">
                             ${this.icon('view', row.orderId, 'eye', `View ${row.id}`)}
-                            ${row.status === 'Pending'
+                            ${this.permissions.confirm && row.status === 'Pending'
+                                && this.order(row.orderId)?.status !== 'Cancelled'
                                 ? this.icon('confirm', row.id, 'check-lg', `Confirm ${row.id}`, 'confirm')
                                 : ''}
-                            ${row.status === 'Confirmed'
+                            ${this.permissions.refund && ['Confirmed', 'Refunded'].includes(row.status)
                                 && this.paymentRefundable(row) > 0
                                 ? this.icon('refund', row.id, 'arrow-counterclockwise', `Refund ${row.id}`, 'refund')
                                 : ''}
@@ -438,6 +340,7 @@ class SalesPaymentsUI {
         ], [[2, 'desc']]);
     }
 
+    // Build one searchable table with compact controls and horizontal scrolling.
     makeTable(id, data, columns, order = [[0, 'asc']]) {
         const tableElement = this.el(id);
 
@@ -480,6 +383,7 @@ class SalesPaymentsUI {
         return table;
     }
 
+    // Connect tabs, compact search controls and manual financial actions.
     bindEvents() {
         document.querySelectorAll('[data-sales-tab]').forEach((button) => {
             button.addEventListener('click', () => this.switchTab(button.dataset.salesTab));
@@ -525,6 +429,13 @@ class SalesPaymentsUI {
         });
 
         this.el('recordPaymentBtn').addEventListener('click', () => this.openAction('payment'));
+        this.el('salesRetryRequest').addEventListener('click', () => this.retryRequest());
+        this.el('salesReloadData').addEventListener('click', () => {
+            this.loadData().catch((error) => this.pageError(error.message));
+        });
+        this.el('salesActionModal').addEventListener('hide.bs.modal', (event) => {
+            if (this.submitting) event.preventDefault();
+        });
 
         this.el('salesActionForm').addEventListener('submit', (event) => {
             event.preventDefault();
@@ -542,6 +453,7 @@ class SalesPaymentsUI {
         });
     }
 
+    // Update accessible tab state and recalculate the visible table widths.
     switchTab(key) {
         ['prices', 'records', 'payments'].forEach((name) => {
             const selected = key === name;
@@ -556,24 +468,39 @@ class SalesPaymentsUI {
         this.tables[key].columns.adjust();
     }
 
+    // Return the confirmed payment amount not already refunded.
     paymentRefundable(payment) {
         const refunded = this.refunds
             .filter((refund) => refund.paymentId === payment.id)
-            .reduce((sum, refund) => sum + refund.amount, 0);
+            .reduce((sum, refund) => addCents(sum, refund.amount), 0);
 
         return payment.amount - refunded;
     }
 
+    // Show validation feedback safely inside the action modal.
     error(message = '') {
         this.el('salesActionError').textContent = message;
         this.el('salesActionError').hidden = !message;
     }
 
+    // Wrap labelled modal input markup using the approved form styles.
     field(label, content) {
         return `<div class="sales-field">${label}${content}</div>`;
     }
 
-    openAction(type, id = '') {
+    // Reload authoritative data and verify permission before opening a mutation form.
+    async openAction(type, id = '') {
+        if (this.submitting || this.pendingOperation) {
+            this.announce('Resolve the pending request using Retry before starting another change.');
+            return;
+        }
+        try { await this.loadData(); }
+        catch (error) { this.pageError(error.message); return; }
+        const permission = {price: 'managePrices', payment: 'recordPayment', confirm: 'confirm', refund: 'refund'}[type];
+        if (!permission || !this.permissions[permission]) {
+            this.announce('You do not have permission to perform this action.');
+            return;
+        }
         this.action = { type, id };
         this.error();
 
@@ -588,13 +515,13 @@ class SalesPaymentsUI {
 
             fields = `
                 <p class="sales-help">
-                    Changes apply to future orders. Existing sample order
+                    Changes apply to future orders. Existing order
                     and Sales Record prices remain unchanged.
                 </p>
                 ${this.field(
                     `<label for="financeAmount">Selling Price / ${escapeHtml(flower.baseUnit)} *</label>`,
-                    `<input type="number" id="financeAmount" min="0.01" max="9999999.99"
-                        step="0.01" value="${(flower.price / 100).toFixed(2)}" required>`,
+                    `<input type="number" id="financeAmount" min="0.01" max="9999999999.99"
+                        step="0.01" value="${flower.price === null ? '' : decimalMoney(flower.price)}" required>`,
                 )}
             `;
         }
@@ -603,7 +530,7 @@ class SalesPaymentsUI {
             const eligible = this.orders.filter((order) => this.eligibleForPayment(order));
 
             if (!eligible.length) {
-                this.announce('No unpaid sample orders are eligible for a full payment.');
+                this.announce('No unpaid orders are eligible for a full payment.');
                 return;
             }
 
@@ -627,7 +554,7 @@ class SalesPaymentsUI {
                     `<select id="financeMethod" required>
                         <option value="Cash">Cash</option>
                         <option value="Bank Transfer">Bank Transfer</option>
-                        <option value="E-wallet">E-wallet</option>
+                        <option value="GCash">GCash</option>
                     </select>`,
                 )}
 
@@ -650,7 +577,8 @@ class SalesPaymentsUI {
 
         if (type === 'confirm') {
             const payment = this.payments.find((item) => item.id === id);
-            if (!payment || payment.status !== 'Pending') return;
+            if (!payment || payment.status !== 'Pending'
+                || this.order(payment.orderId)?.status === 'Cancelled') return;
 
             title = `Confirm ${payment.id}`;
 
@@ -659,7 +587,7 @@ class SalesPaymentsUI {
                     Confirm receipt of ${money(payment.amount)}
                     via ${escapeHtml(payment.method)}
                     for ${escapeHtml(payment.orderId)}?
-                    This preview does not verify a bank or wallet transaction.
+                    Verify the actual receipt before confirming this payment.
                 </p>
                 ${this.field(
                     '<label for="financeReason">Verification Remarks *</label>',
@@ -671,7 +599,7 @@ class SalesPaymentsUI {
         if (type === 'refund') {
             const payment = this.payments.find((item) => item.id === id);
 
-            if (!payment || payment.status !== 'Confirmed'
+            if (!payment || !['Confirmed', 'Refunded'].includes(payment.status)
                 || this.paymentRefundable(payment) <= 0) return;
 
             title = `Record Refund — ${payment.id}`;
@@ -680,13 +608,13 @@ class SalesPaymentsUI {
                 <p class="sales-help">
                     Refundable from this payment:
                     <strong>${money(this.paymentRefundable(payment))}</strong>.
-                    Saving records an Admin-approved sample refund.
+                    Saving records an Admin-approved refund.
                     Original payment history is retained.
                 </p>
                 ${this.field(
                     '<label for="financeAmount">Refund Amount *</label>',
                     `<input type="number" id="financeAmount" min="0.01"
-                        max="${(this.paymentRefundable(payment) / 100).toFixed(2)}"
+                        max="${decimalMoney(this.paymentRefundable(payment))}"
                         step="0.01" required>`,
                 )}
                 ${this.field(
@@ -695,8 +623,7 @@ class SalesPaymentsUI {
                 )}
                 <p class="sales-help">
                     This records the refund only; it does not transfer money.
-                    Further collection on refunded sample orders is blocked
-                    until the detailed adjustment workflow is connected.
+                    Further collection on refunded orders is blocked.
                 </p>
             `;
         }
@@ -719,6 +646,7 @@ class SalesPaymentsUI {
         this.actionModal.show();
     }
 
+    // Require a reference for GCash and bank transfers, but not Cash.
     syncReference() {
         const online = this.el('financeMethod').value !== 'Cash';
 
@@ -727,169 +655,227 @@ class SalesPaymentsUI {
         this.el('financeReference').disabled = !online;
     }
 
+    // Fix the receipt amount to the selected order total; installments are excluded.
     updateOrderHelp() {
         const order = this.order(this.el('financeOrder').value);
         if (!order) return;
 
-        this.el('financeAmount').value = (this.orderTotal(order) / 100).toFixed(2);
+        this.el('financeAmount').value = decimalMoney(this.orderTotal(order));
         this.el('financeOrderHelp').textContent =
             `Full payment required: ${money(this.orderTotal(order))}. No installments or additional payments.`;
     }
 
-    saveAction() {
+    // Validate the intended mutation and send one versioned idempotent API request.
+    async saveAction() {
         this.error();
-
+        if (this.submitting || this.loading) return;
+        if (this.pendingOperation) { await this.retryRequest(); return; }
         if (!this.action || !this.el('salesActionForm').reportValidity()) return;
-
         const { type, id } = this.action;
-        const now = new Date().toISOString();
-        const amount = this.el('financeAmount')
-            ? parseMoney(this.el('financeAmount').value)
-            : null;
+        const amount = this.el('financeAmount') ? parseMoney(this.el('financeAmount').value) : null;
         const reason = this.el('financeReason')?.value.trim() || '';
-
         if (['price', 'payment', 'refund'].includes(type) && amount === null) {
-            this.error('Enter a positive amount with no more than two decimal places.');
-            return;
+            this.error('Enter a positive amount with no more than two decimal places.'); return;
         }
-
         if (['confirm', 'refund'].includes(type) && !reason) {
-            this.error('Enter the required remarks or reason.');
-            return;
+            this.error('Enter the required remarks or reason.'); return;
         }
-
-        let message = '';
-
+        const required = {price: 'managePrices', payment: 'recordPayment', confirm: 'confirm', refund: 'refund'}[type];
+        if (!this.permissions[required]) { this.error('This action is not permitted.'); return; }
+        let path;
+        let payload;
         if (type === 'price') {
             const flower = this.prices.find((item) => item.id === id);
-            if (!flower) return;
-
-            const previous = flower.price;
-            flower.price = amount;
-            flower.updated = now;
-
-            this.log('', `Price ${flower.id}: ${money(previous)} → ${money(amount)}.`);
-            message = `${flower.name} price updated. Existing order snapshots retained.`;
-        }
-
-        if (type === 'payment') {
+            if (!flower || flower.canEdit === false) { this.error('This price cannot be edited.'); return; }
+            path = `/prices/${flower.dbId}`;
+            payload = { version: flower.version, amount: decimalMoney(amount) };
+        } else if (type === 'payment') {
             const order = this.order(this.el('financeOrder').value);
             const method = this.el('financeMethod').value;
-            const reference = method === 'Cash'
-                ? ''
-                : this.el('financeReference').value.trim();
-
-            if (!this.eligibleForPayment(order)) {
-                this.error('This order is not eligible for a new payment in this preview.');
-                return;
-            }
-
-            if (!['Cash', 'Bank Transfer', 'E-wallet'].includes(method)) {
-                this.error('Select a valid payment method.');
-                return;
-            }
-
-            if (method !== 'Cash' && !reference) {
-                this.error('Enter the transfer or E-wallet reference number.');
-                return;
-            }
-
-            if (reference && this.payments.some((payment) =>
-                payment.method === method
-                && payment.reference.toLowerCase() === reference.toLowerCase(),
-            )) {
-                this.error('That reference is already recorded for this method.');
-                return;
-            }
-
-            if (amount !== this.orderTotal(order)) {
-                this.error(`Pay the full order total of ${money(this.orderTotal(order))} in one transaction.`);
-                return;
-            }
-
-            const payment = {
-                id: this.nextId(this.payments, 'PAY'),
-                orderId: order.id,
-                method,
-                reference,
-                amount,
-                status: 'Pending',
-                date: now,
-                confirmedAt: null,
-            };
-
-            this.payments.push(payment);
-            this.log(order.id, `${payment.id}: ${money(amount)} recorded as Pending via ${method}.`);
-            message = `${payment.id} recorded. Confirm it after verification.`;
-        }
-
-        if (type === 'confirm') {
+            const reference = method === 'Cash' ? '' : this.el('financeReference').value.trim();
+            if (!this.eligibleForPayment(order)) { this.error('This order is no longer eligible for payment.'); return; }
+            if (!['Cash', 'GCash', 'Bank Transfer'].includes(method)) { this.error('Select a valid payment method.'); return; }
+            if (method !== 'Cash' && !reference) { this.error('Enter the transfer or GCash reference number.'); return; }
+            if (amount !== this.orderTotal(order)) { this.error('A single payment must match the full order total.'); return; }
+            path = '/payments';
+            payload = { order_id: order.dbId, version: order.version, method, reference, amount: decimalMoney(amount) };
+        } else {
             const payment = this.payments.find((item) => item.id === id);
-            if (!payment || payment.status !== 'Pending') return;
-
+            if (!payment) { this.error('Payment not found. Refresh the records.'); return; }
             const order = this.order(payment.orderId);
-
-            if (!order || order.status === 'Cancelled' || this.refunded(order.id) > 0) {
-                this.error('This order is no longer eligible for payment confirmation.');
-                return;
-            }
-
-            if (payment.amount !== this.orderTotal(order)
-                || this.payments.some((item) => item.orderId === order.id && item.id !== payment.id)) {
-                this.error('Exactly one payment matching the full order total is required.');
-                return;
-            }
-
-            payment.status = 'Confirmed';
-            payment.confirmedAt = now;
-
-            this.log(order.id, `${payment.id} confirmed. ${reason}`);
-            message = `${payment.id} confirmed.`;
+            if (type === 'confirm') {
+                if (payment.status !== 'Pending' || !order || order.status === 'Cancelled'
+                    || this.refunded(order.id) > 0) {
+                    this.error('This payment can no longer be confirmed.'); return;
+                }
+                path = `/payments/${payment.dbId}/confirm`;
+                payload = { version: payment.version, reason };
+            } else if (type === 'refund') {
+                if (!['Confirmed', 'Refunded'].includes(payment.status)
+                    || amount > this.paymentRefundable(payment)) {
+                    this.error('Refund exceeds the confirmed amount still available.'); return;
+                }
+                path = `/payments/${payment.dbId}/refund`;
+                payload = { version: payment.version, amount: decimalMoney(amount), reason };
+            } else return;
         }
+        await this.performWrite({ path, payload: { ...payload, request_key: requestKey() } });
+    }
 
-        if (type === 'refund') {
-            const payment = this.payments.find((item) => item.id === id);
+    // Keep the exact request key and payload when the server result is uncertain.
+    async retryRequest() {
+        if (!this.pendingOperation || this.submitting) return;
+        await this.performWrite(this.pendingOperation);
+    }
 
-            if (!payment || payment.status !== 'Confirmed') return;
-
-            if (amount > this.paymentRefundable(payment)) {
-                this.error('Refund exceeds the remaining refundable payment amount.');
-                return;
+    // Accept only canonical server data; never create or change financial rows locally.
+    async performWrite(operation) {
+        if (this.submitting) return;
+        this.pendingOperation = operation;
+        this.submitting = true;
+        this.setBusy(true);
+        try {
+            const response = await this.request(operation.path, {method: 'POST', body: JSON.stringify(operation.payload)});
+            this.acceptData(response.data);
+            this.pendingOperation = null;
+            this.el('salesRetryRequest').hidden = true;
+            this.pageError('');
+            this.error();
+            this.submitting = false;
+            this.actionModal.hide();
+            this.announce(response.message || 'Saved successfully.');
+        } catch (error) {
+            if (error.definitive) {
+                this.pendingOperation = null;
+                this.el('salesRetryRequest').hidden = true;
+                this.error(error.message);
+                this.announce(error.message);
+                if ([403, 409, 419, 422].includes(error.status)) {
+                    this.submitting = false;
+                    this.actionModal.hide();
+                    await this.loadData().catch((loadError) => this.pageError(loadError.message));
+                }
+            } else {
+                const message = 'The result could not be confirmed. Use Retry pending request to safely repeat the same request.';
+                this.error(message);
+                this.pageError(message);
+                this.el('salesRetryRequest').hidden = false;
             }
-
-            const refund = {
-                id: this.nextId(this.refunds, 'REF'),
-                paymentId: payment.id,
-                orderId: payment.orderId,
-                amount,
-                reason,
-                date: now,
-                actor: 'Administrator (preview)',
-            };
-
-            this.refunds.push(refund);
-            this.log(payment.orderId, `${refund.id}: ${money(amount)} refunded against ${payment.id}. ${reason}`);
-            message = `${refund.id} recorded. Original payment retained.`;
+        } finally {
+            this.submitting = false;
+            this.setBusy(false);
         }
+    }
 
+    // Use authenticated same-origin JSON requests with Laravel CSRF protection.
+    async request(path, options = {}) {
+        let response;
+        try {
+            response = await fetch(`${this.baseUrl}${path}`, {
+                credentials: 'same-origin',
+                ...options,
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': this.csrf,
+                    ...options.headers,
+                },
+            });
+        } catch {
+            throw new Error('Connection interrupted. The server result is unknown; retry the same request.');
+        }
+        let payload;
+        try { payload = await response.json(); }
+        catch {
+            const error = new Error(response.ok ? 'The server returned an unreadable response.' : `Request failed (${response.status}).`);
+            error.status = response.status;
+            error.definitive = response.status >= 400 && response.status < 500 && response.status !== 408;
+            throw error;
+        }
+        if (!response.ok) {
+            const validation = payload.errors && Object.values(payload.errors).flat().filter((value) => typeof value === 'string').join(' ');
+            const error = new Error(validation || payload.message || `Request failed (${response.status}).`);
+            error.status = response.status;
+            error.definitive = response.status >= 400 && response.status < 500 && response.status !== 408;
+            throw error;
+        }
+        return payload;
+    }
+
+    // Fetch current database records before opening financial actions or details.
+    async loadData() {
+        if (this.readPromise) return this.readPromise;
+        this.loading = true;
+        this.el('salesReloadData').disabled = true;
+        this.el('recordPaymentBtn').disabled = true;
+        this.readPromise = (async () => {
+            try {
+                const data = await this.request('/data');
+                this.acceptData(data.data || data);
+                this.loaded = true;
+                if (!this.pendingOperation) this.pageError('');
+            } finally {
+                this.loading = false;
+                this.readPromise = null;
+                this.el('salesReloadData').disabled = false;
+                this.setBusy(this.submitting);
+            }
+        })();
+        return this.readPromise;
+    }
+
+    // Validate the dataset envelope before replacing any UI collection.
+    acceptData(data) {
+        if (!data || !['flowers', 'orders', 'sales', 'payments', 'refunds', 'history'].every((key) => Array.isArray(data[key]))
+            || !data.permissions || typeof data.permissions !== 'object') {
+            throw new Error('The server returned an incomplete financial dataset.');
+        }
+        // Reject invalid or unsafe integer data before replacing the previous canonical state.
+        const storedMoney = (value) => Number.isSafeInteger(value) && value >= 0 && value <= MAX_CENTS;
+        const amounts = [...data.payments.map((row) => row.amount), ...data.refunds.map((row) => row.amount),
+            ...data.sales.map((row) => row.gross), ...data.flowers.filter((row) => row.price !== null).map((row) => row.price),
+            ...data.orders.map((row) => row.deliveryFee)];
+        if (!amounts.every(storedMoney)) throw new Error('The server returned an invalid financial amount.');
+        data.orders.forEach((order) => this.orderTotal(order));
+        data.sales.forEach((sale) => (sale.items || []).forEach((item) => itemTotal(item)));
+        for (const amounts of [data.payments.map((row) => row.amount), data.refunds.map((row) => row.amount), data.sales.map((row) => row.gross)]) {
+            amounts.reduce(addCents, 0);
+        }
+        this.prices = data.flowers;
+        this.orders = data.orders;
+        this.sales = data.sales;
+        this.payments = data.payments;
+        this.refunds = data.refunds;
+        this.history = data.history;
+        this.permissions = data.permissions;
+        this.el('recordPaymentBtn').hidden = !this.permissions.recordPayment;
         this.refresh();
-        this.actionModal.hide();
-        this.announce(message);
     }
 
-    log(orderId, note) {
-        this.history.push({
-            orderId,
-            note,
-            date: new Date().toISOString(),
-            actor: 'Administrator (preview)',
+    // Lock write controls while a request is in flight or awaits a safe retry.
+    setBusy(busy) {
+        this.el('salesActionSubmit').disabled = busy || Boolean(this.pendingOperation);
+        this.el('recordPaymentBtn').disabled = busy || this.loading || !this.loaded || Boolean(this.pendingOperation);
+        this.el('salesRetryRequest').disabled = busy;
+        this.el('salesActionFields').querySelectorAll('input, select, textarea').forEach((input) => {
+            input.disabled = busy || Boolean(this.pendingOperation);
         });
+        this.page.setAttribute('aria-busy', String(busy || this.loading));
     }
 
+    // Present connection and API errors without injecting response HTML.
+    pageError(message) {
+        this.el('salesPageError').textContent = message;
+        this.el('salesPageError').hidden = !message;
+    }
+
+    // Announce results through the live status region.
     announce(message) {
         this.el('salesAnnouncement').textContent = message;
     }
 
+    // Replace displayed table rows with canonical server collections.
     refresh() {
         [
             ['prices', this.prices],
@@ -904,37 +890,38 @@ class SalesPaymentsUI {
         this.renderSummary();
     }
 
+    // Compute net completed sales and separate Stem/Bouquet rankings from server snapshots.
     renderSummary() {
         const net = (sale) => sale.gross - this.refunded(sale.orderId);
         const today = dateKey(new Date());
         const month = today.slice(0, 7);
 
         this.el('salesNet').textContent =
-            money(this.sales.reduce((sum, sale) => sum + net(sale), 0));
+            money(this.sales.reduce((sum, sale) => addCents(sum, net(sale)), 0));
 
         this.el('salesCount').textContent = this.sales.length;
 
         this.el('salesToday').textContent = money(
             this.sales.filter((sale) => dateKey(sale.date) === today)
-                .reduce((sum, sale) => sum + net(sale), 0),
+                .reduce((sum, sale) => addCents(sum, net(sale)), 0),
         );
 
         this.el('salesMonth').textContent = money(
             this.sales.filter((sale) => dateKey(sale.date).slice(0, 7) === month)
-                .reduce((sum, sale) => sum + net(sale), 0),
+                .reduce((sum, sale) => addCents(sum, net(sale)), 0),
         );
 
         const quantities = new Map();
         const dates = new Map();
 
         this.sales.forEach((sale) => {
-            sale.items.forEach((item) => {
+            (sale.items || this.order(sale.orderId)?.items || []).forEach((item) => {
                 const key = `${item.baseUnit}|${item.name}`;
-                quantities.set(key, (quantities.get(key) || 0) + item.quantity);
+                quantities.set(key, addCents(quantities.get(key) || 0, item.quantity));
             });
 
             const key = dateKey(sale.date);
-            dates.set(key, (dates.get(key) || 0) + net(sale));
+            dates.set(key, addCents(dates.get(key) || 0, net(sale)));
         });
 
         const trend = [...dates].sort((a, b) => a[0].localeCompare(b[0]));
@@ -954,6 +941,7 @@ class SalesPaymentsUI {
         this.renderBars('salesTrend', trend, money);
     }
 
+    // Render accessible text values alongside decorative chart bars.
     renderBars(id, values, formatter) {
         const maximum = Math.max(1, ...values.map(([, value]) => value));
 
@@ -970,7 +958,11 @@ class SalesPaymentsUI {
         `).join('') : '<p class="sales-help">No completed sales yet.</p>';
     }
 
-    showOrder(orderId) {
+    // Reload and display preserved order, receipt and refund history.
+    async showOrder(orderId) {
+        if (this.submitting) return;
+        try { await this.loadData(); }
+        catch (error) { this.pageError(error.message); return; }
         const order = this.order(orderId);
         if (!order) return;
 
@@ -988,7 +980,7 @@ class SalesPaymentsUI {
                 <div><dt>Client</dt><dd>${escapeHtml(order.client)}</dd></div>
                 <div><dt>Order Status</dt><dd>${badge(order.status)}</dd></div>
                 <div><dt>Payment Status</dt><dd>${badge(this.paymentStatus(order))}</dd></div>
-                <div><dt>Sales Record</dt><dd>${escapeHtml(sale?.id || 'Not recognized: order is not Completed')}</dd></div>
+                <div><dt>Sales Record</dt><dd>${escapeHtml(sale?.id || 'No Sales Record')}</dd></div>
                 <div><dt>Order Total</dt><dd>${money(this.orderTotal(order))}</dd></div>
                 <div><dt>Confirmed Payments</dt><dd>${money(paid)}</dd></div>
                 <div><dt>Refunded</dt><dd>${money(refunded)}</dd></div>
@@ -999,7 +991,7 @@ class SalesPaymentsUI {
 
             <p class="sales-help">
                 Refunds are shown separately and do not automatically reopen collection
-                in this preview. Net sales are recognized from Completed orders,
+                for this order. Net sales are recognized from Completed orders,
                 independently of confirmed payments.
             </p>
 
@@ -1019,8 +1011,8 @@ class SalesPaymentsUI {
                             <tr>
                                 <td>${escapeHtml(item.name)}</td>
                                 <td>${item.quantity} ${escapeHtml(item.baseUnit)}</td>
-                                <td class="sales-money">${money(item.price)}</td>
-                                <td class="sales-money">${money(item.price * item.quantity)}</td>
+                                <td class="sales-money">${money(item.unitPrice)}</td>
+                                <td class="sales-money">${money(itemTotal(item))}</td>
                             </tr>
                         `).join('')}
                         <tr>
@@ -1081,14 +1073,14 @@ class SalesPaymentsUI {
                 </table>
             </div>
 
-            <h6 class="sales-section-title">Preview Activity</h6>
+            <h6 class="sales-section-title">Activity History</h6>
             <ol class="sales-history">
                 ${history.length ? history.map((entry) => `
                     <li>
                         ${escapeHtml(entry.note)}
                         <small>${dateTime(entry.date)} · ${escapeHtml(entry.actor)}</small>
                     </li>
-                `).join('') : '<li>No new activity in this session.</li>'}
+                `).join('') : '<li>No recorded activity for this order.</li>'}
             </ol>
         `;
 
@@ -1096,6 +1088,7 @@ class SalesPaymentsUI {
     }
 }
 
+// Initialize once when the Sales & Payments page is present.
 function initializeSalesPayments() {
     if (!document.getElementById('pricesTable')
         || DataTable.isDataTable('#pricesTable')) return;
@@ -1110,4 +1103,3 @@ if (document.readyState === 'loading') {
 } else {
     initializeSalesPayments();
 }
-

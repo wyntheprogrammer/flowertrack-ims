@@ -8,6 +8,7 @@ use App\Http\Controllers\Supplier\BatchController;
 use App\Http\Controllers\Supplier\ClientController;
 use App\Http\Controllers\Supplier\OrderController;
 use App\Http\Controllers\Supplier\UserController;
+use App\Http\Controllers\Supplier\SalesPaymentController;
 use App\Http\Middleware\EnsureAccountSessionIsCurrent;
 use App\Http\Controllers\Supplier\DeliveryController;
 
@@ -178,8 +179,18 @@ Route::middleware('auth')->group(function () {
                     ->whereNumber('delivery')
                     ->name('deliveries.action');
 
-                Route::view('/sales-payments', 'supplier.sales-payments')
+                Route::get('/sales-payments', [SalesPaymentController::class, 'index'])
                     ->name('sales-payments');
+                Route::get('/sales-payments/data', [SalesPaymentController::class, 'data'])
+                    ->name('sales-payments.data');
+                Route::post('/sales-payments/prices/{flower}', [SalesPaymentController::class, 'price'])
+                    ->whereNumber('flower')->name('sales-payments.price');
+                Route::post('/sales-payments/payments', [SalesPaymentController::class, 'recordPayment'])
+                    ->name('sales-payments.record');
+                Route::post('/sales-payments/payments/{payment}/confirm', [SalesPaymentController::class, 'confirm'])
+                    ->whereNumber('payment')->name('sales-payments.confirm');
+                Route::post('/sales-payments/payments/{payment}/refund', [SalesPaymentController::class, 'refund'])
+                    ->whereNumber('payment')->name('sales-payments.refund');
 
                 // Admin-only screens
                 Route::middleware('role:admin')->group(function () {

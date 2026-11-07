@@ -3,7 +3,7 @@
 @section('title', 'Sales & Payments')
 
 @section('content')
-    <div class="sales-page">
+    <div class="sales-page" data-url="{{ route('supplier.sales-payments') }}" data-csrf="{{ csrf_token() }}" aria-busy="true">
         <div class="sales-summary">
             <div>
                 <span>Net Sales</span>
@@ -30,7 +30,7 @@
                     <p>Manage selling prices, completed sales, and client payments.</p>
                 </div>
 
-                <button type="button" class="sales-primary-btn" id="recordPaymentBtn">
+                <button type="button" class="sales-primary-btn" id="recordPaymentBtn" hidden disabled>
                     <i class="bi bi-plus-lg" aria-hidden="true"></i>
                     Record Payment
                 </button>
@@ -39,9 +39,15 @@
             <div class="sales-notice">
                 <i class="bi bi-info-circle" aria-hidden="true"></i>
                 <span>
-                    Sample data only. Payment recording and confirmation are manual.
-                    These records are not connected to actual orders or a payment gateway.
+                    Payment recording and confirmation are manual. Verify actual receipts before
+                    confirming payments. Recording a refund does not transfer money automatically.
                 </span>
+            </div>
+
+            <div class="sales-notice" aria-live="polite">
+                <span id="salesPageError" class="sales-error" role="alert" hidden></span>
+                <button type="button" class="sales-secondary-btn" id="salesReloadData">Refresh Records</button>
+                <button type="button" class="sales-secondary-btn" id="salesRetryRequest" hidden>Retry pending request</button>
             </div>
 
             <div class="sales-tabs" role="tablist" aria-label="Sales and payment sections">
@@ -229,7 +235,7 @@
 
             <div class="sales-card sales-insight-card">
                 <h2>Sales Trend</h2>
-                <p>Net sales by completion date for the sample records.</p>
+                <p>Net sales by completion date, less recorded refunds.</p>
                 <div id="salesTrend"></div>
             </div>
         </div>
@@ -256,6 +262,7 @@
                 </div>
 
                 <form id="salesActionForm">
+                    @csrf
                     <div class="modal-body">
                         <div id="salesActionError" class="sales-error" role="alert" hidden></div>
                         <div id="salesActionFields"></div>

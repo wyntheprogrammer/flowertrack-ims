@@ -222,7 +222,7 @@ class OrderService
             'notes' => $order->notes ?? '',
             'status' => $order->status,
             'payment' => $payment?->status === 'Refunded' ? 'Refunded' : ($payment?->status === 'Confirmed' ? 'Paid' : 'Unpaid'),
-            'paidCents' => $payment?->status === 'Confirmed' ? (int) $payment->amount_cents : 0,
+            'paidCents' => in_array($payment?->status, ['Confirmed', 'Refunded'], true) ? (int) $payment->amount_cents : 0,
             'subtotalCents' => (int) $order->subtotal_cents,
             'deliveryFeeCents' => (int) $order->fee_cents,
             'totalCents' => (int) $order->total_cents,
