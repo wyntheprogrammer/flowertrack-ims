@@ -7,6 +7,7 @@ use App\Http\Controllers\Supplier\InventoryController;
 use App\Http\Controllers\Supplier\BatchController;
 use App\Http\Controllers\Supplier\ClientController;
 use App\Http\Controllers\Supplier\OrderController;
+use App\Http\Controllers\Supplier\DeliveryController;
 
 
 // Public home
@@ -157,8 +158,22 @@ Route::middleware('auth')->group(function () {
 
                     
 
-                Route::view('/deliveries', 'supplier.deliveries')
+                Route::get('/deliveries', [DeliveryController::class, 'index'])
                     ->name('deliveries');
+
+                Route::get('/deliveries/data', [DeliveryController::class, 'data'])
+                    ->name('deliveries.data');
+
+                Route::get('/deliveries/{delivery}', [DeliveryController::class, 'show'])
+                    ->whereNumber('delivery')
+                    ->name('deliveries.show');
+
+                Route::post('/deliveries/{delivery}/action', [DeliveryController::class, 'action'])
+                    ->whereNumber('delivery')
+                    ->name('deliveries.action');
+
+
+                    
 
                 Route::view('/sales-payments', 'supplier.sales-payments')
                     ->name('sales-payments');

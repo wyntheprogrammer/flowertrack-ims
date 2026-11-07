@@ -46,14 +46,23 @@ class OrderService
                 $this->assertAvailability($flowers, $payload['items']);
                 [$subtotal, $fee, $total] = $this->totals($lines, $payload['method']);
                 $order = Order::create([
-                    'code' => 'TMP-'.Str::ulid(), 'request_key' => $key, 'request_hash' => $hash,
-                    'client_id' => $client->id, 'client_code' => $client->code,
-                    'client_name' => $client->user->name, 'client_email' => $client->user->email,
-                    'method' => $payload['method'], 'address' => $payload['address'], 'notes' => $payload['notes'],
-                    'status' => 'Pending', 'subtotal_cents' => $subtotal, 'fee_cents' => $fee,
-                    'total_cents' => $total, 'stocked_out' => false,
+                    'code' => 'TMP-' . Str::ulid(),
+                    'request_key' => $key,
+                    'request_hash' => $hash,
+                    'client_id' => $client->id,
+                    'client_code' => $client->code,
+                    'client_name' => $client->user->name,
+                    'client_email' => $client->user->email,
+                    'method' => $payload['method'],
+                    'address' => $payload['address'],
+                    'notes' => $payload['notes'],
+                    'status' => 'Pending',
+                    'subtotal_cents' => $subtotal,
+                    'fee_cents' => $fee,
+                    'total_cents' => $total,
+                    'stocked_out' => false,
                 ]);
-                $order->code = 'ORD-'.str_pad((string) $order->id, 3, '0', STR_PAD_LEFT);
+                $order->code = 'ORD-' . str_pad((string) $order->id, 3, '0', STR_PAD_LEFT);
                 $order->save();
                 $this->replaceItems($order, $lines);
                 $this->history($order, $actor, 'Order created.');
@@ -80,7 +89,7 @@ class OrderService
             $locked = Order::query()->lockForUpdate()->findOrFail($order->id);
             $locked->load(['items', 'payment']);
             $this->assertVersion($locked, $input['version']);
-            if (! in_array($locked->status, ['Pending', 'Confirmed'], true) || $locked->payment !== null) {
+            if (!in_array($locked->status, ['Pending', 'Confirmed'], true) || $locked->payment !== null) {
                 $this->invalid('order', 'Only pending or confirmed orders without any payment record can be edited.');
             }
             $changedClient = (int) $locked->client_id !== $payload['client_id'];
@@ -97,8 +106,12 @@ class OrderService
                 $locked->client_email = $client->user->email;
             }
             $locked->fill([
-                'method' => $payload['method'], 'address' => $payload['address'], 'notes' => $payload['notes'],
-                'subtotal_cents' => $subtotal, 'fee_cents' => $fee, 'total_cents' => $total,
+                'method' => $payload['method'],
+                'address' => $payload['address'],
+                'notes' => $payload['notes'],
+                'subtotal_cents' => $subtotal,
+                'fee_cents' => $fee,
+                'total_cents' => $total,
             ])->save();
             $this->replaceItems($locked, $lines);
             if ($locked->status === 'Confirmed') {
@@ -133,8 +146,8 @@ class OrderService
                 $this->invalid('status', 'This transition is not available from the current order state.');
             }
             $flowers = $this->lockFlowers($locked->items->pluck('flower_id')->all());
-            $quantities = $locked->items->mapWithKeys(fn (OrderItem $item) => [(int) $item->flower_id => (int) $item->quantity])->all();
-            $note = 'Order marked '.$desired.'.';
+            $quantities = $locked->items->mapWithKeys(fn(OrderItem $item) => [(int) $item->flower_id => (int) $item->quantity])->all();
+            $note = 'Order marked ' . $desired . '.';
             if ($desired === 'Cancelled') {
                 $reason = trim($input['reason'] ?? '');
                 if ($reason === '') {
@@ -146,7 +159,7 @@ class OrderService
                 $this->assertAvailability($flowers, $quantities, $locked->code);
                 $this->syncHolds($locked, $quantities);
             } elseif ($desired === 'Completed') {
-                if ($locked->method !== 'Customer Pickup' || ! filter_var($input['collected'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                if ($locked->method !== 'Customer Pickup' || !filter_var($input['collected'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
                     $this->invalid('collected', 'Confirm actual pickup collection before completing this order.');
                 }
                 if ($locked->stocked_out) {
@@ -163,19 +176,29 @@ class OrderService
                 $locked->stocked_out = true;
                 $locked->completed_at = now();
                 $sale = SalesRecord::create([
-                    'order_id' => $locked->id, 'client_id' => $locked->client_id, 'code' => 'TMP-'.Str::ulid(),
-                    'client_name' => $locked->client_name, 'client_code' => $locked->client_code,
-                    'items' => $locked->items->map(fn (OrderItem $item) => $this->itemRow($item))->values()->all(),
-                    'subtotal_cents' => $locked->subtotal_cents, 'fee_cents' => $locked->fee_cents,
-                    'total_cents' => $locked->total_cents, 'completed_at' => $locked->completed_at,
+                    'order_id' => $locked->id,
+                    'client_id' => $locked->client_id,
+                    'code' => 'TMP-' . Str::ulid(),
+                    'client_name' => $locked->client_name,
+                    'client_code' => $locked->client_code,
+                    'items' => $locked->items->map(fn(OrderItem $item) => $this->itemRow($item))->values()->all(),
+                    'subtotal_cents' => $locked->subtotal_cents,
+                    'fee_cents' => $locked->fee_cents,
+                    'total_cents' => $locked->total_cents,
+                    'completed_at' => $locked->completed_at,
                 ]);
-                $sale->code = 'SALE-'.str_pad((string) $sale->id, 3, '0', STR_PAD_LEFT);
+                $sale->code = 'SALE-' . str_pad((string) $sale->id, 3, '0', STR_PAD_LEFT);
                 $sale->save();
                 $note = 'Pickup collected; reserved stock issued and sale recorded.';
             }
             $locked->status = $desired;
             $locked->save();
             $this->history($locked, $actor, $note);
+
+            if ($desired === 'Ready for Delivery') {
+                app(DeliveryService::class)->createForOrder($locked, $actor);
+            }
+
             $locked->unsetRelations();
 
             return $locked;
@@ -188,21 +211,29 @@ class OrderService
         $order->loadMissing(['items', 'histories', 'payment']);
         $payment = $order->payment;
         return [
-            'dbId' => (int) $order->id, 'id' => $order->code,
-            'clientDbId' => (int) $order->client_id, 'clientId' => $order->client_code,
+            'dbId' => (int) $order->id,
+            'id' => $order->code,
+            'clientDbId' => (int) $order->client_id,
+            'clientId' => $order->client_code,
             'clientName' => $order->client_name,
             'date' => $order->created_at->copy()->setTimezone('Asia/Manila')->format('Y-m-d'),
-            'method' => $order->method, 'address' => $order->address ?? '', 'notes' => $order->notes ?? '',
+            'method' => $order->method,
+            'address' => $order->address ?? '',
+            'notes' => $order->notes ?? '',
             'status' => $order->status,
             'payment' => $payment?->status === 'Refunded' ? 'Refunded' : ($payment?->status === 'Confirmed' ? 'Paid' : 'Unpaid'),
             'paidCents' => $payment?->status === 'Confirmed' ? (int) $payment->amount_cents : 0,
-            'subtotalCents' => (int) $order->subtotal_cents, 'deliveryFeeCents' => (int) $order->fee_cents,
-            'totalCents' => (int) $order->total_cents, 'stockedOut' => (bool) $order->stocked_out,
+            'subtotalCents' => (int) $order->subtotal_cents,
+            'deliveryFeeCents' => (int) $order->fee_cents,
+            'totalCents' => (int) $order->total_cents,
+            'stockedOut' => (bool) $order->stocked_out,
             'version' => $this->version($order),
-            'items' => $order->items->sortBy('flower_id')->map(fn (OrderItem $item) => $this->itemRow($item))->values()->all(),
-            'history' => $order->histories->sortBy('id')->map(fn (OrderHistory $entry) => [
-                'status' => $entry->status, 'date' => $entry->created_at->copy()->setTimezone('Asia/Manila')->toIso8601String(),
-                'actor' => $entry->actor_name, 'note' => $entry->note,
+            'items' => $order->items->sortBy('flower_id')->map(fn(OrderItem $item) => $this->itemRow($item))->values()->all(),
+            'history' => $order->histories->sortBy('id')->map(fn(OrderHistory $entry) => [
+                'status' => $entry->status,
+                'date' => $entry->created_at->copy()->setTimezone('Asia/Manila')->toIso8601String(),
+                'actor' => $entry->actor_name,
+                'note' => $entry->note,
             ])->values()->all(),
             'canConfirm' => $actor->role === User::ROLE_ADMIN && $order->status === 'Pending',
             'editable' => in_array($order->status, ['Pending', 'Confirmed'], true) && $payment === null,
@@ -218,7 +249,7 @@ class OrderService
             return null;
         }
         try {
-            if (! is_string($value) && ! is_int($value)) {
+            if (!is_string($value) && !is_int($value)) {
                 throw new InvalidArgumentException('Fee must be an exact decimal string.');
             }
             return Money::parse((string) $value);
@@ -247,7 +278,7 @@ class OrderService
         }
         ksort($items, SORT_NUMERIC);
         $method = $input['method'];
-        if (! in_array($method, ['Customer Pickup', 'Delivery'], true)) {
+        if (!in_array($method, ['Customer Pickup', 'Delivery'], true)) {
             $this->invalid('method', 'Select Customer Pickup or Delivery.');
         }
         $address = $method === 'Delivery' ? trim($input['address'] ?? '') : null;
@@ -255,8 +286,13 @@ class OrderService
             $this->invalid('address', 'A delivery address is required.');
         }
         $notes = trim($input['notes'] ?? '');
-        return ['client_id' => (int) $input['client_id'], 'method' => $method, 'address' => $address,
-            'notes' => $notes === '' ? null : $notes, 'items' => $items];
+        return [
+            'client_id' => (int) $input['client_id'],
+            'method' => $method,
+            'address' => $address,
+            'notes' => $notes === '' ? null : $notes,
+            'items' => $items
+        ];
     }
 
     /** Lock client account first, then its profile, matching Client Management. */
@@ -281,7 +317,7 @@ class OrderService
         if ($client->user->role !== User::ROLE_CLIENT) {
             $this->invalid('client_id', 'Select a valid client account.');
         }
-        if ($requireActive && ! $client->user->is_active) {
+        if ($requireActive && !$client->user->is_active) {
             $this->invalid('client_id', 'Only active clients can be selected for a new order.');
         }
     }
@@ -314,11 +350,14 @@ class OrderService
                 $this->invalid('items', 'A valid selling price is required and item totals must fit the supported monetary range.');
             }
             $lines[] = [
-                'flower_id' => $id, 'flower_code' => $previous?->flower_code ?? $flower->code,
+                'flower_id' => $id,
+                'flower_code' => $previous?->flower_code ?? $flower->code,
                 'name' => $previous?->name ?? $flower->name,
                 'product_type' => $previous?->product_type ?? $flower->product_type,
                 'base_unit' => $previous?->base_unit ?? $flower->product_type,
-                'quantity' => $quantity, 'unit_price_cents' => $price, 'subtotal_cents' => $price * $quantity,
+                'quantity' => $quantity,
+                'unit_price_cents' => $price,
+                'subtotal_cents' => $price * $quantity,
                 'fulfillment_key' => $previous?->fulfillment_key ?? (string) Str::uuid(),
             ];
         }
@@ -353,7 +392,7 @@ class OrderService
         $holds = InventoryReservation::query()->whereIn('flower_id', $ids)->where('status', 'Active')->lockForUpdate()->get();
         foreach ($quantities as $id => $quantity) {
             $physical = (int) $batches->where('flower_id', $id)->sum('remaining_quantity');
-            $reserved = (int) $holds->where('flower_id', $id)->filter(fn ($hold) => $hold->reference !== $ownReference)->sum('quantity');
+            $reserved = (int) $holds->where('flower_id', $id)->filter(fn($hold) => $hold->reference !== $ownReference)->sum('quantity');
             if ($quantity > $physical - $reserved) {
                 $this->invalid('items', 'Insufficient stock is available for one or more requested items.');
             }
@@ -375,14 +414,15 @@ class OrderService
     {
         $existing = InventoryReservation::query()->where('reference', $order->code)->lockForUpdate()->get();
         foreach ($existing as $hold) {
-            if (! isset($quantities[$hold->flower_id])) {
+            if (!isset($quantities[$hold->flower_id])) {
                 $hold->status = 'Released';
                 $hold->save();
             }
         }
         foreach ($quantities as $id => $quantity) {
             InventoryReservation::updateOrCreate(['flower_id' => $id, 'reference' => $order->code], [
-                'quantity' => $quantity, 'status' => 'Active',
+                'quantity' => $quantity,
+                'status' => 'Active',
             ]);
         }
     }
@@ -403,10 +443,33 @@ class OrderService
     {
         $order->loadMissing(['items', 'payment']);
         return hash('sha256', json_encode([
-            'order' => $order->only(['id', 'code', 'client_id', 'client_code', 'client_name', 'client_email', 'method', 'address', 'notes',
-                'status', 'subtotal_cents', 'fee_cents', 'total_cents', 'stocked_out', 'completed_at']),
-            'items' => $order->items->sortBy('flower_id')->map(fn ($item) => $item->only([
-                'flower_id', 'flower_code', 'name', 'product_type', 'base_unit', 'quantity', 'unit_price_cents', 'subtotal_cents', 'fulfillment_key',
+            'order' => $order->only([
+                'id',
+                'code',
+                'client_id',
+                'client_code',
+                'client_name',
+                'client_email',
+                'method',
+                'address',
+                'notes',
+                'status',
+                'subtotal_cents',
+                'fee_cents',
+                'total_cents',
+                'stocked_out',
+                'completed_at'
+            ]),
+            'items' => $order->items->sortBy('flower_id')->map(fn($item) => $item->only([
+                'flower_id',
+                'flower_code',
+                'name',
+                'product_type',
+                'base_unit',
+                'quantity',
+                'unit_price_cents',
+                'subtotal_cents',
+                'fulfillment_key',
             ]))->values()->all(),
             'payment' => $order->payment?->only(['id', 'code', 'amount_cents', 'status', 'method', 'reference', 'remarks', 'confirmed_by', 'confirmed_at']),
         ], JSON_THROW_ON_ERROR));
@@ -415,7 +478,7 @@ class OrderService
     /** Reject an edit/action issued against stale business state. */
     private function assertVersion(Order $order, string $version): void
     {
-        if (! hash_equals($this->version($order), strtolower($version))) {
+        if (!hash_equals($this->version($order), strtolower($version))) {
             $this->invalid('version', 'This order changed. Refresh and review its latest state before saving.');
         }
     }
@@ -423,7 +486,7 @@ class OrderService
     /** Return the existing request's order only when actor and canonical payload match. */
     private function replay(Order $order, string $hash): Order
     {
-        if (! hash_equals($order->request_hash, $hash)) {
+        if (!hash_equals($order->request_hash, $hash)) {
             $this->invalid('request_key', 'This creation request key was already used for different order details.');
         }
         return $order;
@@ -432,16 +495,28 @@ class OrderService
     /** Expose the immutable commercial item snapshot in exact integer cents. */
     private function itemRow(OrderItem $item): array
     {
-        return ['flowerDbId' => (int) $item->flower_id, 'flowerId' => $item->flower_code, 'flowerName' => $item->name,
-            'itemType' => $item->product_type, 'baseUnit' => $item->base_unit, 'quantity' => (int) $item->quantity,
-            'unitPriceCents' => (int) $item->unit_price_cents, 'subtotalCents' => (int) $item->subtotal_cents];
+        return [
+            'flowerDbId' => (int) $item->flower_id,
+            'flowerId' => $item->flower_code,
+            'flowerName' => $item->name,
+            'itemType' => $item->product_type,
+            'baseUnit' => $item->base_unit,
+            'quantity' => (int) $item->quantity,
+            'unitPriceCents' => (int) $item->unit_price_cents,
+            'subtotalCents' => (int) $item->subtotal_cents
+        ];
     }
 
     /** Append workflow history with an actor-name snapshot. */
     private function history(Order $order, User $actor, string $note): void
     {
-        OrderHistory::create(['order_id' => $order->id, 'status' => $order->status,
-            'note' => Str::limit($note, 1000, ''), 'actor_id' => $actor->id, 'actor_name' => Str::limit($actor->name, 255, '')]);
+        OrderHistory::create([
+            'order_id' => $order->id,
+            'status' => $order->status,
+            'note' => Str::limit($note, 1000, ''),
+            'actor_id' => $actor->id,
+            'actor_name' => Str::limit($actor->name, 255, '')
+        ]);
     }
 
     /** Surface domain failures using standard JSON validation errors. */

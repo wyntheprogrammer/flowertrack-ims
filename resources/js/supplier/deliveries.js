@@ -24,201 +24,99 @@ function formatDateTime(value) {
     if (!value) return 'Not scheduled';
 
     return new Intl.DateTimeFormat('en-PH', {
+        timeZone: 'Asia/Manila',
         dateStyle: 'medium',
         timeStyle: 'short',
     }).format(new Date(value));
 }
 
+/* Format the schedule input in the shop's timezone. */
 function localInputValue(value) {
     if (!value) return '';
-
-    const date = new Date(value);
-    const pad = (number) => String(number).padStart(2, '0');
-
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-        + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(value)).map((part) => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
-/*
- * Standalone UI sample data.
- * No real accounts, order integration, uploads or Inventory movements.
- */
-const personnel = [
-    { id: 'USR-003', name: 'Juan Dela Cruz', active: true, role: 'Delivery Personnel' },
-    { id: 'USR-004', name: 'Mark Reyes', active: true, role: 'Delivery Personnel' },
-    { id: 'USR-005', name: 'Leo Santos', active: false, role: 'Delivery Personnel' },
-];
-
-const tomorrow = new Date();
-tomorrow.setDate(tomorrow.getDate() + 1);
-tomorrow.setHours(9, 0, 0, 0);
-
-function scheduleAfter(hours) {
-    return new Date(tomorrow.getTime() + hours * 3600000).toISOString();
+/* Send an explicit Manila timezone offset accepted by the PHP request rules. */
+function schedulePayload(value) {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
+        throw new Error('Choose a valid delivery schedule.');
+    }
+    const formatted = `${value}:00+08:00`;
+    const time = new Date(formatted).getTime();
+    if (!Number.isFinite(time) || time <= Date.now()) {
+        throw new Error('Choose a future delivery date and time.');
+    }
+    return formatted;
 }
-
-function makeDelivery({
-    id,
-    orderId,
-    client,
-    address,
-    status = 'Pending',
-    personId = '',
-    schedule = '',
-    orderStatus = 'Ready for Delivery',
-}) {
-    return {
-        id,
-        orderId,
-        client,
-        address,
-        contact: '0917 000 1000',
-        method: 'Delivery',
-        orderStatus,
-        status,
-        personId,
-        schedule,
-        notes: '',
-        proof: null,
-        completedAt: null,
-        sampleStockOut: false,
-        revision: 0,
-        history: [{
-            date: new Date().toISOString(),
-            actor: 'Administrator (sample)',
-            status,
-            note: 'Sample delivery loaded for UI review.',
-        }],
-    };
-}
-
-const sampleDeliveries = [
-    makeDelivery({
-        id: 'DEL-001',
-        orderId: 'ORD-004',
-        client: 'Maria Santos',
-        address: 'Quezon City, Metro Manila',
-    }),
-    makeDelivery({
-        id: 'DEL-002',
-        orderId: 'ORD-007',
-        client: 'Carlo Reyes',
-        address: 'Makati City, Metro Manila',
-        status: 'Scheduled',
-        schedule: scheduleAfter(0),
-    }),
-    makeDelivery({
-        id: 'DEL-003',
-        orderId: 'ORD-008',
-        client: 'Daniel Garcia',
-        address: 'Marikina City, Metro Manila',
-        status: 'Assigned',
-        personId: 'USR-003',
-        schedule: scheduleAfter(1),
-    }),
-    makeDelivery({
-        id: 'DEL-004',
-        orderId: 'ORD-009',
-        client: 'Isabel Ramos',
-        address: 'Manila, Metro Manila',
-        status: 'Out for Delivery',
-        personId: 'USR-004',
-        schedule: scheduleAfter(2),
-        orderStatus: 'Out for Delivery',
-    }),
-    makeDelivery({
-        id: 'DEL-005',
-        orderId: 'ORD-010',
-        client: 'Paolo Mendoza',
-        address: 'Antipolo City, Rizal',
-        status: 'Failed',
-        personId: 'USR-003',
-        schedule: scheduleAfter(3),
-        orderStatus: 'Out for Delivery',
-    }),
-    makeDelivery({
-        id: 'DEL-006',
-        orderId: 'ORD-011',
-        client: 'Maria Santos',
-        address: 'Pasig City, Metro Manila',
-        status: 'Rescheduled',
-        personId: 'USR-004',
-        schedule: scheduleAfter(4),
-    }),
-];
-
-sampleDeliveries[4].history.push({
-    date: new Date().toISOString(),
-    actor: 'Mark Reyes (sample)',
-    status: 'Failed',
-    note: 'Sample failed attempt: recipient unavailable.',
-});
 
 class DeliveryManagementUI {
+    /* Initialize the approved table layout using database records only. */
     constructor(element) {
         this.element = element;
-        this.deliveries = structuredClone(sampleDeliveries);
+        this.base = element.dataset.url.replace(/\/$/, '');
+        this.csrf = element.dataset.csrf;
+        this.deliveries = [];
+        this.personnel = [];
         this.selected = null;
         this.busy = false;
-        this.proofUrls = new Set();
-
+        this.loading = false;
         this.manageModal = Modal.getOrCreateInstance(this.el('deliveryManageModal'));
         this.viewModal = Modal.getOrCreateInstance(this.el('deliveryViewModal'));
-
         this.initializeTable();
         this.mountScroller();
         this.bindEvents();
+        this.load().catch((error) => this.announce(error.message));
     }
 
-    el(id) {
-        return document.getElementById(id);
-    }
+    /* Find a page or modal element. */
+    el(id) { return document.getElementById(id); }
 
+    /* Announce loading, success or recovery messages. */
+    announce(message) { this.el('deliveryAnnouncement').textContent = message; }
+
+    /* Match numeric account IDs and retain inactive personnel names on old records. */
     personName(id) {
-        return personnel.find((person) => person.id === id)?.name || 'Unassigned';
+        return this.personnel.find((person) => String(person.id) === String(id))?.name
+            || this.deliveries.find((row) => id != null && String(row.personId) === String(id))?.personName
+            || 'Unassigned';
     }
 
-    terminal(delivery) {
-        return ['Delivered', 'Cancelled'].includes(delivery.status);
-    }
-
+    /* Only current active delivery accounts may receive a new assignment. */
     activePerson(id) {
-        return personnel.some((person) =>
-            person.id === id
-            && person.active
-            && person.role === 'Delivery Personnel',
-        );
+        return this.personnel.some((person) => String(person.id) === String(id));
     }
 
+    /* Terminal deliveries expose details only. */
+    terminal(delivery) { return ['Delivered', 'Cancelled'].includes(delivery.status); }
+
+    /* Show connected actions; the server rechecks every workflow transition. */
     actionsFor(delivery) {
-        if (this.terminal(delivery)) return [];
-
+        if (this.terminal(delivery) || delivery.method !== 'Delivery') return [];
         if (delivery.status === 'Out for Delivery') {
-            return [
-                ['deliver', 'Mark Delivered'],
-                ['fail', 'Record Failed Attempt'],
-            ];
+            return delivery.orderStatus === 'Out for Delivery'
+                ? [['deliver', 'Mark Delivered'], ['fail', 'Record Failed Attempt']] : [];
         }
-
+        const states = ['Pending', 'Scheduled', 'Assigned', 'Rescheduled', 'Failed'];
+        const orderReady = delivery.orderStatus === 'Ready for Delivery';
+        const failedAttempt = delivery.status === 'Failed' && delivery.orderStatus === 'Out for Delivery';
+        if (!states.includes(delivery.status) || (!orderReady && !failedAttempt)) return [];
         const actions = [
             ['schedule', delivery.schedule ? 'Reschedule Delivery' : 'Schedule Delivery'],
             ['assign', delivery.personId ? 'Reassign Personnel' : 'Assign Personnel'],
         ];
-
-        if (
-            ['Assigned', 'Scheduled', 'Rescheduled'].includes(delivery.status)
-            && delivery.schedule
-            && this.activePerson(delivery.personId)
-            && delivery.orderStatus === 'Ready for Delivery'
-        ) {
+        if (['Assigned', 'Scheduled', 'Rescheduled'].includes(delivery.status)
+            && delivery.schedule && this.activePerson(delivery.personId) && orderReady) {
             actions.push(['dispatch', 'Dispatch / Out for Delivery']);
         }
-
         actions.push(['cancel', 'Cancel Delivery']);
-
         return actions;
     }
 
+    /* Preserve column alignment, native sorting and compact pagination. */
     initializeTable() {
         this.table = new DataTable(this.element, {
             data: this.deliveries,
@@ -313,7 +211,7 @@ class DeliveryManagementUI {
                                     <i class="bi bi-eye" aria-hidden="true"></i>
                                 </button>
 
-                                ${!this.terminal(row) ? `
+                                ${this.actionsFor(row).length ? `
                                     <button
                                         type="button"
                                         class="delivery-action-btn manage"
@@ -333,6 +231,7 @@ class DeliveryManagementUI {
         });
     }
 
+    /* Keep horizontal scrolling inside the table only. */
     mountScroller() {
         const wrapper = document.createElement('div');
 
@@ -348,87 +247,114 @@ class DeliveryManagementUI {
         wrapper.append(this.element);
     }
 
+    /* Refresh displayed rows while retaining the current page. */
     refresh() {
         this.table.clear();
         this.table.rows.add(this.deliveries);
         this.table.draw(false);
     }
 
+    /* Read JSON while preserving Laravel validation errors and session failures. */
+    async request(url, options = {}) {
+        const response = await fetch(url, {
+            ...options, credentials: 'same-origin',
+            headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': this.csrf, ...options.headers },
+        });
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result || response.redirected) {
+            const defaults = {
+                401: 'Please sign in again.', 403: 'Your account cannot perform this action.',
+                404: 'Delivery not found. Refresh the list.', 419: 'Your session expired. Refresh the page.',
+                413: 'The upload exceeds the server limit. Choose a smaller image.',
+            };
+            const error = new Error(defaults[response.status]
+                || (result?.errors ? Object.values(result.errors).flat().join(' ') : null)
+                || (response.status >= 500 ? 'Server error. Refresh the delivery before retrying.' : result?.message)
+                || 'Unable to load the response. Refresh the page.');
+            error.status = response.status;
+            error.errors = result?.errors || {};
+            throw error;
+        }
+        return result;
+    }
+
+    /* Load the canonical list and active personnel; never create records on a GET. */
+    async load() {
+        this.loading = true;
+        try {
+            const result = await this.request(`${this.base}/data`);
+            if (!Array.isArray(result.data) || !Array.isArray(result.personnel)) {
+                throw new Error('Unexpected delivery response. Refresh the page.');
+            }
+            this.deliveries = result.data;
+            this.personnel = result.personnel;
+            this.refresh();
+            this.announce(this.deliveries.length ? '' : 'No delivery records yet. Mark a Delivery order Ready for Delivery.');
+        } finally { this.loading = false; }
+    }
+
+    /* Bind compact search, page size, modal actions and busy guards. */
     bindEvents() {
-        this.el('deliverySearch').addEventListener('input', (event) => {
-            this.table.search(event.target.value).draw();
-        });
-
-        this.el('deliveryPageLength').addEventListener('change', (event) => {
-            this.table.page.len(Number(event.target.value)).draw();
-        });
-
+        this.el('deliverySearch').addEventListener('input', (event) => this.table.search(event.target.value).draw());
+        this.el('deliveryPageLength').addEventListener('change', (event) => this.table.page.len(Number(event.target.value)).draw());
         this.element.addEventListener('click', (event) => {
             const button = event.target.closest('[data-delivery-action]');
-            if (!button) return;
-
-            const delivery = this.deliveries.find(
-                (item) => item.id === button.dataset.deliveryId,
-            );
-
-            if (!delivery) return;
-
-            if (button.dataset.deliveryAction === 'view') {
-                this.showDetails(delivery);
-            } else {
-                this.openManage(delivery);
-            }
+            if (!button || this.busy || this.loading) return;
+            const delivery = this.deliveries.find((row) => row.id === button.dataset.deliveryId);
+            if (delivery) this.openRecord(delivery, button.dataset.deliveryAction);
         });
-
-        this.el('deliveryAction').addEventListener('change', () => {
-            this.renderActionFields();
+        this.el('deliveryAction').addEventListener('change', () => this.renderActionFields());
+        this.el('deliveryManageForm').addEventListener('submit', (event) => {
+            event.preventDefault(); this.saveAction();
         });
-
-        this.el('deliveryManageForm').addEventListener('submit', async (event) => {
-            event.preventDefault();
-            await this.saveAction();
+        this.el('deliveryManageModal').addEventListener('hide.bs.modal', (event) => {
+            if (this.busy) event.preventDefault();
         });
-
         this.el('deliveryManageModal').addEventListener('hidden.bs.modal', () => {
             this.selected = null;
             this.el('deliveryManageForm').reset();
             this.el('deliveryActionFields').innerHTML = '';
         });
-
-        window.addEventListener('pagehide', () => {
-            this.proofUrls.forEach((url) => URL.revokeObjectURL(url));
-            this.proofUrls.clear();
-        });
     }
 
+    /* Retrieve current details and version before opening either modal. */
+    async openRecord(delivery, action) {
+        this.loading = true;
+        try {
+            const result = await this.request(`${this.base}/${Number(delivery.dbId)}`);
+            if (!result.data?.version) throw new Error('Delivery details are unavailable.');
+            this.deliveries = this.deliveries.map((row) => row.dbId === delivery.dbId ? result.data : row);
+            this.refresh();
+            if (action === 'view') this.showDetails(result.data);
+            else this.openManage(result.data);
+        } catch (error) { this.announce(error.message); }
+        finally { this.loading = false; }
+    }
+
+    /* Show validation errors without discarding a retry's request identity. */
     showError(message = '') {
         this.el('deliveryManageError').textContent = message;
         this.el('deliveryManageError').hidden = !message;
     }
 
+    /* Start an edit using the server version and supported actions. */
     openManage(delivery) {
         const actions = this.actionsFor(delivery);
-        if (!actions.length) return;
-
-        this.selected = {
-            id: delivery.id,
-            revision: delivery.revision,
-        };
-
+        if (!actions.length) { this.announce('No actions are available for this delivery.'); return; }
+        this.selected = { id: delivery.id, dbId: delivery.dbId, version: delivery.version,
+            fingerprint: null, requestKey: null };
         this.showError();
-
         this.el('deliveryManageTitle').textContent = `Manage ${delivery.id}`;
         this.el('deliveryManageSummary').textContent =
             `${delivery.orderId} · ${delivery.client} · Current status: ${delivery.status}`;
-
-        this.el('deliveryAction').innerHTML = actions.map(([value, label]) => `
-            <option value="${value}">${escapeHtml(label)}</option>
-        `).join('');
-
+        this.el('deliveryAction').innerHTML = actions.map(([value, label]) =>
+            `<option value="${value}">${escapeHtml(label)}</option>`).join('');
         this.renderActionFields();
         this.manageModal.show();
     }
 
+    /* Render inputs for the selected server-backed action. */
     renderActionFields() {
         this.showError();
 
@@ -459,8 +385,8 @@ class DeliveryManagementUI {
                     <textarea id="deliveryReason" rows="3" maxlength="500" required></textarea>
                 </div>
                 <p class="delivery-help">
-                    Choose a future schedule. Rescheduling a failed attempt
-                    returns the sample linked order to Ready for Delivery.
+                    Times use Philippine time (Asia/Manila). Rescheduling a failed attempt
+                    returns the linked order to Ready for Delivery.
                 </p>
             `;
         }
@@ -471,14 +397,14 @@ class DeliveryManagementUI {
                     <label for="deliveryPersonnel">Delivery Personnel <span>*</span></label>
                     <select id="deliveryPersonnel" required>
                         <option value="">Select personnel</option>
-                        ${personnel
+                        ${this.personnel
                             .filter((person) =>
-                                person.active && person.role === 'Delivery Personnel',
+                                true,
                             )
                             .map((person) => `
                                 <option
                                     value="${escapeHtml(person.id)}"
-                                    ${person.id === delivery.personId ? 'selected' : ''}
+                                    ${String(person.id) === String(delivery.personId) ? 'selected' : ''}
                                 >
                                     ${escapeHtml(person.name)}
                                 </option>
@@ -496,7 +422,7 @@ class DeliveryManagementUI {
             fields = `
                 <p class="delivery-help">
                     Confirm the order has been handed to the assigned personnel.
-                    This changes the sample delivery and linked order to
+                    This changes the delivery and linked order to
                     Out for Delivery. Dispatch does not deduct inventory.
                 </p>
                 <div class="delivery-field">
@@ -527,32 +453,37 @@ class DeliveryManagementUI {
                 </div>
                 <p class="delivery-help">
                     JPEG, PNG or WebP; maximum 5 MB.
-                    Photo stays in this browser session and is not uploaded.
+                    Photo is uploaded to private storage. Confirm only after actual receipt.
                     Completion time is recorded automatically.
                 </p>
             `;
         }
 
-        if (action === 'fail' || action === 'cancel') {
+        if (action === 'fail') {
             fields = `
                 <div class="delivery-field">
-                    <label for="deliveryReason">
-                        ${action === 'fail' ? 'Failure Reason' : 'Cancellation Reason'}
-                        <span>*</span>
-                    </label>
+                    <label for="deliveryReason">Failure Reason <span>*</span></label>
                     <textarea id="deliveryReason" rows="3" maxlength="500" required></textarea>
                 </div>
-                <p class="delivery-help">
-                    ${action === 'fail'
-                        ? 'A failed delivery remains in history and does not automatically cancel the order. Reschedule it before another dispatch.'
-                        : 'Cancelling this delivery does not cancel the linked order or release its reservation. Order cancellation remains an Order Management operation.'}
-                </p>
-            `;
+                <p class="delivery-help">A failed attempt keeps the order reservation.
+                    Reschedule before dispatching again.</p>`;
+        }
+
+        if (action === 'cancel') {
+            fields = `
+                <div class="delivery-field">
+                    <label for="deliveryReason">Cancellation Reason <span>*</span></label>
+                    <textarea id="deliveryReason" rows="3" maxlength="500" required></textarea>
+                </div>
+                <p class="delivery-help">This cancels only the delivery record.
+                    The linked order and its stock reservation remain unchanged.
+                    Cancel the order separately in Order Management if needed.</p>`;
         }
 
         this.el('deliveryActionFields').innerHTML = fields;
     }
 
+    /* Check that the selected upload can be opened as an image. */
     async validatePhoto(file) {
         const supported = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -574,304 +505,124 @@ class DeliveryManagementUI {
                 image.src = url;
             });
 
-            return url;
-        } catch (error) {
+            return;
+        } finally {
             URL.revokeObjectURL(url);
-            throw error;
         }
     }
 
+    /* Submit only validated inputs; stock and workflow changes belong to the server. */
     async saveAction() {
         if (this.busy || !this.selected) return;
-
         this.showError();
-
         if (!this.el('deliveryManageForm').reportValidity()) return;
-
-        const selection = { ...this.selected };
-        const delivery = this.deliveries.find((item) => item.id === selection.id);
+        const selected = this.selected;
+        const delivery = this.deliveries.find((row) => row.id === selected.id);
         const action = this.el('deliveryAction').value;
-
-        if (!delivery || delivery.revision !== selection.revision) {
-            this.showError('Delivery changed. Close and reopen this dialog.');
-            return;
+        if (!delivery || !this.actionsFor(delivery).some(([value]) => value === action)) {
+            this.showError('This action is unavailable. Close and refresh the delivery.'); return;
         }
-
-        if (!this.actionsFor(delivery).some(([value]) => value === action)) {
-            this.showError('This action is no longer available.');
-            return;
-        }
-
-        const reason = this.el('deliveryReason')?.value.trim() || '';
-
-        if (['schedule', 'assign', 'deliver', 'fail', 'cancel'].includes(action) && !reason) {
-            this.showError('Enter the required remarks or reason.');
-            return;
-        }
-
-        const changes = {};
-        let note = reason;
-        let proofUrl = null;
-
+        const values = { action, version: selected.version,
+            reason: this.el('deliveryReason')?.value.trim() || '' };
+        const file = this.el('deliveryProof')?.files[0];
+        this.setBusy(true);
         try {
-            if (action === 'schedule') {
-                const input = this.el('deliverySchedule').value;
-                const date = new Date(input);
-
-                if (!input || !Number.isFinite(date.getTime()) || date <= new Date()) {
-                    throw new Error('Choose a future delivery date and time.');
-                }
-
-                const wasScheduled = Boolean(delivery.schedule);
-
-                if (wasScheduled && date.toISOString() === delivery.schedule) {
-                    throw new Error('Choose a different date/time to reschedule.');
-                }
-
-                changes.schedule = date.toISOString();
-                changes.status = wasScheduled || delivery.status === 'Failed'
-                    ? 'Rescheduled'
-                    : delivery.personId ? 'Assigned' : 'Scheduled';
-
-                if (delivery.status === 'Failed') {
-                    changes.orderStatus = 'Ready for Delivery';
-                }
-
-                note = `Schedule: ${formatDateTime(delivery.schedule)} → ${formatDateTime(changes.schedule)}. ${reason}`;
-            }
-
+            if (action !== 'dispatch' && !values.reason) throw new Error('Enter the required remarks.');
+            if (action === 'schedule') values.scheduled_at = schedulePayload(this.el('deliverySchedule').value);
             if (action === 'assign') {
-                const personId = this.el('deliveryPersonnel').value;
-
-                if (!this.activePerson(personId)) {
-                    throw new Error('Select active, authorized delivery personnel.');
-                }
-
-                if (personId === delivery.personId) {
-                    throw new Error('Select different personnel to reassign.');
-                }
-
-                changes.personId = personId;
-
-                // Failed deliveries still require rescheduling before dispatch.
-                changes.status = delivery.status === 'Failed'
-                    ? 'Failed'
-                    : 'Assigned';
-
-                note = `Personnel: ${this.personName(delivery.personId)} → ${this.personName(personId)}. ${reason}`;
+                values.assigned_to = this.el('deliveryPersonnel').value;
+                if (!this.activePerson(values.assigned_to)) throw new Error('Select active delivery personnel.');
             }
-
-            if (action === 'dispatch') {
-                if (
-                    delivery.method !== 'Delivery'
-                    || delivery.orderStatus !== 'Ready for Delivery'
-                    || !delivery.schedule
-                    || !this.activePerson(delivery.personId)
-                    || !['Assigned', 'Scheduled', 'Rescheduled'].includes(delivery.status)
-                ) {
-                    throw new Error('Dispatch requires a ready order, schedule and active assigned personnel.');
-                }
-
-                changes.status = 'Out for Delivery';
-                changes.orderStatus = 'Out for Delivery';
-                note = `Dispatched with ${this.personName(delivery.personId)}. ${reason}`;
-            }
-
-            if (action === 'fail') {
-                changes.status = 'Failed';
-                note = `Failed attempt: ${reason}`;
-            }
-
-            if (action === 'cancel') {
-                changes.status = 'Cancelled';
-                note = `Delivery cancelled: ${reason}. Linked order unchanged.`;
-            }
-
+            let proofHash = null;
             if (action === 'deliver') {
-                const recipient = this.el('deliveryRecipient').value.trim();
-                const file = this.el('deliveryProof').files[0];
-
-                if (!recipient) {
-                    throw new Error('Enter the recipient name.');
-                }
-
-                this.setBusy(true);
-                proofUrl = await this.validatePhoto(file);
-
-                // Recheck after asynchronous image validation.
-                if (
-                    this.selected?.id !== selection.id
-                    || delivery.revision !== selection.revision
-                    || delivery.status !== 'Out for Delivery'
-                ) {
-                    throw new Error('Delivery changed or dialog closed. Reopen and try again.');
-                }
-
-                changes.status = 'Delivered';
-                changes.orderStatus = 'Completed';
-                changes.completedAt = new Date().toISOString();
-                changes.sampleStockOut = true;
-                changes.proof = {
-                    recipient,
-                    remarks: reason,
-                    name: file.name,
-                    url: proofUrl,
-                };
-
-                note = `Received by ${recipient}. ${reason}. Sample order completed; actual Inventory Stock-Out is not connected.`;
+                values.recipient_name = this.el('deliveryRecipient').value.trim();
+                if (!values.recipient_name) throw new Error('Enter the recipient name.');
+                await this.validatePhoto(file);
+                proofHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer())))
+                    .map((byte) => byte.toString(16).padStart(2, '0')).join('');
             }
-
-            Object.assign(delivery, changes);
-            delivery.revision += 1;
-
-            delivery.history.push({
-                date: new Date().toISOString(),
-                actor: 'Administrator (preview)',
-                status: delivery.status,
-                note,
-            });
-
-            if (proofUrl) {
-                this.proofUrls.add(proofUrl);
-                proofUrl = null;
+            const fingerprint = JSON.stringify([values, proofHash]);
+            if (selected.fingerprint !== fingerprint) {
+                selected.fingerprint = fingerprint;
+                selected.requestKey = crypto.randomUUID();
             }
-
+            const body = new FormData();
+            Object.entries(values).forEach(([key, value]) => body.append(key, value));
+            body.append('request_key', selected.requestKey);
+            if (action === 'deliver') body.append('proof', file);
+            const result = await this.request(`${this.base}/${Number(selected.dbId)}/action`, { method: 'POST', body });
+            if (!result.data?.version) throw new Error('Update response is incomplete. Keep this dialog open and retry.');
+            this.deliveries = this.deliveries.map((row) => row.dbId === result.data.dbId ? result.data : row);
             this.refresh();
-            this.manageModal.hide();
-
-            this.el('deliveryAnnouncement').textContent =
-                `${delivery.id} updated: ${delivery.status}. Preview data only.`;
-        } catch (error) {
-            if (proofUrl) URL.revokeObjectURL(proofUrl);
-            this.showError(error.message || 'Unable to update delivery.');
-        } finally {
             this.setBusy(false);
-        }
+            this.manageModal.hide();
+            try {
+                await this.load();
+                this.announce(`${result.data.id}: ${result.data.status}. ${result.message || 'Update saved.'}`);
+            } catch {
+                this.announce('Update saved. Refresh the page to reload the complete list.');
+            }
+        } catch (error) {
+            this.showError(error.message || 'Could not verify the update. Keep this dialog open and retry.');
+            if (error.errors?.version) {
+                this.setBusy(false);
+                this.manageModal.hide();
+                await this.load().catch(() => {});
+                this.announce('Delivery changed. Reopen it before applying another update.');
+            }
+        } finally { this.setBusy(false); }
     }
 
+    /* Prevent edits and dismissal while an upload or write is in progress. */
     setBusy(value) {
         this.busy = value;
-
-        this.el('deliveryManageForm')
-            .querySelector('button[type="submit"]').disabled = value;
-
-        this.el('deliveryAction').disabled = value;
+        this.el('deliveryManageModal').querySelectorAll('input, select, textarea, button')
+            .forEach((control) => { control.disabled = value; });
     }
 
+    /* Render canonical history and the protected proof endpoint. */
     showDetails(delivery) {
         this.el('deliveryViewTitle').textContent = `Delivery Details — ${delivery.id}`;
-
-        const history = delivery.history.map((entry) => `
-            <li>
-                <strong>${escapeHtml(entry.status)}</strong>
-                — ${escapeHtml(entry.note)}
-                <small>
-                    ${escapeHtml(formatDateTime(entry.date))}
-                    · ${escapeHtml(entry.actor)}
-                </small>
-            </li>
-        `).join('');
-
-        const proof = delivery.proof ? `
-            <h6 class="delivery-section-title">Proof of Delivery</h6>
-
+        const history = (delivery.history || []).map((entry) => `
+            <li><strong>${escapeHtml(entry.status)}</strong> — ${escapeHtml(entry.note)}
+                <small>${escapeHtml(formatDateTime(entry.date))} · ${escapeHtml(entry.actor)}</small></li>`).join('');
+        const detail = (label, value, full = false) => `
+            <div class="${full ? 'delivery-full' : ''}"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value || '—')}</dd></div>`;
+        const proof = delivery.hasProof ? `
             <dl class="delivery-detail-grid">
-                <div>
-                    <dt>Recipient</dt>
-                    <dd>${escapeHtml(delivery.proof.recipient)}</dd>
-                </div>
-                <div>
-                    <dt>Completed At</dt>
-                    <dd>${escapeHtml(formatDateTime(delivery.completedAt))}</dd>
-                </div>
-                <div class="delivery-full">
-                    <dt>Delivery Remarks</dt>
-                    <dd>${escapeHtml(delivery.proof.remarks)}</dd>
-                </div>
+                ${detail('Recipient', delivery.recipient)}
+                ${detail('Completed At', delivery.completedAt ? formatDateTime(delivery.completedAt) : '')}
+                ${detail('Delivery Remarks', delivery.remarks, true)}
             </dl>
-
-            <img
-                class="delivery-proof"
-                src="${escapeHtml(delivery.proof.url)}"
-                alt="Proof of delivery for ${escapeHtml(delivery.id)}"
-            >
-            <p class="delivery-help">
-                ${escapeHtml(delivery.proof.name)}
-                · Session preview only; not uploaded.
-            </p>
-        ` : `
-            <h6 class="delivery-section-title">Proof of Delivery</h6>
-            <p class="delivery-help">No completed delivery proof recorded.</p>
-        `;
-
+            <a href="${escapeHtml(`${this.base}/${Number(delivery.dbId)}/proof`)}" target="_blank" rel="noopener">Open delivery proof</a>
+            <img class="delivery-proof" src="${escapeHtml(`${this.base}/${Number(delivery.dbId)}/proof`)}"
+                alt="Proof of delivery for ${escapeHtml(delivery.id)}">`
+            : '<p class="delivery-help">No completed delivery proof recorded.</p>';
         this.el('deliveryViewContent').innerHTML = `
             <dl class="delivery-detail-grid">
-                <div>
-                    <dt>Delivery ID</dt>
-                    <dd>${escapeHtml(delivery.id)}</dd>
-                </div>
-                <div>
-                    <dt>Order ID</dt>
-                    <dd>${escapeHtml(delivery.orderId)}</dd>
-                </div>
-                <div>
-                    <dt>Client</dt>
-                    <dd>${escapeHtml(delivery.client)}</dd>
-                </div>
-                <div>
-                    <dt>Client Contact</dt>
-                    <dd>${escapeHtml(delivery.contact)}</dd>
-                </div>
-                <div class="delivery-full">
-                    <dt>Delivery Address Snapshot</dt>
-                    <dd>${escapeHtml(delivery.address)}</dd>
-                </div>
-                <div>
-                    <dt>Assigned Personnel</dt>
-                    <dd>${escapeHtml(this.personName(delivery.personId))}</dd>
-                </div>
-                <div>
-                    <dt>Scheduled Delivery</dt>
-                    <dd>${escapeHtml(formatDateTime(delivery.schedule))}</dd>
-                </div>
-                <div>
-                    <dt>Delivery Status</dt>
-                    <dd>${badge(delivery.status)}</dd>
-                </div>
-                <div>
-                    <dt>Sample Linked Order Status</dt>
-                    <dd>${escapeHtml(delivery.orderStatus)}</dd>
-                </div>
-                <div class="delivery-full">
-                    <dt>Inventory Coordination</dt>
-                    <dd>${delivery.sampleStockOut
-                        ? 'Delivered trigger simulated once. Actual stock deduction is not connected.'
-                        : 'No sample Delivered Stock-Out trigger recorded.'}</dd>
-                </div>
+                ${detail('Delivery ID', delivery.id)}${detail('Order ID', delivery.orderId)}
+                ${detail('Client', delivery.client)}${detail('Delivery Address', delivery.address, true)}
+                ${detail('Assigned Personnel', this.personName(delivery.personId))}
+                ${detail('Scheduled Delivery', formatDateTime(delivery.schedule))}
+                <div><dt>Delivery Status</dt><dd>${badge(delivery.status)}</dd></div>
+                ${detail('Linked Order Status', delivery.orderStatus)}
+                ${detail('Inventory Coordination', delivery.status === 'Delivered' && delivery.orderStatus === 'Completed'
+                    ? 'Completed delivery; reserved stock issued and sale recorded.'
+                    : 'This delivery has not issued stock.', true)}
             </dl>
-
-            ${proof}
-
+            <h6 class="delivery-section-title">Proof of Delivery</h6>${proof}
             <h6 class="delivery-section-title">Delivery History</h6>
-            <ol class="delivery-history">${history}</ol>
-        `;
-
+            <ol class="delivery-history">${history}</ol>`;
         this.viewModal.show();
     }
 }
 
+/* Initialize once when the Delivery page exists. */
 function initializeDeliveryManagement() {
     const table = document.getElementById('deliveryTable');
-
     if (!table || DataTable.isDataTable(table)) return;
-
     new DeliveryManagementUI(table);
 }
-
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeDeliveryManagement, {
-        once: true,
-    });
-} else {
-    initializeDeliveryManagement();
-}
+    document.addEventListener('DOMContentLoaded', initializeDeliveryManagement, { once: true });
+} else { initializeDeliveryManagement(); }

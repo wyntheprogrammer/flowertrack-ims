@@ -44,12 +44,14 @@ class OrderBackendTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        if (! extension_loaded('pdo_sqlite')) {
+        if (!extension_loaded('pdo_sqlite')) {
             $this->markTestSkipped('Isolated order tests require pdo_sqlite.');
         }
         config([
             'database.connections.order_backend_test' => [
-                'driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '',
+                'driver' => 'sqlite',
+                'database' => ':memory:',
+                'prefix' => '',
                 'foreign_key_constraints' => true,
             ],
             'database.default' => 'order_backend_test',
@@ -60,29 +62,47 @@ class OrderBackendTest extends TestCase
         $this->assertSame('sqlite', DB::connection()->getDriverName());
         $this->assertSame(':memory:', DB::connection()->getDatabaseName());
         Schema::create('users', function (Blueprint $table) {
-            $table->id(); $table->string('name'); $table->string('email')->unique();
-            $table->string('password'); $table->string('role');
+            $table->id();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->string('password');
+            $table->string('role');
             $table->boolean('is_active')->default(true);
             $table->boolean('must_change_password')->default(false);
-            $table->timestamp('email_verified_at')->nullable(); $table->rememberToken(); $table->timestamps();
+            $table->timestamp('email_verified_at')->nullable();
+            $table->rememberToken();
+            $table->timestamps();
         });
         Schema::create('flowers', function (Blueprint $table) {
-            $table->id(); $table->string('code', 30)->unique(); $table->string('name', 150);
-            $table->enum('product_type', ['Stem', 'Bouquet']); $table->string('category', 100);
-            $table->unsignedInteger('minimum_stock'); $table->text('description');
-            $table->string('image_path')->nullable(); $table->enum('status', ['Active', 'Inactive']); $table->timestamps();
+            $table->id();
+            $table->string('code', 30)->unique();
+            $table->string('name', 150);
+            $table->enum('product_type', ['Stem', 'Bouquet']);
+            $table->string('category', 100);
+            $table->unsignedInteger('minimum_stock');
+            $table->text('description');
+            $table->string('image_path')->nullable();
+            $table->enum('status', ['Active', 'Inactive']);
+            $table->timestamps();
         });
-        foreach (['create_clients_table', 'create_inventory_tables', 'create_order_tables'] as $name) {
-            $files = glob(database_path('migrations/*_'.$name.'.php')) ?: [];
-            $this->assertCount(1, $files, 'Expected one '.$name.' migration.');
+        foreach ([
+            'create_clients_table',
+            'create_inventory_tables',
+            'create_order_tables',
+            'create_delivery_tables',
+        ] as $name) {
+            $files = glob(database_path('migrations/*_' . $name . '.php')) ?: [];
+            $this->assertCount(1, $files, 'Expected one ' . $name . ' migration.');
             (require $files[0])->up();
         }
         $this->admin = $this->user('admin', User::ROLE_ADMIN);
         $this->supplier = $this->user('supplier', User::ROLE_SUPPLIER);
         $account = $this->user('client', User::ROLE_CLIENT);
         $this->client = Client::create([
-            'code' => 'CLI-001', 'user_id' => $account->id,
-            'phone' => '09123456789', 'address' => 'Test delivery address',
+            'code' => 'CLI-001',
+            'user_id' => $account->id,
+            'phone' => '09123456789',
+            'address' => 'Test delivery address',
         ]);
         $this->stem = $this->item('FLW-001', 'Stem', 1250);
         $this->bouquet = $this->item('FLW-002', 'Bouquet', 125000);
@@ -95,7 +115,8 @@ class OrderBackendTest extends TestCase
     /** Disconnect only the ephemeral named connection. */
     protected function tearDown(): void
     {
-        if ($this->testConnectionConfigured) DB::disconnect('order_backend_test');
+        if ($this->testConnectionConfigured)
+            DB::disconnect('order_backend_test');
         parent::tearDown();
     }
 
@@ -116,14 +137,16 @@ class OrderBackendTest extends TestCase
         $this->assertSame(0, InventoryReservation::count());
         $this->assertSame(20, $this->remaining($this->stem));
         $input['items'][0]['quantity'] = 4;
-        $this->rejected(fn () => $this->orders->store($input, $this->supplier), 'request_key');
+        $this->rejected(fn() => $this->orders->store($input, $this->supplier), 'request_key');
         $this->assertSame(1, Order::count());
         // Enough stock exists: this rejection must enforce the aggregated input limit.
         $this->receive($this->stem, 120000);
-        $this->rejected(fn () => $this->orders->store($this->input(['items' => [
-            ['flower_id' => $this->stem->id, 'quantity' => 60000],
-            ['flower_id' => $this->stem->id, 'quantity' => 60000],
-        ]]), $this->supplier), 'items');
+        $this->rejected(fn() => $this->orders->store($this->input([
+            'items' => [
+                ['flower_id' => $this->stem->id, 'quantity' => 60000],
+                ['flower_id' => $this->stem->id, 'quantity' => 60000],
+            ]
+        ]), $this->supplier), 'items');
         $this->assertSame(1, Order::count());
     }
 
@@ -134,8 +157,9 @@ class OrderBackendTest extends TestCase
         try {
             $this->action($order, 'Confirmed', $this->supplier);
             $this->fail('Supplier must not approve an order.');
-        } catch (AuthorizationException|HttpException $exception) {
-            if ($exception instanceof HttpException) $this->assertSame(403, $exception->getStatusCode());
+        } catch (AuthorizationException | HttpException $exception) {
+            if ($exception instanceof HttpException)
+                $this->assertSame(403, $exception->getStatusCode());
         }
         $this->assertSame('Pending', $order->fresh()->status);
         $this->action($order, 'Confirmed', $this->admin);
@@ -152,11 +176,14 @@ class OrderBackendTest extends TestCase
     public function test_insufficient_confirmed_stock_rolls_back_all_new_reservations(): void
     {
         $first = $this->orders->store($this->input(['items' => [['flower_id' => $this->stem->id, 'quantity' => 18]]]), $this->supplier);
-        $second = $this->orders->store($this->input(['items' => [
-            ['flower_id' => $this->bouquet->id, 'quantity' => 1], ['flower_id' => $this->stem->id, 'quantity' => 5],
-        ]]), $this->supplier);
+        $second = $this->orders->store($this->input([
+            'items' => [
+                ['flower_id' => $this->bouquet->id, 'quantity' => 1],
+                ['flower_id' => $this->stem->id, 'quantity' => 5],
+            ]
+        ]), $this->supplier);
         $this->action($first, 'Confirmed', $this->admin);
-        $this->rejected(fn () => $this->action($second, 'Confirmed', $this->admin));
+        $this->rejected(fn() => $this->action($second, 'Confirmed', $this->admin));
         $this->assertSame('Pending', $second->fresh()->status);
         $this->assertSame(18, (int) InventoryReservation::where('status', 'Active')->sum('quantity'));
         $this->assertSame(0, InventoryReservation::where('reference', $second->code)->count());
@@ -175,19 +202,25 @@ class OrderBackendTest extends TestCase
         $this->assertSame(1250, $updated->items()->first()->unit_price_cents);
         $this->assertSame(3750, $updated->total_cents);
         OrderPayment::create([
-            'order_id' => $order->id, 'code' => 'PAY-001', 'method' => 'Cash',
-            'amount_cents' => 3750, 'status' => 'Pending',
+            'order_id' => $order->id,
+            'code' => 'PAY-001',
+            'method' => 'Cash',
+            'amount_cents' => 3750,
+            'status' => 'Pending',
         ]);
-        $this->rejected(fn () => $this->orders->update($order, $this->edit($order), $this->supplier));
+        $this->rejected(fn() => $this->orders->update($order, $this->edit($order), $this->supplier));
         $this->assertSame(3, $order->items()->first()->quantity);
     }
 
     /** Pickup collection consumes both item units once and creates one immutable gross sale. */
     public function test_pickup_completion_is_once_only_without_inventing_a_payment_gate(): void
     {
-        $order = $this->orders->store($this->input(['items' => [
-            ['flower_id' => $this->stem->id, 'quantity' => 4], ['flower_id' => $this->bouquet->id, 'quantity' => 2],
-        ]]), $this->supplier);
+        $order = $this->orders->store($this->input([
+            'items' => [
+                ['flower_id' => $this->stem->id, 'quantity' => 4],
+                ['flower_id' => $this->bouquet->id, 'quantity' => 2],
+            ]
+        ]), $this->supplier);
         $this->action($order, 'Confirmed', $this->admin);
         $this->action($order, 'Processing', $this->supplier);
         $this->action($order, 'Ready for Pickup', $this->supplier);
@@ -221,10 +254,12 @@ class OrderBackendTest extends TestCase
     /** A later-item shortage rolls back earlier fulfillment and every outer completion write. */
     public function test_mixed_pickup_shortage_rolls_back_all_completion_side_effects(): void
     {
-        $order = $this->orders->store($this->input(['items' => [
-            ['flower_id' => $this->stem->id, 'quantity' => 4],
-            ['flower_id' => $this->bouquet->id, 'quantity' => 2],
-        ]]), $this->supplier);
+        $order = $this->orders->store($this->input([
+            'items' => [
+                ['flower_id' => $this->stem->id, 'quantity' => 4],
+                ['flower_id' => $this->bouquet->id, 'quantity' => 2],
+            ]
+        ]), $this->supplier);
         $this->action($order, 'Confirmed', $this->admin);
         $this->action($order, 'Processing', $this->supplier);
         $this->action($order, 'Ready for Pickup', $this->supplier);
@@ -232,7 +267,7 @@ class OrderBackendTest extends TestCase
         InventoryBatch::where('flower_id', $this->bouquet->id)->update(['remaining_quantity' => 1]);
         $movements = InventoryMovement::count();
         $operations = InventoryOperation::count();
-        $this->rejected(fn () => $this->action($order, 'Completed', $this->supplier, ['collected' => true]));
+        $this->rejected(fn() => $this->action($order, 'Completed', $this->supplier, ['collected' => true]));
         $this->assertSame(20, $this->remaining($this->stem));
         $this->assertSame(1, $this->remaining($this->bouquet));
         $this->assertSame(2, InventoryReservation::where('status', 'Active')->count());
@@ -249,7 +284,7 @@ class OrderBackendTest extends TestCase
     public function test_delivery_fee_is_explicit_and_order_actions_stop_at_ready_for_delivery(): void
     {
         $input = $this->input(['method' => 'Delivery', 'address' => 'Test delivery address']);
-        $this->rejected(fn () => $this->orders->store($input, $this->supplier));
+        $this->rejected(fn() => $this->orders->store($input, $this->supplier));
         $this->assertSame(0, Order::count());
         config(['orders.delivery_fee' => '75.25']);
         $order = $this->orders->store($input, $this->supplier);
@@ -260,7 +295,7 @@ class OrderBackendTest extends TestCase
         $this->action($order, 'Confirmed', $this->admin);
         $this->action($order, 'Processing', $this->supplier);
         $this->action($order, 'Ready for Delivery', $this->supplier);
-        $this->rejected(fn () => $this->action($order, 'Completed', $this->supplier, ['collected' => true]));
+        $this->rejected(fn() => $this->action($order, 'Completed', $this->supplier, ['collected' => true]));
         $this->assertSame(20, $this->remaining($this->stem));
         $this->assertSame(0, SalesRecord::count());
     }
@@ -271,9 +306,10 @@ class OrderBackendTest extends TestCase
         $order = $this->orders->store($this->input(), $this->supplier);
         $stale = $this->edit($order);
         $this->orders->update($order, $this->edit($order, ['notes' => 'Changed once.']), $this->supplier);
-        $this->rejected(fn () => $this->orders->update($order, $stale, $this->supplier), 'version');
-        $this->stem->status = 'Inactive'; $this->stem->save();
-        $this->rejected(fn () => $this->orders->update($order, $this->edit($order, [
+        $this->rejected(fn() => $this->orders->update($order, $stale, $this->supplier), 'version');
+        $this->stem->status = 'Inactive';
+        $this->stem->save();
+        $this->rejected(fn() => $this->orders->update($order, $this->edit($order, [
             'items' => [['flower_id' => $this->stem->id, 'quantity' => 5]],
         ]), $this->supplier));
         $updated = $this->orders->update($order, $this->edit($order, [
@@ -292,12 +328,20 @@ class OrderBackendTest extends TestCase
             $forged = $payload;
             $forged['items'][0][$field] = 1;
             $validator = Validator::make($forged, $rules);
-            $this->assertTrue($validator->fails(), 'Nested '.$field);
+            $this->assertTrue($validator->fails(), 'Nested ' . $field);
             $this->assertArrayHasKey('items.0', $validator->errors()->toArray());
         }
-        foreach (['price_cents' => 1, 'total_cents' => 1, 'deliveryFeeCents' => 1,
-            'status' => 'Completed', 'payment' => 'Paid', 'paidCents' => 1,
-            'stocked_out' => true, 'remaining_quantity' => 999, 'reserved' => 999] as $field => $value) {
+        foreach ([
+            'price_cents' => 1,
+            'total_cents' => 1,
+            'deliveryFeeCents' => 1,
+            'status' => 'Completed',
+            'payment' => 'Paid',
+            'paidCents' => 1,
+            'stocked_out' => true,
+            'remaining_quantity' => 999,
+            'reserved' => 999
+        ] as $field => $value) {
             $validator = Validator::make([...$payload, $field => $value], $rules);
             $this->assertTrue($validator->fails(), $field);
             $this->assertArrayHasKey($field, $validator->errors()->toArray());
@@ -325,8 +369,12 @@ class OrderBackendTest extends TestCase
     private function user(string $label, string $role): User
     {
         return User::forceCreate([
-            'name' => 'Test '.$label, 'email' => $label.'@example.test', 'password' => 'Temporary-test-password!',
-            'role' => $role, 'is_active' => true, 'must_change_password' => false,
+            'name' => 'Test ' . $label,
+            'email' => $label . '@example.test',
+            'password' => 'Temporary-test-password!',
+            'role' => $role,
+            'is_active' => true,
+            'must_change_password' => false,
         ]);
     }
 
@@ -334,8 +382,13 @@ class OrderBackendTest extends TestCase
     private function item(string $code, string $type, int $price): Flower
     {
         $flower = Flower::forceCreate([
-            'code' => $code, 'name' => 'Test '.$type, 'product_type' => $type,
-            'category' => 'Roses', 'minimum_stock' => 1, 'description' => 'Test item.', 'status' => 'Active',
+            'code' => $code,
+            'name' => 'Test ' . $type,
+            'product_type' => $type,
+            'category' => 'Roses',
+            'minimum_stock' => 1,
+            'description' => 'Test item.',
+            'status' => 'Active',
         ]);
         FlowerPrice::create(['flower_id' => $flower->id, 'price_cents' => $price]);
 
@@ -346,9 +399,14 @@ class OrderBackendTest extends TestCase
     private function receive(Flower $flower, int $quantity): void
     {
         $this->inventory->stockIn([
-            'request_key' => (string) Str::uuid(), 'flower_id' => $flower->id, 'quantity' => $quantity,
-            'unit' => $flower->product_type, 'received' => '2026-01-02', 'harvest' => '2026-01-01',
-            'expiry' => null, 'remarks' => 'Test receipt.',
+            'request_key' => (string) Str::uuid(),
+            'flower_id' => $flower->id,
+            'quantity' => $quantity,
+            'unit' => $flower->product_type,
+            'received' => '2026-01-02',
+            'harvest' => '2026-01-01',
+            'expiry' => null,
+            'remarks' => 'Test receipt.',
         ], $this->admin);
     }
 
@@ -363,8 +421,11 @@ class OrderBackendTest extends TestCase
     private function input(array $overrides = []): array
     {
         return array_replace([
-            'request_key' => (string) Str::uuid(), 'client_id' => $this->client->id,
-            'method' => 'Customer Pickup', 'address' => null, 'notes' => null,
+            'request_key' => (string) Str::uuid(),
+            'client_id' => $this->client->id,
+            'method' => 'Customer Pickup',
+            'address' => null,
+            'notes' => null,
             'items' => [['flower_id' => $this->stem->id, 'quantity' => 4]],
         ], $overrides);
     }
@@ -375,9 +436,11 @@ class OrderBackendTest extends TestCase
         $current = $order->fresh()->load('items');
 
         return array_replace([
-            'client_id' => $current->client_id, 'method' => $current->method,
-            'address' => $current->address, 'notes' => $current->notes,
-            'items' => $current->items->map(fn ($item) => ['flower_id' => $item->flower_id, 'quantity' => $item->quantity])->all(),
+            'client_id' => $current->client_id,
+            'method' => $current->method,
+            'address' => $current->address,
+            'notes' => $current->notes,
+            'items' => $current->items->map(fn($item) => ['flower_id' => $item->flower_id, 'quantity' => $item->quantity])->all(),
             'version' => $this->orders->row($current, $this->supplier)['version'],
         ], $overrides);
     }
@@ -386,7 +449,8 @@ class OrderBackendTest extends TestCase
     private function action(Order $order, string $status, User $actor, array $overrides = []): Order
     {
         return $this->orders->action($order, array_replace([
-            'status' => $status, 'version' => $this->orders->row($order->fresh(), $actor)['version'],
+            'status' => $status,
+            'version' => $this->orders->row($order->fresh(), $actor)['version'],
         ], $overrides), $actor);
     }
 
@@ -394,9 +458,11 @@ class OrderBackendTest extends TestCase
     private function rejected(callable $action, ?string $field = null): void
     {
         try {
-            $action(); $this->fail('Expected order validation to reject this operation.');
+            $action();
+            $this->fail('Expected order validation to reject this operation.');
         } catch (ValidationException $exception) {
-            if ($field !== null) $this->assertArrayHasKey($field, $exception->errors());
+            if ($field !== null)
+                $this->assertArrayHasKey($field, $exception->errors());
         }
     }
 }

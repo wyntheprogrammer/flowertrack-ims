@@ -11,18 +11,13 @@
                     <p>Manage delivery assignments, schedules, and fulfillment updates.</p>
                 </div>
 
-                <span class="delivery-preview-label">
-                    <i class="bi bi-info-circle" aria-hidden="true"></i>
-                    Sample Data
-                </span>
             </div>
 
             <div class="delivery-notice">
                 <i class="bi bi-info-circle" aria-hidden="true"></i>
                 <span>
-                    Delivery records will come from orders marked Ready for Delivery.
-                    This preview uses separate sample records and does not update
-                    actual Orders or Inventory.
+                    Deliveries come from orders marked Ready for Delivery.
+                    Stock is deducted only after actual delivery is confirmed.
                 </span>
             </div>
 
@@ -53,7 +48,9 @@
             </div>
 
             <div class="delivery-table-container">
-                <table id="deliveryTable">
+                <table id="deliveryTable"
+                    data-url="{{ route('supplier.deliveries') }}"
+                    data-csrf="{{ csrf_token() }}">
                     <thead>
                         <tr>
                             <th scope="col">Delivery / Order</th>
