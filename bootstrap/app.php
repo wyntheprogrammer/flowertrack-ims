@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AuditRequests;
 use App\Http\Middleware\EnsureAccountIsActive;
 use App\Http\Middleware\EnsurePasswordIsChanged;
 use App\Http\Middleware\EnsureUserHasRole;
@@ -15,6 +16,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->append(AuditRequests::class);
+
         $middleware->redirectGuestsTo(
             fn (Request $request) => route('login')
         );
@@ -30,5 +33,18 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => $request->is('api/*')
                 || $request->expectsJson(),
         );
+
+        $exceptions->render(function (
+            \Throwable $exception,
+            Request $request
+        ) {
+            app(AuditRequests::class)->fromException(
+                $request,
+                $exception
+            );
+
+            // Continue Laravel's normal error response.
+            return null;
+        });
     })
     ->create();
