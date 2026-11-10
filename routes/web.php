@@ -9,6 +9,7 @@ use App\Http\Controllers\Supplier\ClientController;
 use App\Http\Controllers\Supplier\OrderController;
 use App\Http\Controllers\Supplier\UserController;
 use App\Http\Controllers\Supplier\SalesPaymentController;
+use App\Http\Controllers\Supplier\ReportController;
 use App\Http\Middleware\EnsureAccountSessionIsCurrent;
 use App\Http\Controllers\Supplier\DeliveryController;
 
@@ -194,8 +195,10 @@ Route::middleware('auth')->group(function () {
 
                 // Admin-only screens
                 Route::middleware('role:admin')->group(function () {
-                    Route::view('/reports', 'supplier.reports')
+                    Route::get('/reports', [ReportController::class, 'index'])
                         ->name('reports');
+                    Route::get('/reports/data', [ReportController::class, 'data'])
+                        ->name('reports.data');
 
                     Route::get('/users', [UserController::class, 'index'])->name('users');
                     Route::get('/users/data', [UserController::class, 'data'])->name('users.data');
