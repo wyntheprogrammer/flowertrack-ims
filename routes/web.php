@@ -5,6 +5,7 @@ use App\Http\Controllers\Supplier\AuditTrailController;
 use App\Http\Controllers\Supplier\BatchController;
 use App\Http\Controllers\Supplier\ClientController;
 use App\Http\Controllers\Supplier\DeliveryController;
+use App\Http\Controllers\Supplier\DashboardController;
 use App\Http\Controllers\Supplier\FlowerController;
 use App\Http\Controllers\Supplier\InventoryController;
 use App\Http\Controllers\Supplier\OrderController;
@@ -91,8 +92,11 @@ Route::middleware('auth')->group(function () {
                 'role:admin,supplier',
             ])
             ->group(function () {
-                Route::view('/dashboard', 'supplier.dashboard')
+                Route::get('/dashboard', [DashboardController::class, 'index'])
                     ->name('dashboard');
+
+                Route::get('/dashboard/data', [DashboardController::class, 'data'])
+                    ->name('dashboard.data');
 
                 // Flower Management
                 Route::get('/flowers', [FlowerController::class, 'index'])

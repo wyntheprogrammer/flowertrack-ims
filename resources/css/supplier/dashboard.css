@@ -1,0 +1,133 @@
+/* ========================================
+   LIVE SUPPLIER DASHBOARD
+======================================== */
+#supplierDashboard .dashboard-live-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 18px;
+    color: var(--supplier-muted);
+    font-size: 12px
+}
+
+#supplierDashboard .dashboard-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 14px;
+    border: 1px solid var(--supplier-border);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--supplier-primary);
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap
+}
+
+#supplierDashboard .dashboard-unit-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap
+}
+
+#supplierDashboard .dashboard-unit-form select {
+    width: 120px;
+    min-height: 36px;
+    padding: 7px 30px 7px 10px;
+    border: 1px solid var(--supplier-border);
+    border-radius: 9px;
+    background-color: #fff;
+    font: inherit;
+    font-size: 12px;
+    color: var(--supplier-text)
+}
+
+#supplierDashboard .dashboard-unit-form button {
+    min-height: 36px;
+    padding: 7px 12px;
+    border: 0;
+    border-radius: 9px;
+    background: var(--supplier-primary);
+    color: #fff;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600
+}
+
+#supplierDashboard .dashboard-muted {
+    color: var(--supplier-muted);
+    font-size: 11px;
+    line-height: 1.6
+}
+
+#supplierDashboard .summary-info {
+    min-width: 0
+}
+
+#supplierDashboard .summary-info h3 {
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums
+}
+
+#supplierDashboard .dashboard-note {
+    margin: 0 0 12px;
+    color: var(--supplier-muted);
+    font-size: 11px;
+    line-height: 1.6
+}
+
+#supplierDashboard .dashboard-empty {
+    margin: 0;
+    padding: 28px 12px;
+    text-align: center;
+    color: var(--supplier-muted);
+    font-size: 13px;
+    line-height: 1.6
+}
+
+#supplierDashboard .product-name small {
+    display: block;
+    margin-top: 4px;
+    color: var(--supplier-muted);
+    font-size: 10px;
+    line-height: 1.5
+}
+
+#supplierDashboard .product-name {
+    overflow-wrap: anywhere
+}
+
+#supplierDashboard .dashboard-stock-chart {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 320px
+}
+
+#supplierDashboard .dashboard-refresh:focus-visible,
+#supplierDashboard .dashboard-unit-form :focus-visible {
+    outline: 2px solid var(--supplier-primary);
+    outline-offset: 3px
+}
+
+@media(max-width:576px) {
+    #supplierDashboard .dashboard-live-status {
+        align-items: flex-start
+    }
+
+    #supplierDashboard .panel-header {
+        align-items: flex-start;
+        flex-wrap: wrap
+    }
+
+    #supplierDashboard .dashboard-unit-form {
+        margin-left: auto
+    }
+
+    #supplierDashboard .product-price {
+        font-size: 11px
+    }
+}

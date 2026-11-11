@@ -42,8 +42,19 @@
                 ];
             @endphp
 
+            @php
+                $account = auth()->user();
+                $isAdmin = $account->role === \App\Models\User::ROLE_ADMIN;
+                $roleLabel = $isAdmin ? 'Administrator' : 'Supplier';
+                $dashboardSummary = $dashboard['summary'] ?? null;
+                $alertCount = $dashboardSummary
+                    ? $dashboardSummary['lowStockItems'] + $dashboardSummary['pendingOrders']
+                    : null;
+            @endphp
+
             <nav class="sidebar-nav">
                 @foreach ($supplierNavigation as [$module, $label, $icon])
+                    @continue(! $isAdmin && in_array($module, ['reports', 'users', 'audit-trail'], true))
                     @php
                         $routeName = 'supplier.' . $module;
                         $isActive = request()->routeIs($routeName, $routeName . '.*');
@@ -64,10 +75,10 @@
             <div class="sidebar-divider"></div>
 
             <div class="sidebar-user">
-                <div class="sidebar-avatar">A</div>
+                <div class="sidebar-avatar">{{ mb_strtoupper(mb_substr($account->name, 0, 1)) }}</div>
                 <div class="sidebar-user-info">
-                    <strong>Administrator</strong>
-                    <small>System Admin</small>
+                    <strong>{{ $account->name }}</strong>
+                    <small>{{ $roleLabel }}</small>
                 </div>
             </div>
 
@@ -108,21 +119,33 @@
                     <div class="supplier-notifications">
                         <button class="navbar-icon" type="button" id="supplierNotificationToggle"
                             aria-controls="supplierNotificationPanel" aria-expanded="false"
-                            aria-label="Show sample notifications">
+                            aria-label="Show inventory and order alerts">
                             <i class="bi bi-bell" aria-hidden="true"></i>
-                            <span class="notification-count">2</span>
+                            @if ($alertCount !== null && $alertCount > 0)
+                                <span class="notification-count">{{ $alertCount > 99 ? '99+' : $alertCount }}</span>
+                            @endif
                         </button>
                         <section id="supplierNotificationPanel" class="supplier-notification-panel"
                             aria-labelledby="supplierNotificationHeading" hidden>
-                            <h2 id="supplierNotificationHeading">Notifications <small>Sample</small></h2>
-                            <a href="{{ route('supplier.inventory') }}">Review sample low-stock items</a>
-                            <a href="{{ route('supplier.orders') }}">Review sample pending orders</a>
-                            <p>Live alerts will be connected during backend integration.</p>
+                            <h2 id="supplierNotificationHeading">Operational Alerts</h2>
+                            <a href="{{ route('supplier.inventory') }}">
+                                Review low-stock items
+                                @if ($dashboardSummary) · {{ number_format($dashboardSummary['lowStockItems']) }} @endif
+                            </a>
+                            <a href="{{ route('supplier.orders') }}">
+                                Review pending orders
+                                @if ($dashboardSummary) · {{ number_format($dashboardSummary['pendingOrders']) }} @endif
+                            </a>
+                            @if ($dashboardSummary)
+                                <p>Counts reflect the Dashboard snapshot. Refresh the Dashboard for current counts.</p>
+                            @else
+                                <p><a href="{{ route('supplier.dashboard') }}">Open Dashboard for current counts.</a></p>
+                            @endif
                         </section>
                     </div>
 
                     <div class="navbar-date">
-                        <i class="bi bi-calendar3" aria-hidden="true"></i> &nbsp; {{ now()->format('M d, Y') }}
+                        <i class="bi bi-calendar3" aria-hidden="true"></i> &nbsp; {{ now('Asia/Manila')->format('M d, Y') }}
                     </div>
 
                 </div>
