@@ -12,6 +12,7 @@ use App\Http\Controllers\Supplier\OrderController;
 use App\Http\Controllers\Supplier\ReportController;
 use App\Http\Controllers\Supplier\SalesPaymentController;
 use App\Http\Controllers\Supplier\UserController;
+use App\Http\Controllers\Supplier\SpoilagePredictionController;
 use App\Http\Middleware\EnsureAccountSessionIsCurrent;
 use Illuminate\Support\Facades\Route;
 
@@ -149,8 +150,20 @@ Route::middleware('auth')->group(function () {
                     ->name('batches.update');
 
                 // Spoilage Prediction
-                Route::view('/spoilage-prediction', 'supplier.spoilage-prediction')
+                Route::get('/spoilage-prediction', [SpoilagePredictionController::class, 'index'])
                     ->name('spoilage-prediction');
+
+                Route::get('/spoilage-prediction/data', [SpoilagePredictionController::class, 'data'])
+                    ->name('spoilage-prediction.data');
+
+                Route::post('/spoilage-prediction/refresh', [SpoilagePredictionController::class, 'refresh'])
+                    ->middleware('throttle:30,1')
+                    ->name('spoilage-prediction.refresh');
+
+                Route::post('/spoilage-prediction/{batch}/generate', [SpoilagePredictionController::class, 'generate'])
+                    ->whereNumber('batch')
+                    ->middleware('throttle:10,1')
+                    ->name('spoilage-prediction.generate');
 
                 // Client Management
                 Route::get('/clients', [ClientController::class, 'index'])

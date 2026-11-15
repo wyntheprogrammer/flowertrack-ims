@@ -19,6 +19,12 @@ import sys
 import numpy
 import pandas
 import statsmodels
+import asyncio
+import socket
+from statsmodels.tsa.arima.model import ARIMA
+
+with socket.socket():
+    pass
 
 print(json.dumps({
     "status": "ok",
@@ -73,6 +79,80 @@ PYTHON;
         return $result;
     }
 
+    // One process loads Python libraries once for all prepared batches.
+    public function predictMany(array $items): array
+    {
+        if ($items === []) {
+            return [];
+        }
+        $script = base_path('scripts/spoilage/predict_many.py');
+        if (! is_file($script)) {
+            throw new RuntimeException('The batched forecasting script was not found.');
+        }
+        foreach ($items as &$item) {
+            $item['payload']['settings'] = [
+                'horizon_days' => config('spoilage.horizon_days'),
+                'minimum_history_days' => config('spoilage.minimum_history_days'),
+                'arima_order' => config('spoilage.arima_order'),
+                'risk_thresholds' => config('spoilage.risk_thresholds'),
+            ];
+        }
+        unset($item);
+        $response = $this->execute([$script], json_encode(['items' => $items], JSON_THROW_ON_ERROR));
+        $results = $response['results'] ?? null;
+        if (($response['status'] ?? null) !== 'ok' || ! is_array($results)
+            || count($results) !== count($items)) {
+            throw new RuntimeException('Python returned an invalid batch response.');
+        }
+        foreach ($items as $item) {
+            $key = (string) $item['key'];
+            $result = $results[$key] ?? null;
+            if (! is_array($result)
+                || ! in_array($result['status'] ?? null, ['Predicted', 'InsufficientData', 'Error'], true)) {
+                throw new RuntimeException('Python returned an invalid batch result.');
+            }
+            if ($result['status'] === 'Predicted') {
+                $this->validatePrediction($result, $item['payload']);
+                $end = \Carbon\CarbonImmutable::parse($item['payload']['as_of_date'])
+                    ->addDays(config('spoilage.horizon_days') - 1)->toDateString();
+                if (($result['as_of_date'] ?? null) !== $item['payload']['as_of_date']
+                    || ($result['forecast_end_date'] ?? null) !== $end
+                    || ($result['opening_quantity'] ?? null) !== $item['payload']['opening_quantity']
+                    || ($result['history_days'] ?? null) !== count($item['payload']['history'])
+                    || ! in_array($result['method'] ?? null, [
+                        'ARIMA own-batch history', 'Flower/storage/age fallback', 'Global profile fallback',
+                    ], true)) {
+                    throw new RuntimeException('The batch forecast does not match its inputs.');
+                }
+            }
+            if ($result['status'] === 'InsufficientData'
+                && (($result['risk_level'] ?? null) !== null
+                    || ($result['predicted_quantity'] ?? null) !== null
+                    || ($result['predicted_fraction'] ?? null) !== null)) {
+                throw new RuntimeException('Unavailable forecasts must not contain invented results.');
+            }
+        }
+        return $results;
+    }
+
+    // Preserve the Windows fix verified in the browser.
+    private function processEnvironment(): array
+    {
+        $environment = ['PYTHONUTF8' => '1', 'PYTHONIOENCODING' => 'utf-8'];
+        if (PHP_OS_FAMILY !== 'Windows') {
+            return $environment;
+        }
+        foreach ([getenv('SystemRoot'), getenv('SYSTEMROOT'),
+            $_SERVER['SystemRoot'] ?? null, $_SERVER['SYSTEMROOT'] ?? null,
+            getenv('WINDIR'), $_SERVER['WINDIR'] ?? null, 'C:\\Windows'] as $directory) {
+            if (is_string($directory) && $directory !== ''
+                && is_dir($directory.DIRECTORY_SEPARATOR.'System32')) {
+                return [...$environment, 'SystemRoot' => $directory, 'WINDIR' => $directory];
+            }
+        }
+        throw new RuntimeException('The Windows directory could not be located for Python.');
+    }
+
     /**
      * Run Python directly and read its JSON response.
      */
@@ -89,7 +169,7 @@ PYTHON;
         $process = new Process(
             [$python, ...$arguments],
             base_path(),
-            ['PYTHONUTF8' => '1']
+            $this->processEnvironment()
         );
 
         $process->setTimeout(
