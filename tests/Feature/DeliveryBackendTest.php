@@ -2,9 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Http\Controllers\Supplier\ClientController;
-use App\Http\Requests\StoreOrderRequest;
+use App\Models\BatchDailyObservation;
 use App\Models\Client;
+use App\Models\Delivery;
+use App\Models\DeliveryHistory;
 use App\Models\Flower;
 use App\Models\FlowerPrice;
 use App\Models\InventoryBatch;
@@ -15,35 +16,36 @@ use App\Models\Order;
 use App\Models\OrderPayment;
 use App\Models\SalesRecord;
 use App\Models\User;
-use App\Services\ClientService;
+use App\Services\DeliveryService;
 use App\Services\InventoryService;
 use App\Services\OrderService;
-use App\Support\Money;
-use Illuminate\Auth\Access\AuthorizationException;
+use App\Support\AccountSession;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
-use App\Models\Delivery;
-use App\Models\DeliveryHistory;
-use App\Services\DeliveryService;
-use App\Support\AccountSession;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 
 class DeliveryBackendTest extends TestCase
 {
     private OrderService $orders;
+
     private InventoryService $inventory;
+
     private User $admin;
+
     private User $supplier;
+
     private Client $client;
+
     private Flower $stem;
+
     private Flower $bouquet;
+
     private bool $testConnectionConfigured = false;
 
     protected function setUp(): void
@@ -65,19 +67,31 @@ class DeliveryBackendTest extends TestCase
         $this->assertSame('sqlite', DB::connection()->getDriverName());
         $this->assertSame(':memory:', DB::connection()->getDatabaseName());
         Schema::create('users', function (Blueprint $table) {
-            $table->id(); $table->string('name'); $table->string('email')->unique();
-            $table->string('password'); $table->string('role');
+            $table->id();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->string('password');
+            $table->string('role');
             $table->boolean('is_active')->default(true);
             $table->boolean('must_change_password')->default(false);
-            $table->timestamp('email_verified_at')->nullable(); $table->rememberToken(); $table->timestamps();
+            $table->timestamp('email_verified_at')->nullable();
+            $table->rememberToken();
+            $table->timestamps();
         });
         Schema::create('flowers', function (Blueprint $table) {
-            $table->id(); $table->string('code', 30)->unique(); $table->string('name', 150);
-            $table->enum('product_type', ['Stem', 'Bouquet']); $table->string('category', 100);
-            $table->unsignedInteger('minimum_stock'); $table->text('description');
-            $table->string('image_path')->nullable(); $table->enum('status', ['Active', 'Inactive']); $table->timestamps();
+            $table->id();
+            $table->string('code', 30)->unique();
+            $table->string('name', 150);
+            $table->enum('product_type', ['Stem', 'Bouquet']);
+            $table->string('category', 100);
+            $table->unsignedInteger('minimum_stock');
+            $table->text('description');
+            $table->string('image_path')->nullable();
+            $table->enum('status', ['Active', 'Inactive']);
+            $table->timestamps();
         });
-        foreach (['create_clients_table', 'create_inventory_tables', 'create_order_tables', 'create_delivery_tables'] as $name) {
+        foreach (['create_clients_table', 'create_inventory_tables', 'create_order_tables', 'create_delivery_tables',
+            'create_batch_daily_observations_table', 'add_collection_provenance_to_batch_daily_observations_table'] as $name) {
             $files = glob(database_path('migrations/*_'.$name.'.php')) ?: [];
             $this->assertCount(1, $files, 'Expected one '.$name.' migration.');
             (require $files[0])->up();
@@ -99,7 +113,6 @@ class DeliveryBackendTest extends TestCase
         config(['orders.delivery_fee' => '150.00']);
     }
 
-
     /** Dispatch changes workflow only; physical stock and holds remain unchanged. */
     public function test_dispatch_preserves_stock_and_reservations(): void
     {
@@ -119,6 +132,7 @@ class DeliveryBackendTest extends TestCase
         $payload = $this->deliveryInput($delivery, [
             'action' => 'deliver', 'recipient_name' => 'Actual Recipient', 'proof' => $this->photo(),
         ]);
+        $this->assertSame(0, (int) BatchDailyObservation::sum('released_quantity'));
         $service = app(DeliveryService::class);
         $result = $service->action($delivery, $payload, $this->supplier);
         $movements = InventoryMovement::count();
@@ -138,6 +152,10 @@ class DeliveryBackendTest extends TestCase
         $this->assertSame(1, DeliveryHistory::where('action', 'deliver')->count());
         $this->assertSame(0, OrderPayment::count());
         $this->assertNotNull($result->delivered_at);
+        $this->assertSame(2, BatchDailyObservation::count());
+        $this->assertSame(4, BatchDailyObservation::where('flower_id', $this->stem->id)->first()->released_quantity);
+        $this->assertSame(2, BatchDailyObservation::where('flower_id', $this->bouquet->id)->first()->released_quantity);
+        $this->assertSame(0, BatchDailyObservation::where('is_complete', true)->count());
         Storage::disk('local')->assertExists($result->proof_path);
         $this->assertCount(1, Storage::disk('local')->allFiles('delivery-proofs'));
         $this->assertArrayNotHasKey('proof_path', $service->row($result, $this->supplier));
@@ -152,6 +170,7 @@ class DeliveryBackendTest extends TestCase
     {
         [$order, $delivery] = $this->dispatched();
         InventoryBatch::where('flower_id', $this->bouquet->id)->update(['remaining_quantity' => 1]);
+        $observations = BatchDailyObservation::orderBy('id')->get()->toArray();
         $movements = InventoryMovement::count();
         $operations = InventoryOperation::count();
         $history = DeliveryHistory::count();
@@ -168,6 +187,7 @@ class DeliveryBackendTest extends TestCase
         $this->assertSame(2, InventoryReservation::where('status', 'Active')->count());
         $this->assertSame('Out for Delivery', $delivery->fresh()->status);
         $this->assertSame('Out for Delivery', $order->fresh()->status);
+        $this->assertSame($observations, BatchDailyObservation::orderBy('id')->get()->toArray());
         $this->assertFalse($order->fresh()->stocked_out);
         $this->assertNull($delivery->fresh()->proof_path);
         $this->assertCount(0, Storage::disk('local')->allFiles('delivery-proofs'));
@@ -405,7 +425,9 @@ class DeliveryBackendTest extends TestCase
 
     protected function tearDown(): void
     {
-        if ($this->testConnectionConfigured) DB::disconnect('order_backend_test');
+        if ($this->testConnectionConfigured) {
+            DB::disconnect('order_backend_test');
+        }
         parent::tearDown();
     }
 
@@ -456,9 +478,12 @@ class DeliveryBackendTest extends TestCase
     private function rejected(callable $action, ?string $field = null): void
     {
         try {
-            $action(); $this->fail('Expected order validation to reject this operation.');
+            $action();
+            $this->fail('Expected order validation to reject this operation.');
         } catch (ValidationException $exception) {
-            if ($field !== null) $this->assertArrayHasKey($field, $exception->errors());
+            if ($field !== null) {
+                $this->assertArrayHasKey($field, $exception->errors());
+            }
         }
     }
 

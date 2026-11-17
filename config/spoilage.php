@@ -28,6 +28,10 @@ return [
     // Calendar timezone for daily inventory observations.
     'observation_timezone' => 'Asia/Manila',
 
+    // Eligible login/logout activity verifies completed ledger days; no timer.
+    'activity_collection' => env('SPOILAGE_ACTIVITY_COLLECTION', true),
+    'closing_catchup_days' => 7,
+
     // Limit Python execution time per process.
     'process_timeout_seconds' => 120,
 

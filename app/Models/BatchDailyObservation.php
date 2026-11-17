@@ -20,6 +20,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'closing_quantity',
     'is_complete',
     'exclusion_reason',
+    'source',
+    'collected_by',
+    'verified_at',
 ])]
 class BatchDailyObservation extends Model
 {
@@ -37,6 +40,7 @@ class BatchDailyObservation extends Model
             'released_quantity' => 'integer',
             'closing_quantity' => 'integer',
             'is_complete' => 'boolean',
+            'verified_at' => 'datetime',
         ];
     }
 
