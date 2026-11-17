@@ -19,6 +19,7 @@ class StockInRequest extends InventoryRequest
             'flower_id' => ['required', 'integer', 'min:1', 'exists:flowers,id'],
             'quantity' => ['required', 'integer', 'min:1', 'max:4294967295'],
             'unit' => ['required', Rule::in(['Stem', 'Bunch', 'Bundle', 'Box', 'Bouquet'])],
+            'storage_condition' => ['required', 'string', 'max:30'],
             'received' => ['required', 'date_format:Y-m-d', 'before_or_equal:'.$today],
             'harvest' => ['required', 'date_format:Y-m-d', 'before_or_equal:received'],
             'expiry' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:harvest'],

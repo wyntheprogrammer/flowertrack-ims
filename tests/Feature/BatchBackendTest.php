@@ -2,12 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Http\Requests\StockInRequest;
 use App\Http\Requests\UpdateBatchRequest;
+use App\Models\BatchDailyObservation;
 use App\Models\Flower;
 use App\Models\InventoryBatch;
 use App\Models\InventoryMovement;
 use App\Models\InventoryOperation;
 use App\Models\User;
+use App\Services\AuditService;
 use App\Services\InventoryService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -20,8 +23,11 @@ use Tests\TestCase;
 class BatchBackendTest extends TestCase
 {
     private InventoryService $inventory;
+
     private User $actor;
+
     private Flower $flower;
+
     private bool $testConnectionConfigured = false;
 
     /**
@@ -77,6 +83,7 @@ class BatchBackendTest extends TestCase
             'Expected exactly one *_create_inventory_tables.php file in database/migrations.'
         );
         (require $migrationFiles[0])->up();
+        (require database_path('migrations/2026_11_14_144642_create_batch_daily_observations_table.php'))->up();
         $this->actor = User::forceCreate([
             'name' => 'Inventory Test Admin', 'email' => 'inventory@example.test',
             'password' => 'test-only-password', 'role' => User::ROLE_ADMIN,
@@ -210,7 +217,7 @@ class BatchBackendTest extends TestCase
     public function test_request_prohibits_stock_fields_and_requires_valid_metadata(): void
     {
         $batch = $this->receive(10);
-        $rules = (new UpdateBatchRequest())->rules();
+        $rules = (new UpdateBatchRequest)->rules();
         $payload = $this->metadataInput($batch);
         $this->assertTrue(Validator::make($payload, $rules)->passes());
         foreach ($rules as $field => $fieldRules) {
@@ -222,6 +229,64 @@ class BatchBackendTest extends TestCase
         }
         $this->assertTrue(Validator::make([...$payload, 'harvest' => '01/01/2026'], $rules)->fails());
         $this->assertTrue(Validator::make([...$payload, 'version' => str_repeat('z', 64)], $rules)->fails());
+    }
+
+    /**
+     * Storage edits preserve stock and historical observations while recording changes.
+     */
+    public function test_storage_capture_and_edits_preserve_stock_and_append_history(): void
+    {
+        $unknown = $this->receive(10);
+        $batch = $this->receive(20, ['storage_condition' => ' Ambient ']);
+        $this->assertNull($unknown->fresh()->storage_condition);
+        $this->assertSame('Ambient', $batch->storage_condition);
+        $receipt = InventoryMovement::where('batch_id', $batch->id)->first();
+        $this->assertSame('Ambient', $receipt->metadata['receipt']['storage_condition']);
+        $observation = BatchDailyObservation::create([
+            'batch_id' => $batch->id, 'flower_id' => $batch->flower_id,
+            'observation_date' => '2026-01-02', 'harvest_date' => '2026-01-01',
+            'received_date' => '2026-01-02', 'storage_condition' => 'Ambient',
+            'base_unit' => 'Stem', 'opening_quantity' => 20, 'spoiled_quantity' => 0,
+            'released_quantity' => 0, 'closing_quantity' => 20, 'is_complete' => true,
+        ]);
+        $historicalValues = $observation->fresh()->getRawOriginal();
+        $oldVersion = $this->inventory->batchVersion($batch);
+        $payload = $this->metadataInput($batch, ['storage_condition' => 'Chilled']);
+        $this->inventory->updateBatchMetadata($batch, $payload, $this->actor);
+        $this->inventory->updateBatchMetadata($batch, $payload, $this->actor);
+        $batch->refresh();
+        $this->assertSame('Chilled', $batch->storage_condition);
+        $this->assertSame(20, $batch->remaining_quantity);
+        $this->assertNotSame($oldVersion, $this->inventory->batchVersion($batch));
+        $movement = InventoryMovement::where('batch_id', $batch->id)->latest('id')->first();
+        $this->assertSame(0, $movement->quantity);
+        $this->assertSame('Ambient', $movement->metadata['before']['storage_condition']);
+        $this->assertSame('Chilled', $movement->metadata['after']['storage_condition']);
+        $this->assertSame(2, InventoryMovement::where('batch_id', $batch->id)->count());
+        $this->assertSame($historicalValues, $observation->fresh()->getRawOriginal());
+        $this->rejected(fn () => $this->inventory->updateBatchMetadata($batch,
+            $this->metadataInput($batch, ['version' => $oldVersion, 'storage_condition' => 'Ambient']),
+            $this->actor), 'version');
+        $this->inventory->updateBatchMetadata($batch,
+            $this->metadataInput($batch, ['storage_condition' => null]), $this->actor);
+        $this->assertNull($batch->fresh()->storage_condition);
+    }
+
+    public function test_storage_validation_requires_new_receipt_condition_and_allows_unknown_legacy_batches(): void
+    {
+        $rules = (new StockInRequest)->rules();
+        $receipt = $this->receiptInput(10);
+        foreach ([null, '', str_repeat('x', 31), ['Ambient']] as $condition) {
+            $this->assertTrue(Validator::make([...$receipt, 'storage_condition' => $condition], $rules)->fails());
+        }
+        $this->assertTrue(Validator::make([...$receipt, 'storage_condition' => 'Ambient'], $rules)->passes());
+        $batch = $this->receive(10);
+        $rules = (new UpdateBatchRequest)->rules();
+        $this->assertTrue(Validator::make($this->metadataInput($batch, ['storage_condition' => null]), $rules)->passes());
+        $this->assertTrue(Validator::make($this->metadataInput($batch, ['storage_condition' => str_repeat('x', 31)]), $rules)->fails());
+        $snapshot = app(AuditService::class)->snapshot($batch);
+        $this->assertArrayHasKey('storage_condition', $snapshot);
+        $this->assertNull($snapshot['storage_condition']);
     }
 
     /**

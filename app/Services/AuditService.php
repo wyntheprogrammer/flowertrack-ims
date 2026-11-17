@@ -32,6 +32,7 @@ class AuditService
         'is_active', 'must_change_password', 'stocked_out',
         'spoiled', 'credential_changed', 'image_changed',
         'proof_recorded',
+        'storage_condition',
     ];
 
     /**
@@ -101,7 +102,7 @@ class AuditService
 
         $attributes = $record?->getAttributes() ?? [];
 
-        $event = new AuditEvent();
+        $event = new AuditEvent;
 
         $event->setConnection(
             $record?->getConnectionName()

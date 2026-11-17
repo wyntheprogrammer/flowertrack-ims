@@ -89,6 +89,7 @@ class InventoryController extends Controller
                         'unit' => $batch->receiving_unit,
                         'factor' => (int) $batch->conversion_factor,
                         'remarks' => $batch->remarks ?? '',
+                        'storage_condition' => $batch->storage_condition,
                         'spoiled' => (bool) $batch->spoiled,
                     ];
                 })->values()->all(),

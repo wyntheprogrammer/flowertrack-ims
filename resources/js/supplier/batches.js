@@ -534,6 +534,7 @@ const BatchUI = {
             ['Date Received', batch.received],
             ['Harvest Date', batch.harvest],
             ['Freshness / Expiry', batch.expiry || 'Not set'],
+            ['Storage Condition', batch.storage_condition || 'Unknown'],
             ['Initial Quantity', `${number(batch.initial)} ${this.model.unitLabel(batch)}`],
             ['Remaining Quantity', `${number(batch.remaining)} ${this.model.unitLabel(batch)}`]
         ];
@@ -601,6 +602,15 @@ const BatchUI = {
         this.el('batchEditForm').reset();
         this.el('batchEditError').hidden = true;
 
+        const storage = this.el('batchEditStorage');
+        storage.querySelector('[data-saved-storage]')?.remove();
+        const savedStorage = batch.storage_condition || '';
+        if (savedStorage && !Array.from(storage.options).some(option => option.value === savedStorage)) {
+            const option = new Option(savedStorage, savedStorage);
+            option.dataset.savedStorage = 'true';
+            storage.add(option);
+        }
+
         const values = {
             batchEditingId: batch.id,
             batchEditNumber: batch.id,
@@ -610,7 +620,8 @@ const BatchUI = {
             batchEditInitial: batch.initial,
             batchEditRemaining: batch.remaining,
             batchEditExpiry: batch.expiry,
-            batchEditRemarks: batch.remarks
+            batchEditRemarks: batch.remarks,
+            batchEditStorage: batch.storage_condition || ''
         };
 
         for (const [id, value] of Object.entries(values)) {
@@ -635,6 +646,7 @@ const BatchUI = {
             received: 'Received', harvest: 'Harvest', expiry: 'Freshness / expiry',
             quantity: 'Receiving quantity', unit: 'Receiving unit', factor: 'Conversion factor',
             initial: 'Initial', remaining: 'Remaining', remarks: 'Remarks',
+            storage_condition: 'Storage condition',
         };
         const changes = Object.entries(labels).filter(([key]) => before[key] !== after[key]);
         if (!changes.length) return '';
@@ -781,6 +793,7 @@ const BatchUI = {
                 harvest: this.el('batchEditHarvest').value,
                 expiry: this.el('batchEditExpiry').value || null,
                 remarks: this.el('batchEditRemarks').value.trim(),
+                storage_condition: this.el('batchEditStorage').value.trim() || null,
             });
             this.committed = true;
             this.editModal.hide();

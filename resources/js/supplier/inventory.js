@@ -474,6 +474,18 @@ const InventoryUI = {
         this.el('inHarvest').value = batch?.harvest || today();
         this.el('inExpiry').value = batch?.expiry || '';
         this.el('inRemarks').value = batch?.remarks || '';
+        const storage = this.el('inStorage');
+        storage.querySelector('[data-saved-storage]')?.remove();
+        const savedStorage = batch?.storage_condition || '';
+        if (savedStorage && !Array.from(storage.options).some(option => option.value === savedStorage)) {
+            const option = new Option(savedStorage, savedStorage);
+            option.dataset.savedStorage = 'true';
+            storage.add(option);
+        }
+        storage.options[0].text = batch ? 'Unknown' : 'Select storage condition';
+        storage.value = savedStorage;
+        storage.disabled = Boolean(batch);
+        storage.required = !batch;
         this.el('inRemarks').required = Boolean(batch);
         this.fillUnits(batch);
         this.formModal.show();
@@ -623,6 +635,7 @@ const InventoryUI = {
                     <td>${batch.harvest}</td>
                     <td>${batch.expiry || '—'}</td>
                     <td>${number(batch.initial)}</td>
+                    <td>${escapeHTML(batch.storage_condition || 'Unknown')}</td>
                     <td>${number(batch.remaining)}</td>
                     <td>${this.badge(status)}</td>
                     <td>
@@ -670,6 +683,7 @@ const InventoryUI = {
                             <th>Harvest</th>
                             <th>Freshness / expiry</th>
                             <th>Initial</th>
+                            <th>Storage</th>
                             <th>Remaining</th>
                             <th>Status</th>
                             <th>Receipt</th>
@@ -677,7 +691,7 @@ const InventoryUI = {
                     </thead>
                     <tbody>
                         ${batchRows ||
-                            '<tr><td colspan="8">No batches received yet.</td></tr>'}
+                            '<tr><td colspan="9">No batches received yet.</td></tr>'}
                     </tbody>
                 </table>
             </div>
@@ -907,7 +921,10 @@ const InventoryUI = {
             expiry: this.el('inExpiry').value || null,
             remarks: this.el('inRemarks').value.trim(),
         };
-        if (!batch) payload.flower_id = flower.id;
+        if (!batch) {
+            payload.flower_id = flower.id;
+            payload.storage_condition = this.el('inStorage').value.trim();
+        }
         await this.submit(batch ? this.endpoint('correctionUrl', batch.dbId) : this.endpoint('stockInUrl'),
             payload, 'stockInError', this.formModal);
     },

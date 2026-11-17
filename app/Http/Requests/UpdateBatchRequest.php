@@ -15,6 +15,7 @@ class UpdateBatchRequest extends InventoryRequest
             'harvest' => ['required', 'date_format:Y-m-d'],
             'expiry' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:harvest'],
             'remarks' => ['nullable', 'string', 'max:5000'],
+            'storage_condition' => ['sometimes', 'nullable', 'string', 'max:30'],
         ];
         foreach ([
             'id', 'batch_id', 'dbId', 'flower', 'flower_id', 'received', 'received_date',

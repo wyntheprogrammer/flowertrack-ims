@@ -183,7 +183,7 @@
                     <h2 class="modal-title" id="batchEditTitle">
                         Edit Batch Information
                     </h2>
-                    <p>Update harvest date, freshness date, and batch notes.</p>
+                    <p>Update harvest date, freshness date, storage condition, and batch notes.</p>
                 </div>
 
                 <button type="button"
@@ -244,6 +244,16 @@
                                 Optional. Freshness warnings do not automatically
                                 deduct stock or mark a batch as spoiled.
                             </small>
+                        </div>
+
+                        <div class="batch-form-field batch-form-full">
+                            <label for="batchEditStorage">Storage Condition</label>
+                            <select id="batchEditStorage">
+                                <option value="">Unknown</option>
+                                <option value="Ambient">Ambient</option>
+                                <option value="Chilled">Chilled</option>
+                            </select>
+                            <small>Select the actual condition, or Unknown if unverified; this does not rewrite past daily observations.</small>
                         </div>
 
                         <div class="batch-form-field batch-form-full">

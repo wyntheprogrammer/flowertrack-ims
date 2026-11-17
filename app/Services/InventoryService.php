@@ -25,6 +25,9 @@ class InventoryService
     public function stockIn(array $input, User $actor): array
     {
         $payload = $this->receiptPayload($input);
+        if (array_key_exists('storage_condition', $input)) {
+            $payload['storage_condition'] = $this->text($input['storage_condition']);
+        }
         $flowerId = (int) $input['flower_id'];
 
         return $this->operate($input['request_key'], 'StockIn', $flowerId, $payload, $actor,
@@ -48,6 +51,7 @@ class InventoryService
                     'initial_quantity' => $initial,
                     'remaining_quantity' => $initial,
                     'spoiled' => false,
+                    ...(array_key_exists('storage_condition', $payload) ? ['storage_condition' => $payload['storage_condition']] : []),
                     'remarks' => $payload['remarks'],
                 ]);
                 $batch->code = 'BAT-'.str_pad((string) $batch->id, 3, '0', STR_PAD_LEFT);
@@ -213,6 +217,9 @@ class InventoryService
             'remarks' => $this->text($input['remarks'] ?? null),
             'version' => strtolower($input['version']),
         ];
+        if (array_key_exists('storage_condition', $input)) {
+            $payload['storage_condition'] = $this->text($input['storage_condition']);
+        }
 
         return $this->operate($input['request_key'], 'BatchMetadataUpdate', (int) $batch->flower_id, $payload, $actor,
             function (Flower $flower, InventoryOperation $operation) use ($payload): array {
@@ -233,6 +240,9 @@ class InventoryService
                 $locked->harvest_date = $payload['harvest'];
                 $locked->expiry_date = $payload['expiry'];
                 $locked->remarks = $payload['remarks'];
+                if (array_key_exists('storage_condition', $payload)) {
+                    $locked->storage_condition = $payload['storage_condition'];
+                }
                 $locked->save();
                 $this->movement($operation, $locked, 'Batch Metadata Update', 0, $payload['remarks'], [
                     'before' => $before,
@@ -516,6 +526,7 @@ class InventoryService
             'initial' => (int) $batch->initial_quantity,
             'remaining' => (int) $batch->remaining_quantity,
             'remarks' => $batch->remarks,
+            'storage_condition' => $batch->storage_condition,
         ];
     }
 

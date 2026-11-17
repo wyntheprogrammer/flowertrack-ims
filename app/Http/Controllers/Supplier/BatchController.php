@@ -65,6 +65,7 @@ class BatchController extends Controller
                         'initial' => (int) $batch->initial_quantity,
                         'remaining' => (int) $batch->remaining_quantity,
                         'remarks' => $batch->remarks ?? '',
+                        'storage_condition' => $batch->storage_condition,
                         'spoiled' => (bool) $batch->spoiled,
                         'version' => $inventory->batchVersion($batch),
                         'history' => $history->all(),

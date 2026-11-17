@@ -222,6 +222,16 @@
                             <small>Optional. This does not automatically deduct stock.</small>
                         </div>
 
+                        <div class="inv-field">
+                            <label for="inStorage">Storage Condition <span>*</span></label>
+                            <select id="inStorage" required>
+                                <option value="">Select storage condition</option>
+                                <option value="Ambient">Ambient</option>
+                                <option value="Chilled">Chilled</option>
+                            </select>
+                            <small>Select the actual condition. Change existing storage in Batch Management.</small>
+                        </div>
+
                         <div class="inv-field inv-full">
                             <label for="inRemarks">Remarks</label>
                             <textarea id="inRemarks"
