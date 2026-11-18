@@ -113,6 +113,8 @@ class DashboardService
                     return ($b['onHand'] <=> $a['onHand']) ?: strcmp($a['code'], $b['code']);
                 })->take(6)->values()->all();
 
+            $spoilage = $this->spoilageAlerts();
+
             return [
                 'generatedAt' => now('Asia/Manila')->toIso8601String(),
                 'timezone' => 'Asia/Manila',
@@ -124,12 +126,76 @@ class DashboardService
                     'netSalesCents' => $gross - $refunded,
                     'lowStockItems' => $low->count(),
                     'pendingOrders' => $pending,
+                    'spoilageRiskBatches' => $spoilage['high'] + $spoilage['critical'],
                 ],
                 'chart' => ['unit' => $unit, 'items' => $chart],
                 'topProducts' => $top,
                 'recent' => $this->recent(),
+                'spoilage' => $spoilage,
             ];
         });
+    }
+
+    /**
+     * Reuse forecast freshness checks without running Python or writing snapshots.
+     * Missing, outdated and insufficient-data forecasts are not low-risk results.
+     *
+     * @return array{high: int, critical: int, current: int, total: int, unavailable: int, items: array}
+     */
+    private function spoilageAlerts(): array
+    {
+        $plans = app(SpoilagePredictionService::class)->plan();
+        $result = ['high' => 0, 'critical' => 0, 'current' => 0,
+            'total' => count($plans), 'unavailable' => 0, 'items' => []];
+        foreach ($plans as $plan) {
+            $prediction = $plan['cached'];
+            $batch = $plan['batch'];
+            if (! $prediction || $prediction->status !== 'Predicted'
+                || $prediction->opening_quantity !== (int) $batch->remaining_quantity
+                || $prediction->base_unit !== $batch->flower->product_type
+                || $prediction->forecast_end_date->toDateString() !== CarbonImmutable::parse($plan['payload']['as_of_date'])
+                    ->addDays(config('spoilage.horizon_days') - 1)->toDateString()
+                || ! $prediction->generated_at || $prediction->generated_at->isFuture()
+                || ! is_numeric($prediction->predicted_fraction) || ! is_numeric($prediction->predicted_quantity)
+                || (float) $prediction->predicted_fraction < 0 || (float) $prediction->predicted_fraction > 1
+                || (float) $prediction->predicted_quantity < 0 || (float) $prediction->predicted_quantity > $prediction->opening_quantity
+                || ! in_array($prediction->risk_level, ['Low', 'Medium', 'High', 'Critical'], true)) {
+                continue;
+            }
+            $fraction = (float) $prediction->predicted_fraction;
+            $thresholds = config('spoilage.risk_thresholds');
+            $expectedRisk = match (true) {
+                $fraction < $thresholds['medium'] => 'Low',
+                $fraction < $thresholds['high'] => 'Medium',
+                $fraction < $thresholds['critical'] => 'High',
+                default => 'Critical',
+            };
+            if ($prediction->risk_level !== $expectedRisk
+                || abs((float) $prediction->predicted_quantity - $prediction->opening_quantity * $fraction) > 0.00001
+                || ! in_array($prediction->method, ['ARIMA own-batch history', 'Flower/storage/age fallback', 'Global profile fallback'], true)
+                || (count($plan['payload']['history']) < config('spoilage.minimum_history_days') && $plan['payload']['fallback'] === null)) {
+                continue;
+            }
+            $result['current']++;
+            if (! in_array($prediction->risk_level, ['High', 'Critical'], true)) {
+                continue;
+            }
+            $result[strtolower($prediction->risk_level)]++;
+            $result['items'][] = [
+                'batch' => $batch->code, 'flower' => $batch->flower->name,
+                'unit' => $prediction->base_unit, 'risk' => $prediction->risk_level,
+                'fraction' => (float) $prediction->predicted_fraction,
+                'quantity' => (float) $prediction->predicted_quantity,
+                'asOf' => $prediction->as_of_date->toDateString(),
+                'through' => $prediction->forecast_end_date->toDateString(),
+            ];
+        }
+        usort($result['items'], fn ($a, $b) => (($b['risk'] === 'Critical') <=> ($a['risk'] === 'Critical'))
+            ?: ($b['fraction'] <=> $a['fraction']) ?: strcmp($a['batch'], $b['batch']));
+        $result['items'] = array_slice($result['items'], 0, 5);
+        $result['unavailable'] = $result['total'] - $result['current'];
+
+        return $result;
     }
 
     /** Shared business activity only: no authentication/security/audit records. */

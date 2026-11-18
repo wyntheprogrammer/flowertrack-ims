@@ -48,7 +48,7 @@
                 $roleLabel = $isAdmin ? 'Administrator' : 'Supplier';
                 $dashboardSummary = $dashboard['summary'] ?? null;
                 $alertCount = $dashboardSummary
-                    ? $dashboardSummary['lowStockItems'] + $dashboardSummary['pendingOrders']
+                    ? $dashboardSummary['lowStockItems'] + $dashboardSummary['pendingOrders'] + ($dashboardSummary['spoilageRiskBatches'] ?? 0)
                     : null;
             @endphp
 
@@ -119,7 +119,7 @@
                     <div class="supplier-notifications">
                         <button class="navbar-icon" type="button" id="supplierNotificationToggle"
                             aria-controls="supplierNotificationPanel" aria-expanded="false"
-                            aria-label="Show inventory and order alerts">
+                            aria-label="Show inventory, order and spoilage alerts">
                             <i class="bi bi-bell" aria-hidden="true"></i>
                             @if ($alertCount !== null && $alertCount > 0)
                                 <span class="notification-count">{{ $alertCount > 99 ? '99+' : $alertCount }}</span>
@@ -137,6 +137,9 @@
                                 @if ($dashboardSummary) · {{ number_format($dashboardSummary['pendingOrders']) }} @endif
                             </a>
                             @if ($dashboardSummary)
+                                <a href="{{ route('supplier.spoilage-prediction') }}">
+                                    Review High / Critical spoilage risk · {{ number_format($dashboardSummary['spoilageRiskBatches'] ?? 0) }}
+                                </a>
                                 <p>Counts reflect the Dashboard snapshot. Refresh the Dashboard for current counts.</p>
                             @else
                                 <p><a href="{{ route('supplier.dashboard') }}">Open Dashboard for current counts.</a></p>

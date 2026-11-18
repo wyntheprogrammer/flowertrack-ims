@@ -1,31 +1,6 @@
 /* ========================================
    LIVE SUPPLIER DASHBOARD
 ======================================== */
-#supplierDashboard .dashboard-live-status {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin: 0 0 18px;
-    color: var(--supplier-muted);
-    font-size: 12px
-}
-
-#supplierDashboard .dashboard-refresh {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 9px 14px;
-    border: 1px solid var(--supplier-border);
-    border-radius: 10px;
-    background: #fff;
-    color: var(--supplier-primary);
-    font-size: 12px;
-    font-weight: 600;
-    text-decoration: none;
-    white-space: nowrap
-}
-
 #supplierDashboard .dashboard-unit-form {
     display: flex;
     align-items: center;
@@ -107,17 +82,361 @@
     max-height: 320px
 }
 
-#supplierDashboard .dashboard-refresh:focus-visible,
 #supplierDashboard .dashboard-unit-form :focus-visible {
     outline: 2px solid var(--supplier-primary);
     outline-offset: 3px
 }
 
+#supplierDashboard .dashboard-spoilage {
+    max-width: 100%;
+    margin-bottom: 24px;
+    padding: 20px;
+    border-color: #dce7db;
+    border-radius: 15px;
+    background: #fff;
+    box-shadow: 0 3px 12px rgba(28, 65, 37, .035)
+}
+
+#supplierDashboard .dashboard-risk-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 22px
+}
+
+#supplierDashboard .dashboard-risk-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: #fff2d9;
+    color: #a3670f;
+    font-size: 24px
+}
+
+#supplierDashboard .dashboard-risk-heading {
+    flex: 1;
+    min-width: 0
+}
+
+#supplierDashboard .dashboard-risk-heading h4 {
+    margin: 0 0 5px;
+    color: var(--supplier-text);
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.25
+}
+
+#supplierDashboard .dashboard-risk-heading p {
+    margin: 0;
+    color: #616c65;
+    font-size: 12px;
+    line-height: 1.5
+}
+
+#supplierDashboard .dashboard-risk-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    flex-shrink: 0;
+    padding: 10px 15px;
+    border: 1px solid var(--supplier-primary);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--supplier-primary);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+    text-decoration: none;
+    white-space: nowrap
+}
+
+#supplierDashboard .dashboard-risk-button:hover {
+    background: #edf5ee;
+    color: var(--supplier-primary-dark)
+}
+
+#supplierDashboard .dashboard-risk-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #e2e7e2
+}
+
+#supplierDashboard .dashboard-risk-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px
+}
+
+#supplierDashboard .dashboard-risk-level {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 11px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+    white-space: nowrap
+}
+
+#supplierDashboard .dashboard-risk-level .bi {
+    font-size: 8px
+}
+
+#supplierDashboard .dashboard-risk-level.critical {
+    color: #a42330;
+    background: #fbe8eb
+}
+
+#supplierDashboard .dashboard-risk-level.high {
+    color: #995a08;
+    background: #fff1d8
+}
+
+#supplierDashboard .dashboard-risk-dates {
+    margin: 0;
+    color: #59625c;
+    font-size: 12px;
+    line-height: 1.5
+}
+
+#supplierDashboard .dashboard-risk-table-wrap {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch
+}
+
+#supplierDashboard .dashboard-risk-table {
+    width: 100%;
+    min-width: 580px;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed
+}
+
+#supplierDashboard .dashboard-risk-table thead th {
+    padding: 10px 12px;
+    background: #edf2ec;
+    color: #526257;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .035em;
+    line-height: 1.4;
+    text-transform: uppercase
+}
+
+#supplierDashboard .dashboard-risk-table thead th:first-child {
+    width: 32%;
+    border-radius: 7px 0 0 7px
+}
+
+#supplierDashboard .dashboard-risk-table thead th:nth-child(2) {
+    width: 18%
+}
+
+#supplierDashboard .dashboard-risk-table thead th:nth-child(3) {
+    width: 38%
+}
+
+#supplierDashboard .dashboard-risk-table thead th:last-child {
+    width: 12%;
+    border-radius: 0 7px 7px 0
+}
+
+#supplierDashboard .dashboard-risk-table tbody th,
+#supplierDashboard .dashboard-risk-table tbody td {
+    padding: 12px;
+    border-bottom: 1px solid #e3e7e3;
+    vertical-align: middle;
+    font-weight: 400
+}
+
+#supplierDashboard .dashboard-risk-flower strong,
+#supplierDashboard .dashboard-risk-flower span {
+    display: block;
+    overflow-wrap: anywhere
+}
+
+#supplierDashboard .dashboard-risk-flower strong {
+    margin-bottom: 3px;
+    color: var(--supplier-text);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.3
+}
+
+#supplierDashboard .dashboard-risk-flower span {
+    color: #69716d;
+    font-size: 11px;
+    line-height: 1.4
+}
+
+#supplierDashboard .dashboard-risk-estimate {
+    display: grid;
+    grid-template-columns: minmax(82px, auto) minmax(48px, 1fr);
+    align-items: center;
+    gap: 14px
+}
+
+#supplierDashboard .dashboard-risk-quantity strong,
+#supplierDashboard .dashboard-risk-quantity span {
+    display: block
+}
+
+#supplierDashboard .dashboard-risk-quantity strong {
+    margin-bottom: 3px;
+    color: var(--supplier-text);
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums
+}
+
+#supplierDashboard .dashboard-risk-quantity span {
+    color: #69716d;
+    font-size: 11px;
+    line-height: 1.4;
+    overflow-wrap: anywhere
+}
+
+#supplierDashboard .dashboard-risk-bar {
+    display: block;
+    height: 7px;
+    overflow: hidden;
+    border-radius: 10px;
+    background: #e1e5e1
+}
+
+#supplierDashboard .dashboard-risk-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit
+}
+
+#supplierDashboard .dashboard-risk-bar.critical > span {
+    background: #ce364b
+}
+
+#supplierDashboard .dashboard-risk-bar.high > span {
+    background: #df9b1a
+}
+
+#supplierDashboard .dashboard-risk-action {
+    text-align: right
+}
+
+#supplierDashboard .dashboard-risk-action a,
+#supplierDashboard .dashboard-risk-notice a {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--supplier-primary-dark);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.5;
+    text-decoration: none;
+    white-space: nowrap
+}
+
+#supplierDashboard .dashboard-risk-action a:hover,
+#supplierDashboard .dashboard-risk-notice a:hover {
+    text-decoration: underline
+}
+
+#supplierDashboard .dashboard-risk-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 11px 13px;
+    border-radius: 8px;
+    background: #edf3eb;
+    color: #304834;
+    font-size: 12px;
+    line-height: 1.5
+}
+
+#supplierDashboard .dashboard-risk-notice > .bi {
+    flex-shrink: 0;
+    color: #597348;
+    font-size: 18px
+}
+
+#supplierDashboard .dashboard-risk-notice > span {
+    flex: 1;
+    min-width: 0;
+    font-weight: 600
+}
+
+#supplierDashboard .dashboard-risk-footer {
+    margin-top: 13px;
+    color: #6d756f;
+    font-size: 11px;
+    line-height: 1.6
+}
+
+#supplierDashboard .dashboard-risk-footer p {
+    margin: 0
+}
+
+#supplierDashboard .dashboard-spoilage a:focus-visible,
+#supplierDashboard .dashboard-risk-table-wrap:focus-visible {
+    outline: 2px solid var(--supplier-primary);
+    outline-offset: 3px
+}
+
 @media(max-width:576px) {
-    #supplierDashboard .dashboard-live-status {
-        align-items: flex-start
+    #supplierDashboard .dashboard-spoilage {
+        padding: 15px
     }
 
+    #supplierDashboard .dashboard-risk-header {
+        display: grid;
+        grid-template-columns: 40px minmax(0, 1fr);
+        gap: 12px
+    }
+
+    #supplierDashboard .dashboard-risk-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 22px
+    }
+
+    #supplierDashboard .dashboard-risk-heading h4 {
+        font-size: 17px
+    }
+
+    #supplierDashboard .dashboard-risk-button {
+        grid-column: 2;
+        justify-self: start
+    }
+
+    #supplierDashboard .dashboard-risk-dates {
+        flex-basis: 100%
+    }
+
+    #supplierDashboard .dashboard-risk-notice {
+        flex-wrap: wrap
+    }
+
+    #supplierDashboard .dashboard-risk-notice a {
+        flex-basis: 100%;
+        margin-left: 28px
+    }
+}
+
+@media(max-width:576px) {
     #supplierDashboard .panel-header {
         align-items: flex-start;
         flex-wrap: wrap

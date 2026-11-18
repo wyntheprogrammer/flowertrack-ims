@@ -10,7 +10,6 @@
         $money = static fn (int $cents): string => '₱'
             .number_format(intdiv($cents, 100), 0, '.', ',')
             .'.'.str_pad((string) ($cents % 100), 2, '0', STR_PAD_LEFT);
-        $generated = \Carbon\CarbonImmutable::parse($dashboard['generatedAt']);
     @endphp
 
     <div id="supplierDashboard">
@@ -20,13 +19,6 @@
                 <p>Here's what's happening with your flower business today.</p>
             </div>
         </section>
-
-        <div class="dashboard-live-status">
-            <span>Updated {{ $generated->format('M d, Y · h:i A') }} PHT</span>
-            <a class="dashboard-refresh" href="{{ route('supplier.dashboard', ['unit' => $chart['unit']]) }}">
-                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
-            </a>
-        </div>
 
         <section class="summary-grid" aria-label="Business summary">
             <div class="summary-card">
@@ -64,6 +56,101 @@
                     <span class="dashboard-muted">Awaiting confirmation</span>
                 </div>
             </div>
+        </section>
+
+        <section class="dashboard-panel dashboard-spoilage" aria-labelledby="dashboardSpoilageHeading">
+            @php
+                $riskAlerts = $dashboard['spoilage'];
+                $forecastStart = count($riskAlerts['items']) ? \Carbon\CarbonImmutable::parse($riskAlerts['items'][0]['asOf']) : null;
+                $forecastEnd = $forecastStart ? \Carbon\CarbonImmutable::parse($riskAlerts['items'][0]['through']) : null;
+            @endphp
+            <div class="dashboard-risk-header">
+                <span class="dashboard-risk-icon"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i></span>
+                <div class="dashboard-risk-heading">
+                    <h4 id="dashboardSpoilageHeading">Spoilage Risk Alerts</h4>
+                    <p>Batches that may need attention in the next {{ config('spoilage.horizon_days') }} days</p>
+                </div>
+                <a href="{{ route('supplier.spoilage-prediction') }}" class="dashboard-risk-button">
+                    View predictions <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                </a>
+            </div>
+
+            <div class="dashboard-risk-summary">
+                <div class="dashboard-risk-counts" aria-label="Current spoilage risk counts">
+                    <span class="dashboard-risk-level critical">{{ number_format($riskAlerts['critical']) }} Critical</span>
+                    <span class="dashboard-risk-level high">{{ number_format($riskAlerts['high']) }} High</span>
+                </div>
+                @if ($forecastStart)
+                    <p class="dashboard-risk-dates">Forecast:
+                        <time datetime="{{ $forecastStart->toDateString() }}">{{ $forecastStart->format($forecastStart->year === $forecastEnd->year ? 'M j' : 'M j, Y') }}</time>–<time datetime="{{ $forecastEnd->toDateString() }}">{{ $forecastEnd->format($forecastStart->format('Y-m') === $forecastEnd->format('Y-m') ? 'j, Y' : 'M j, Y') }}</time>
+                    </p>
+                @endif
+            </div>
+
+            @if (count($riskAlerts['items']))
+                <div class="dashboard-risk-table-wrap" role="region" aria-label="Highest-risk batches" tabindex="0">
+                    <table class="dashboard-risk-table" aria-label="Highest-risk batches with current eligible forecasts">
+                        <thead>
+                            <tr>
+                                <th scope="col">Flower / Batch</th>
+                                <th scope="col">Risk</th>
+                                <th scope="col">Estimated Spoilage</th>
+                                <th scope="col" class="dashboard-risk-action">View</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($riskAlerts['items'] as $alert)
+                                <tr>
+                                    <th scope="row" class="dashboard-risk-flower">
+                                        <strong>{{ $alert['flower'] }}</strong>
+                                        <span>{{ $alert['batch'] }}</span>
+                                    </th>
+                                    <td>
+                                        <span class="dashboard-risk-level {{ strtolower($alert['risk']) }}">
+                                            <i class="bi bi-circle-fill" aria-hidden="true"></i>{{ $alert['risk'] }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="dashboard-risk-estimate">
+                                            <div class="dashboard-risk-quantity">
+                                                <strong>{{ number_format($alert['fraction'] * 100, 1) }}%</strong>
+                                                <span>~{{ number_format($alert['quantity'], 1) }} {{ $alert['unit'] === 'Stem' ? 'stems' : 'bouquets' }}</span>
+                                            </div>
+                                            <span class="dashboard-risk-bar {{ strtolower($alert['risk']) }}" aria-hidden="true">
+                                                <span style="width: {{ number_format($alert['fraction'] * 100, 2, '.', '') }}%"></span>
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td class="dashboard-risk-action">
+                                        <a href="{{ route('supplier.spoilage-prediction') }}" aria-label="View predictions: {{ $alert['flower'] }}, {{ $alert['batch'] }}">
+                                            View <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @else
+                <p class="dashboard-empty">No current High or Critical spoilage alerts.</p>
+            @endif
+
+            @if ($riskAlerts['unavailable'] > 0)
+                <div class="dashboard-risk-notice">
+                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    <span>{{ number_format($riskAlerts['unavailable']) }} {{ $riskAlerts['unavailable'] === 1 ? 'batch has' : 'batches have' }} no current forecast</span>
+                    <a href="{{ route('supplier.spoilage-prediction') }}">Review forecasts <i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+                </div>
+            @endif
+
+            @if ($riskAlerts['total'] > 0)
+                <footer class="dashboard-risk-footer">
+                    <p>@if (count($riskAlerts['items']))Showing {{ count($riskAlerts['items']) }} highest-risk {{ count($riskAlerts['items']) === 1 ? 'batch' : 'batches' }} · @endif Forecasts cover {{ number_format($riskAlerts['current']) }} of {{ number_format($riskAlerts['total']) }} batches</p>
+                    @if ($riskAlerts['current'] > 0)
+                        <p>Predicted risk is an estimate, not confirmed spoilage.</p>
+                    @endif
+                </footer>
+            @endif
         </section>
 
         <section class="dashboard-grid">

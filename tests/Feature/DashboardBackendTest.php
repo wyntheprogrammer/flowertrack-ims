@@ -3,24 +3,29 @@
 namespace Tests\Feature;
 
 use App\Models\AuditEvent;
+use App\Models\BatchDailyObservation;
+use App\Models\BatchSpoilagePrediction;
 use App\Models\Client;
 use App\Models\Flower;
 use App\Models\FlowerPrice;
 use App\Models\InventoryBatch;
 use App\Models\InventoryReservation;
 use App\Models\Order;
-use App\Models\OrderItem;
 use App\Models\OrderPayment;
 use App\Models\User;
+use App\Services\AuditService;
 use App\Services\DashboardService;
 use App\Services\InventoryService;
 use App\Services\OrderService;
 use App\Services\SalesPaymentService;
+use App\Services\SpoilagePredictionService;
+use App\Services\SpoilagePythonService;
 use App\Support\AccountSession;
 use App\Support\Money;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -29,8 +34,11 @@ use Tests\TestCase;
 class DashboardBackendTest extends TestCase
 {
     private User $admin;
+
     private User $supplier;
+
     private bool $isolated = false;
+
     private string $timezone;
 
     /** No RefreshDatabase: all schema changes target this named memory database. */
@@ -96,6 +104,8 @@ class DashboardBackendTest extends TestCase
             'create_order_tables',
             'create_delivery_tables',
             'create_finance_tables',
+            'create_batch_daily_observations_table',
+            'create_batch_spoilage_predictions_table',
         ] as $name) {
             $this->migrateOne($name);
         }
@@ -262,7 +272,7 @@ class DashboardBackendTest extends TestCase
     public function test_supplier_summary_never_reads_or_exposes_security_audit_details(): void
     {
         $order = $this->newOrder();
-        app(\App\Services\AuditService::class)->record(
+        app(AuditService::class)->record(
             'Authentication', 'Private Security Marker',
             description: 'Never expose this security detail on the shared Dashboard.'
         );
@@ -306,7 +316,145 @@ class DashboardBackendTest extends TestCase
             'request_key' => (string) Str::uuid(), 'version' => $row['version'],
             'reason' => 'Actual fixture payment verified.',
         ], $this->admin);
+
         return $payment->fresh();
+    }
+
+    public function test_current_high_and_critical_alerts_are_counted_ordered_and_read_only(): void
+    {
+        $high = $this->riskBatch();
+        $critical = $this->riskBatch('Bouquet');
+        $low = $this->riskBatch();
+        $this->forecast($high, 'High');
+        $this->forecast($critical, 'Critical');
+        $this->forecast($low, 'Low');
+        $this->mock(SpoilagePythonService::class)->shouldNotReceive('predictMany')->shouldNotReceive('predict');
+        $before = [BatchSpoilagePrediction::count(), BatchDailyObservation::count(), AuditEvent::count()];
+        $data = app(DashboardService::class)->data($this->supplier);
+        $this->assertSame(2, $data['summary']['spoilageRiskBatches']);
+        $this->assertSame(1, $data['spoilage']['high']);
+        $this->assertSame(1, $data['spoilage']['critical']);
+        $this->assertSame(3, $data['spoilage']['current']);
+        $this->assertSame(0, $data['spoilage']['unavailable']);
+        $this->assertSame([$critical->code, $high->code], array_column($data['spoilage']['items'], 'batch'));
+        $this->assertSame('Bouquet', $data['spoilage']['items'][0]['unit']);
+        $this->assertSame($before, [BatchSpoilagePrediction::count(), BatchDailyObservation::count(), AuditEvent::count()]);
+        $this->signIn($this->supplier);
+        $this->get('/supplier/dashboard')->assertOk()->assertSee('Spoilage Risk Alerts')
+            ->assertSee($critical->code)->assertSee('href="'.route('supplier.spoilage-prediction').'"', false)
+            ->assertDontSee('href="'.route('supplier.audit-trail').'"', false);
+    }
+
+    public function test_stale_insufficient_missing_and_depleted_forecasts_never_become_alerts(): void
+    {
+        $stale = $this->riskBatch();
+        $insufficient = $this->riskBatch();
+        $missing = $this->riskBatch();
+        $depleted = $this->riskBatch();
+        $spoiled = $this->riskBatch();
+        $this->forecast($stale, 'Critical');
+        $this->forecast($insufficient, 'Critical', ['status' => 'InsufficientData', 'risk_level' => null,
+            'predicted_fraction' => null, 'predicted_quantity' => null]);
+        $this->forecast($depleted, 'High');
+        $this->forecast($spoiled, 'Critical');
+        $stale->forceFill(['storage_condition' => 'Chilled'])->save();
+        $depleted->forceFill(['remaining_quantity' => 0])->save();
+        $spoiled->forceFill(['spoiled' => true])->save();
+        $data = app(DashboardService::class)->data($this->admin);
+        $this->assertSame(0, $data['summary']['spoilageRiskBatches']);
+        $this->assertSame(3, $data['spoilage']['total']);
+        $this->assertSame(3, $data['spoilage']['unavailable']);
+        $this->assertSame([], $data['spoilage']['items']);
+    }
+
+    public function test_changed_stock_history_settings_and_old_dates_invalidate_dashboard_alerts(): void
+    {
+        $stock = $this->riskBatch();
+        $history = $this->riskBatch();
+        $old = $this->riskBatch();
+        $this->forecast($stock, 'High');
+        $this->forecast($history, 'Critical');
+        $this->forecast($old, 'Critical', ['as_of_date' => CarbonImmutable::now('Asia/Manila')->subDay()->toDateString()]);
+        $stock->forceFill(['remaining_quantity' => 19])->save();
+        BatchDailyObservation::where('batch_id', $history->id)->update(['is_complete' => false]);
+        $this->assertSame(0, app(DashboardService::class)->data($this->supplier)['summary']['spoilageRiskBatches']);
+        $fresh = $this->riskBatch();
+        $this->forecast($fresh, 'High');
+        $this->assertSame(1, app(DashboardService::class)->data($this->supplier)['summary']['spoilageRiskBatches']);
+        config(['spoilage.model_version' => 'changed-settings']);
+        $this->assertSame(0, app(DashboardService::class)->data($this->supplier)['summary']['spoilageRiskBatches']);
+    }
+
+    public function test_alert_list_limit_does_not_truncate_totals_or_mix_stock_units(): void
+    {
+        $batches = [];
+        for ($index = 0; $index < 7; $index++) {
+            $batches[] = $this->riskBatch($index % 2 ? 'Bouquet' : 'Stem');
+        }
+        foreach ($batches as $batch) {
+            $this->forecast($batch, 'Critical');
+        }
+        $data = app(DashboardService::class)->data($this->admin);
+        $this->assertSame(7, $data['summary']['spoilageRiskBatches']);
+        $this->assertSame(7, $data['spoilage']['critical']);
+        $this->assertCount(5, $data['spoilage']['items']);
+        $this->assertArrayNotHasKey('totalPredictedQuantity', $data['spoilage']);
+    }
+
+    public function test_invalid_saved_results_are_not_shown_as_current_risk(): void
+    {
+        $risk = $this->riskBatch();
+        $quantity = $this->riskBatch();
+        $method = $this->riskBatch();
+        $this->forecast($risk, 'Critical', ['predicted_fraction' => 0.05, 'predicted_quantity' => 1]);
+        $this->forecast($quantity, 'High', ['predicted_quantity' => 100]);
+        $this->forecast($method, 'High', ['method' => 'Unsupported model']);
+        $data = app(DashboardService::class)->data($this->admin);
+        $this->assertSame(0, $data['summary']['spoilageRiskBatches']);
+        $this->assertSame(3, $data['spoilage']['unavailable']);
+    }
+
+    private function riskBatch(string $unit = 'Stem'): InventoryBatch
+    {
+        $today = CarbonImmutable::now('Asia/Manila')->startOfDay();
+        $received = $today->subDays(8)->toDateString();
+        $flower = Flower::create([
+            'code' => 'RISK-'.Str::ulid(), 'name' => 'Risk fixture '.$unit, 'product_type' => $unit,
+            'category' => 'Roses', 'minimum_stock' => 1, 'description' => 'Fixture', 'status' => 'Active',
+        ]);
+        $result = app(InventoryService::class)->stockIn([
+            'request_key' => (string) Str::uuid(), 'flower_id' => $flower->id, 'quantity' => 20,
+            'unit' => $unit, 'received' => $received, 'harvest' => $received, 'expiry' => null,
+            'storage_condition' => 'Ambient', 'remarks' => 'Isolated prediction fixture',
+        ], $this->admin);
+        $batch = InventoryBatch::findOrFail($result['batch_id']);
+        for ($days = 6; $days >= 1; $days--) {
+            BatchDailyObservation::create([
+                'batch_id' => $batch->id, 'flower_id' => $flower->id,
+                'observation_date' => $today->subDays($days)->toDateString(),
+                'harvest_date' => $received, 'received_date' => $received,
+                'storage_condition' => 'Ambient', 'base_unit' => $unit, 'opening_quantity' => 20,
+                'spoiled_quantity' => 0, 'released_quantity' => 0, 'closing_quantity' => 20, 'is_complete' => true,
+            ]);
+        }
+
+        return $batch;
+    }
+
+    private function forecast(InventoryBatch $batch, string $risk, array $overrides = []): BatchSpoilagePrediction
+    {
+        $plan = app(SpoilagePredictionService::class)->plan([$batch->id])[$batch->id];
+        $fraction = ['Low' => 0.05, 'Medium' => 0.15, 'High' => 0.30, 'Critical' => 0.60][$risk];
+
+        return BatchSpoilagePrediction::create([
+            'batch_id' => $batch->id, 'as_of_date' => $plan['payload']['as_of_date'],
+            'forecast_end_date' => CarbonImmutable::parse($plan['payload']['as_of_date'])->addDays(6)->toDateString(),
+            'opening_quantity' => $batch->remaining_quantity, 'base_unit' => $batch->flower->product_type,
+            'model_version' => config('spoilage.model_version'), 'input_hash' => $plan['hash'],
+            'status' => 'Predicted', 'method' => 'ARIMA own-batch history', 'risk_level' => $risk,
+            'predicted_fraction' => $fraction, 'predicted_quantity' => $fraction * $batch->remaining_quantity,
+            'history_days' => 6, 'generated_at' => now(), ...$overrides,
+        ]);
     }
 
     private function migrateOne(string $suffix): void
