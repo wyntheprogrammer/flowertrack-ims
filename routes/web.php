@@ -1,18 +1,20 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Client\CartController;
+use App\Http\Controllers\Client\CatalogController;
 use App\Http\Controllers\Supplier\AuditTrailController;
 use App\Http\Controllers\Supplier\BatchController;
 use App\Http\Controllers\Supplier\ClientController;
-use App\Http\Controllers\Supplier\DeliveryController;
 use App\Http\Controllers\Supplier\DashboardController;
+use App\Http\Controllers\Supplier\DeliveryController;
 use App\Http\Controllers\Supplier\FlowerController;
 use App\Http\Controllers\Supplier\InventoryController;
 use App\Http\Controllers\Supplier\OrderController;
 use App\Http\Controllers\Supplier\ReportController;
 use App\Http\Controllers\Supplier\SalesPaymentController;
-use App\Http\Controllers\Supplier\UserController;
 use App\Http\Controllers\Supplier\SpoilagePredictionController;
+use App\Http\Controllers\Supplier\UserController;
 use App\Http\Middleware\EnsureAccountSessionIsCurrent;
 use Illuminate\Support\Facades\Route;
 
@@ -21,6 +23,20 @@ use Illuminate\Support\Facades\Route;
 // ========================================
 
 Route::view('/', 'welcome');
+Route::view('/shop', 'client.dashboard')->name('client.home');
+Route::get('/shop/catalog', CatalogController::class)->name('client.catalog');
+Route::prefix('shop')->name('client.')->group(function () {
+    Route::get('flowers/{flower}', [CatalogController::class, 'show'])->whereNumber('flower')->name('product');
+    Route::get('cart', [CartController::class, 'index'])->name('cart');
+    Route::post('cart/{flower}', [CartController::class, 'save'])->whereNumber('flower')->name('cart.add');
+    Route::put('cart/{flower}', [CartController::class, 'save'])->whereNumber('flower')->name('cart.update');
+    Route::delete('cart/{flower}', [CartController::class, 'remove'])->whereNumber('flower')->name('cart.remove');
+    Route::get('checkout', [CartController::class, 'index'])->name('checkout');
+    Route::view('orders', 'client.orders')->name('orders');
+    Route::view('tracking', 'client.order-tracking')->name('tracking');
+    Route::view('payments', 'client.payments')->name('payments');
+    Route::view('profile', 'client.profile')->name('profile');
+});
 
 Route::get('/login', [AuthController::class, 'showLogin'])
     ->name('login');

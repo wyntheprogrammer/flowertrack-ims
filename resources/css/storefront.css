@@ -1,0 +1,79 @@
+@import 'bootstrap/dist/css/bootstrap.min.css';
+@import 'bootstrap-icons/font/bootstrap-icons.css';
+@import './client/interior.css';
+
+:root {
+    --shop-paper: #fbf7f3;
+    --shop-ink: #192e24;
+    --shop-green: #105233;
+    --shop-rose: #b94a62;
+    --shop-blush: #f7eae5;
+    --shop-line: #dfd3ca;
+    --shop-muted: #625a53;
+    --shop-surface: #fffdfa;
+    --shop-shadow: 0 10px 32px -20px #61382954;
+    --shop-serif: Baskervville, Georgia, 'Times New Roman', serif;
+}
+body {
+    margin: 0;
+    color: var(--shop-ink);
+    background: var(--shop-paper);
+    font-family: 'DM Sans', 'Segoe UI', Arial, sans-serif;
+}
+.shop-width { width: min(86%, 1440px); margin-inline: auto; }
+.shop-home .shop-width { width: min(83%, 1440px); }
+a { color: var(--shop-green); text-underline-offset: .25em; }
+:is(a, button, input, select, summary):focus-visible { outline: 3px solid var(--shop-green); outline-offset: 3px; }
+.shop-skip:focus { position: absolute; inset: .5rem auto auto .5rem; z-index: 20; padding: .75rem 1rem; background: white; }
+summary { list-style: none; cursor: pointer; }
+summary::-webkit-details-marker { display: none; }
+
+.shop-header {
+    position: relative;
+    z-index: 10;
+    background: rgba(255, 255, 255, .78);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 1px 0 #53372719, 0 5px 20px #55302408;
+}
+.shop-header-inner { width: min(80%, 1360px); margin: auto; display: flex; align-items: center; gap: clamp(2rem, 8vw, 9rem); padding-block: .45rem; }
+.shop-brand img { width: clamp(6.5rem, 8.3vw, 9.5rem); height: auto; display: block; }
+.shop-header nav { display: flex; align-items: center; gap: clamp(.9rem, 2.3vw, 2.6rem); flex: 1; }
+.shop-header nav :is(a, summary), .shop-menu-toggle {
+    display: inline-flex; align-items: center; gap: .45rem; min-height: 44px;
+    font-size: .95rem; font-weight: 550; text-decoration: none; color: var(--shop-ink);
+}
+.shop-header nav :is(a, summary):hover { color: var(--shop-green); text-decoration: underline; }
+.shop-header a[aria-current] { box-shadow: inset 0 -2px var(--shop-green); color: var(--shop-green); }
+.nav-cart { margin-inline-start: auto; }
+.nav-cart i, .shop-header .bi-person { font-size: 1.2rem; }
+.shop-menu { position: relative; }
+.shop-menu summary i { font-size: .72rem; }
+.shop-menu[open] summary i { rotate: 180deg; }
+.shop-menu ul {
+    position: absolute; top: 100%; left: -.8rem; min-width: 10rem; margin: 0; padding: .35rem .85rem; list-style: none;
+    border: 1px solid var(--shop-line); border-radius: .65rem; background: var(--shop-surface); box-shadow: var(--shop-shadow);
+}
+.shop-menu li a { width: 100%; }
+.shop-menu-toggle { margin-left: auto; padding: .3rem .85rem; border: 1px solid var(--shop-line); border-radius: 2rem; background: var(--shop-surface); }
+.shop-header [hidden] { display: none; }
+.shop-footer { border-top: 1px solid var(--shop-line); background: #f4ede7; }
+.shop-footer-inner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem 3rem; padding-block: 2rem; }
+.shop-footer h2 { font: 1.65rem/1.2 var(--shop-serif); }
+.shop-footer p { max-width: 62ch; margin: 0; color: var(--shop-muted); font-size: .95rem; }
+.shop-footer-inner > a { padding-block: .6rem; }
+@media (max-width: 950px) {
+    .shop-header-inner, .shop-width, .shop-home .shop-width { width: 90%; }
+}
+@media (max-width: 800px) {
+    .shop-header-inner { flex-wrap: wrap; gap: .25rem; }
+    .shop-header nav { flex: 1 0 100%; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .15rem 1rem; padding: .5rem 0; }
+    .shop-header:has(.shop-menu-toggle:not([hidden])) nav { position: absolute; top: 100%; left: 0; right: 0; padding: .75rem 5%; background: #fffdfa; border-bottom: 1px solid var(--shop-line); box-shadow: var(--shop-shadow); }
+    .shop-header .nav-cart { margin: 0; }
+    .shop-menu ul { z-index: 1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+    .shop-action, .catalog-submit, .catalog-item, .account-menu a { transition: background-color .2s, box-shadow .2s, transform .2s; }
+    .shop-interior, .catalog { animation: shop-appear .3s ease-out; }
+    @keyframes shop-appear { from { opacity: .7; transform: translateY(4px); } }
+}
