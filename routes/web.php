@@ -23,9 +23,11 @@ use Illuminate\Support\Facades\Route;
 // ========================================
 
 Route::view('/', 'welcome');
-Route::view('/shop', 'client.dashboard')->name('client.home');
+Route::get('/shop', [CatalogController::class, 'home'])->name('client.home');
 Route::get('/shop/catalog', CatalogController::class)->name('client.catalog');
 Route::prefix('shop')->name('client.')->group(function () {
+    Route::view('collections', 'client.collections')->name('collections');
+    Route::view('about', 'client.about')->name('about');
     Route::get('flowers/{flower}', [CatalogController::class, 'show'])->whereNumber('flower')->name('product');
     Route::get('cart', [CartController::class, 'index'])->name('cart');
     Route::post('cart/{flower}', [CartController::class, 'save'])->whereNumber('flower')->name('cart.add');

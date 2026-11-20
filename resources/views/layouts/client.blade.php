@@ -16,14 +16,6 @@
         @endif
         @yield('content')
     </main>
-    <footer id="about" class="shop-footer">
-        <div class="shop-width shop-footer-inner">
-            <div>
-                <h2>About Gemma’s</h2>
-                <p>Explore individual stems and ready-made bouquets in the <a href="{{ route('client.catalog') }}">flower catalog</a>.</p>
-            </div>
-            <a href="#top">Back to top <i class="bi bi-arrow-up" aria-hidden="true"></i></a>
-        </div>
-    </footer>
+    @include('client.partials.footer')
 </body>
 </html>

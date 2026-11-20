@@ -83,6 +83,87 @@ class CatalogTest extends TestCase
         $this->assertDatabaseCount('orders', 0);
     }
 
+    public function test_home_shows_a_limited_catalog_preview_with_purchasable_flowers_first(): void
+    {
+        $bouquet = $this->flower('Zinnia Bouquet', 'Bouquet', 'Mixed Flowers');
+        DB::table('flower_prices')->insert(['flower_id' => $bouquet->id, 'price_cents' => 12500]);
+        DB::table('inventory_batches')->insert([
+            'flower_id' => $bouquet->id, 'code' => 'BAT-ZINNIA', 'received_date' => '2026-11-01',
+            'harvest_date' => '2026-11-01', 'received_quantity' => 3, 'receiving_unit' => 'Bouquet',
+            'conversion_factor' => 1, 'initial_quantity' => 3, 'remaining_quantity' => 3,
+        ]);
+        foreach (['Aster', 'Dahlia', 'Iris', 'Tulip'] as $name) {
+            $this->flower($name, 'Stem', 'Cut Flowers');
+        }
+        $this->flower('Archived Anemone', 'Stem', 'Cut Flowers', 'Inactive');
+
+        $response = $this->get(route('client.home'));
+
+        $response->assertOk()
+            ->assertSeeTextInOrder(['Zinnia Bouquet', 'Aster', 'Dahlia', 'Iris'])
+            ->assertSeeText('₱125.00 / bouquet')
+            ->assertSeeText('3 bouquets available')
+            ->assertSee('href="'.route('client.product', $bouquet).'"', false)
+            ->assertDontSeeText('Tulip')
+            ->assertDontSeeText('Archived Anemone');
+    }
+
+    public function test_home_shows_an_empty_preview_when_no_flowers_are_listed(): void
+    {
+        $this->get(route('client.home'))->assertOk()
+            ->assertSeeText('No flowers are listed in the catalog yet.')
+            ->assertSeeText('Shop the catalog');
+    }
+
+    public function test_collections_links_to_the_two_catalog_filters(): void
+    {
+        $this->get(route('client.collections'))->assertOk()
+            ->assertSeeText('Ready-made bouquets')
+            ->assertSee('href="'.route('client.catalog', ['type' => Flower::TYPE_STEM]).'"', false)
+            ->assertSee('href="'.route('client.catalog', ['type' => Flower::TYPE_BOUQUET]).'"', false);
+    }
+
+    public function test_catalog_search_combines_with_filters_and_persists_in_pagination(): void
+    {
+        for ($number = 1; $number <= 13; $number++) {
+            $this->flower(sprintf('Rose Bouquet %02d', $number), 'Bouquet', 'Mixed Flowers');
+        }
+        $this->flower('Dahlia Bouquet', 'Bouquet', 'Mixed Flowers');
+        $this->flower('Rose Stem', 'Stem', 'Mixed Flowers');
+        $this->flower('Rose Bunch', 'Bouquet', 'Roses');
+
+        $filters = ['type' => 'Bouquet', 'category' => 'Mixed Flowers', 'q' => 'rOsE'];
+        $response = $this->get(route('client.catalog', [...$filters, 'q' => '  rOsE  ']));
+
+        $response->assertOk()
+            ->assertSeeText('Rose Bouquet 01')
+            ->assertDontSeeText('Rose Bouquet 13')
+            ->assertDontSeeText('Dahlia Bouquet')
+            ->assertDontSeeText('Rose Stem')
+            ->assertDontSeeText('Rose Bunch')
+            ->assertSee(route('client.catalog', [...$filters, 'page' => 2]));
+    }
+
+    public function test_catalog_search_matches_wildcards_literally_and_escapes_the_search_field(): void
+    {
+        $search = 'Rose_%! & Lily';
+        $this->flower($search, 'Stem', 'Cut Flowers');
+        $this->flower('RoseAB! & Lily', 'Stem', 'Cut Flowers');
+
+        $response = $this->get(route('client.catalog', ['q' => $search]));
+
+        $response->assertOk()
+            ->assertSeeText($search)
+            ->assertDontSeeText('RoseAB! & Lily')
+            ->assertSee('value="Rose_%! &amp; Lily"', false)
+            ->assertDontSee('value="Rose_%! & Lily"', false);
+    }
+
+    public function test_catalog_rejects_an_array_as_a_search_term(): void
+    {
+        $this->get(route('client.catalog', ['q' => ['Rose']]))->assertNotFound();
+    }
+
     private function flower(string $name, string $type, string $category, string $status = 'Active'): Flower
     {
         return Flower::query()->create([

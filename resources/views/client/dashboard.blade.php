@@ -4,62 +4,91 @@
 @section('body-class', 'shop-home')
 
 @push('page-assets')
-    @vite(['resources/css/client/home.css', 'resources/js/client/home.js'])
+    @vite(['resources/css/client/catalog.css', 'resources/css/client/home.css', 'resources/js/client/home.js'])
 @endpush
 
 @section('content')
-    <section class="floral-hero" aria-labelledby="hero-title" style="--window-light: url('{{ asset('images/shop-window-light.webp') }}')">
-        <div class="hero-scene">
-            <div class="hero-print">
-                <picture>
-                    <source media="(max-width: 700px)" srcset="{{ asset('images/shop-hero-mobile.webp') }}" width="960" height="660">
-                    <img src="{{ asset('images/shop-hero.webp') }}" width="2022" height="778" fetchpriority="high"
-                         alt="Pink roses, a lily and eucalyptus in a cream hatbox tied with a rose ribbon, in a sunlit alcove.">
-                </picture>
-                <img class="gift-tag-logo" src="{{ asset('images/gemmas-logo.png') }}" width="733" height="340" alt="">
+    <section class="floral-hero" aria-labelledby="hero-title">
+        <picture class="home-hero-photo">
+            <source media="(max-width: 760px)" srcset="{{ asset('images/shop-hero-mobile.webp') }}" width="960" height="660">
+            <img src="{{ asset('images/shop-hero.webp') }}" width="2022" height="778" fetchpriority="high"
+                 alt="Pink roses, a lily and eucalyptus in a cream hatbox tied with a rose ribbon.">
+        </picture>
+        <div class="home-hero-copy shop-width">
+            <h1 id="hero-title" tabindex="-1">Flowers for<br>Every Story</h1>
+            <p>Bring home a few stems for the kitchen table or choose a bouquet to give.</p>
+            <div class="home-hero-actions">
+                <a class="shop-button primary" href="{{ route('client.catalog', ['type' => \App\Models\Flower::TYPE_BOUQUET]) }}">Shop Bouquets</a>
+                <a class="shop-button home-stem-button" href="{{ route('client.catalog', ['type' => \App\Models\Flower::TYPE_STEM]) }}">Shop by Stem</a>
+                <a class="home-text-link" href="{{ route('client.about') }}">About the Shop</a>
             </div>
-        </div>
-        <div class="hero-petals" aria-hidden="true">
-            <img class="petal petal-high" src="{{ asset('images/shop-petal.webp') }}" width="96" height="64" alt="">
-            <img class="petal petal-low" src="{{ asset('images/shop-petal.webp') }}" width="96" height="64" alt="">
-        </div>
-        <div class="hero-inner">
-            <div class="hero-copy">
-                <p class="hero-kicker">Fresh flowers <span aria-hidden="true">·</span> Ready-made bouquets</p>
-                <h1 id="hero-title">Flowers for<br><span>Every</span> <em>Story</em></h1>
-                <p class="hero-intro">From simple stems to elegant bouquets,<br class="desktop-break"> find flowers for life’s special moments.</p>
-                <div class="hero-actions">
-                    <a class="shop-button primary" href="#collections"><i class="bi bi-flower1" aria-hidden="true"></i> Browse collections <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
-                    <a class="shop-button secondary" href="#about">About Gemma’s <i class="bi bi-arrow-down-right" aria-hidden="true"></i></a>
-                </div>
-            </div>
-            <ul class="hero-notes" aria-label="How our flowers are sold">
-                <li><i class="bi bi-flower3" aria-hidden="true"></i><span><strong>Individual stems</strong>For your own vase</span></li>
-                <li><i class="bi bi-gift" aria-hidden="true"></i><span><strong>Ready-made bouquets</strong>Sold as a whole arrangement</span></li>
-            </ul>
         </div>
     </section>
 
-    <section id="collections" class="shop-collections shop-width" aria-labelledby="collections-title">
-        <div class="collections-heading">
-            <h2 id="collections-title">The Collections <span class="floral-rule" aria-hidden="true"><i class="bi bi-flower1"></i></span></h2>
-            <p>Choose a collection to discover how its flowers are arranged and sold.</p>
-        </div>
-        <div class="collections-grid">
-            @include('client.partials.collection-card', [
-                'id' => 'stems',
-                'type' => 'Stem',
-                'name' => 'Stems',
-                'description' => 'Fresh, individual blooms for your own arrangements.',
-                'detail' => 'Choose stems when you want to arrange the flowers yourself. Each stem is a single unit.',
-            ])
-            @include('client.partials.collection-card', [
-                'id' => 'bouquets',
-                'type' => 'Bouquet',
-                'name' => 'Bouquets',
-                'description' => 'Flowers gathered into one finished bouquet.',
-                'detail' => 'Choose a bouquet for flowers that come already arranged. Each complete bouquet is one unit.',
-            ])
+    <section class="shop-width home-collections" aria-labelledby="collections-title">
+        <h2 class="home-section-title" id="collections-title">Shop by Collection</h2>
+        <div class="home-collection-grid">
+            <a class="home-collection-card" href="{{ route('client.catalog', ['type' => \App\Models\Flower::TYPE_STEM]) }}">
+                <img src="{{ asset('images/shop-stems.webp') }}" width="1040" height="400" loading="lazy" alt="">
+                <span class="home-collection-copy">
+                    <strong>Individual Stems</strong>
+                    <span>Build an arrangement stem by stem</span>
+                </span>
+            </a>
+            <a class="home-collection-card" href="{{ route('client.catalog', ['type' => \App\Models\Flower::TYPE_BOUQUET]) }}">
+                <img src="{{ asset('images/shop-bouquets.webp') }}" width="1040" height="400" loading="lazy" alt="">
+                <span class="home-collection-copy">
+                    <strong>Ready-made Bouquets</strong>
+                    <span>Choose a finished arrangement to give</span>
+                </span>
+            </a>
         </div>
     </section>
+
+    <section class="shop-width home-flowers" aria-labelledby="featured-title">
+        <h2 class="home-section-title" id="featured-title">Explore Our Flowers</h2>
+        @if ($featuredFlowers->isNotEmpty())
+            <div class="catalog-grid featured-grid">
+                @foreach ($featuredFlowers as $flower)
+                    @include('client.partials.product-card', ['heading' => 'h3', 'isHomepage' => true])
+                @endforeach
+            </div>
+        @else
+            <p class="catalog-empty">No flowers are listed in the catalog yet.</p>
+        @endif
+        <a class="home-text-link" href="{{ route('client.catalog') }}">{{ $featuredFlowers->isEmpty() ? 'Shop the catalog' : 'View All Flowers' }}</a>
+    </section>
+
+    <section class="home-order" aria-labelledby="order-title">
+        <div class="shop-width home-order-inner">
+            <h2 id="order-title">How to Order</h2>
+            <ol>
+                <li>
+                    <i class="bi bi-flower3" aria-hidden="true"></i>
+                    <div><h3>1. Choose flowers</h3><p>Browse the catalog and pick your favorites.</p></div>
+                </li>
+                <li>
+                    <i class="bi bi-cart3" aria-hidden="true"></i>
+                    <div><h3>2. Review your cart</h3><p>Check your selections, quantities, and prices.</p></div>
+                </li>
+                <li>
+                    <i class="bi bi-truck" aria-hidden="true"></i>
+                    <div><h3>3. Check pickup or delivery</h3><p>See available options and totals in checkout review.</p></div>
+                </li>
+            </ol>
+        </div>
+    </section>
+
+    <section class="home-about" aria-labelledby="intro-title">
+        <img src="{{ asset('images/bloom-business.jpg') }}" loading="lazy" decoding="async" alt="">
+        <div class="home-about-copy">
+            <h2 id="intro-title">A Little About Gemma’s</h2>
+            <p>Start with a flower you love. For a vase at home, try adding a few stems in a different shape or height, or keep it simple with one variety.</p>
+            <a class="home-text-link" href="{{ route('client.about') }}">More about Gemma’s</a>
+        </div>
+    </section>
+
+    <button class="home-back-top" type="button" aria-label="Back to top" hidden>
+        <i class="bi bi-arrow-up" aria-hidden="true"></i>
+    </button>
 @endsection

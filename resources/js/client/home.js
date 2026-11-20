@@ -1,46 +1,51 @@
 const hero = document.querySelector('.floral-hero');
+const photo = hero.querySelector('.home-hero-photo');
+const topButton = document.querySelector('.home-back-top');
+const desktopMotion = matchMedia('(min-width: 761px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)');
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+let scrollFrame = 0;
 
-if (hero) {
-    const motion = window.matchMedia('(min-width: 701px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)');
-    let frame = 0;
-    let pointerX = 0;
-    let pointerY = 0;
+function updateScrollEffects() {
+    const { bottom, height } = hero.getBoundingClientRect();
+    topButton.hidden = bottom > 0;
 
-    function paintDepth() {
-        const bounds = hero.getBoundingClientRect();
-        const x = (pointerX - bounds.left) / bounds.width - 0.5;
-        const y = (pointerY - bounds.top) / bounds.height - 0.5;
-        hero.style.setProperty('--scene-x', `${x * 10}px`);
-        hero.style.setProperty('--scene-y', `${y * 8}px`);
-        frame = 0;
+    if (desktopMotion.matches) {
+        const progress = Math.min(1, Math.max(0, 1 - bottom / height));
+        photo.style.setProperty('--photo-progress', progress);
+    } else {
+        photo.style.removeProperty('--photo-progress');
     }
 
-    function followPointer(event) {
-        pointerX = event.clientX;
-        pointerY = event.clientY;
-        if (!frame) {
-            frame = requestAnimationFrame(paintDepth);
-        }
-    }
+    scrollFrame = 0;
+}
 
-    function resetDepth() {
-        cancelAnimationFrame(frame);
-        frame = 0;
-        hero.style.removeProperty('--scene-x');
-        hero.style.removeProperty('--scene-y');
+function queueScrollUpdate() {
+    if (!scrollFrame) {
+        scrollFrame = requestAnimationFrame(updateScrollEffects);
     }
+}
 
-    function syncMotion() {
-        if (motion.matches) {
-            hero.addEventListener('pointermove', followPointer);
-            hero.addEventListener('pointerleave', resetDepth);
-        } else {
-            hero.removeEventListener('pointermove', followPointer);
-            hero.removeEventListener('pointerleave', resetDepth);
-            resetDepth();
-        }
-    }
+window.addEventListener('scroll', queueScrollUpdate, { passive: true });
+window.addEventListener('resize', queueScrollUpdate);
+window.addEventListener('pageshow', queueScrollUpdate);
+desktopMotion.addEventListener('change', queueScrollUpdate);
+updateScrollEffects();
 
-    syncMotion();
-    motion.addEventListener('change', syncMotion);
+topButton.addEventListener('click', () => {
+    hero.querySelector('h1').focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: reduceMotion.matches ? 'instant' : 'smooth' });
+});
+
+if ('IntersectionObserver' in window && !reduceMotion.matches) {
+    const revealCards = new IntersectionObserver((entries, observer) => {
+        const visibleCards = entries.filter(entry => entry.isIntersecting);
+        visibleCards.forEach(({ target }, index) => {
+            const delay = target.matches('.home-collection-card') ? (target.previousElementSibling ? 60 : 0) : index * 45;
+            target.style.setProperty('--home-card-delay', delay + 'ms');
+            target.classList.add('home-card-entered');
+            observer.unobserve(target);
+        });
+    }, { threshold: 0.1 });
+    document.querySelectorAll('.home-collection-card, .home-flowers .catalog-item')
+        .forEach(card => revealCards.observe(card));
 }

@@ -8,18 +8,11 @@
         </button>
         <nav id="shop-links" aria-label="Shop navigation">
             <a href="{{ route('client.home') }}" @if(request()->routeIs('client.home')) aria-current="page" @endif>Home</a>
-            <a href="{{ route('client.catalog') }}" @if(request()->routeIs('client.catalog', 'client.product')) aria-current="location" @endif>Catalog</a>
-            <details class="shop-menu">
-                <summary>Collections <i class="bi bi-chevron-down" aria-hidden="true"></i></summary>
-                <ul>
-                    <li><a href="{{ route('client.catalog') }}">All flowers</a></li>
-                    <li><a href="{{ route('client.catalog', ['type' => 'Stem']) }}">Stems</a></li>
-                    <li><a href="{{ route('client.catalog', ['type' => 'Bouquet']) }}">Bouquets</a></li>
-                </ul>
-            </details>
-            <a href="#about">About</a>
-            <a class="nav-cart" href="{{ route('client.cart') }}" @if(request()->routeIs('client.cart', 'client.checkout')) aria-current="location" @endif><i class="bi bi-bag" aria-hidden="true"></i> Cart</a>
-            <a href="{{ route('client.orders') }}" @if(request()->routeIs('client.orders', 'client.tracking', 'client.payments', 'client.profile')) aria-current="location" @endif><i class="bi bi-person" aria-hidden="true"></i> Account</a>
+            <a href="{{ route('client.catalog') }}" @if(request()->routeIs('client.catalog', 'client.product')) aria-current="{{ request()->routeIs('client.catalog') ? 'page' : 'location' }}" @endif>Catalog</a>
+            <a href="{{ route('client.collections') }}" @if(request()->routeIs('client.collections')) aria-current="page" @endif>Collections</a>
+            <a href="{{ route('client.about') }}" @if(request()->routeIs('client.about')) aria-current="page" @endif>About</a>
+            <a class="nav-cart" href="{{ route('client.cart') }}" @if(request()->routeIs('client.cart', 'client.checkout')) aria-current="{{ request()->routeIs('client.cart') ? 'page' : 'location' }}" @endif><i class="bi bi-bag" aria-hidden="true"></i> Cart</a>
+            <a href="{{ route('client.orders') }}" @if(request()->routeIs('client.orders', 'client.tracking', 'client.payments', 'client.profile')) aria-current="{{ request()->routeIs('client.orders') ? 'page' : 'location' }}" @endif><i class="bi bi-person" aria-hidden="true"></i> Account</a>
         </nav>
     </div>
 </header>

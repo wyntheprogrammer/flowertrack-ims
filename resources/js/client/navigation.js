@@ -1,38 +1,44 @@
 const header = document.querySelector('.shop-header');
 const toggle = header.querySelector('.shop-menu-toggle');
 const links = header.querySelector('nav');
-const collections = links.querySelector('details');
 const mobile = matchMedia('(max-width: 800px)');
 
-function closeMenu() {
-    collections.open = false;
-    links.hidden = mobile.matches;
+function setMenuOpen(isOpen) {
+    links.hidden = mobile.matches && !isOpen;
     toggle.hidden = !mobile.matches;
-    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-expanded', String(isOpen));
 }
 
-closeMenu();
-mobile.addEventListener('change', closeMenu);
-toggle.addEventListener('click', () => {
-    links.hidden = !links.hidden;
-    toggle.setAttribute('aria-expanded', String(!links.hidden));
-    if (links.hidden) collections.open = false;
-});
+setMenuOpen(false);
+mobile.addEventListener('change', () => setMenuOpen(false));
+toggle.addEventListener('click', () => setMenuOpen(links.hidden));
+
 document.addEventListener('click', event => {
-    if (!header.contains(event.target) || event.target.closest('a')) closeMenu();
-    else if (!collections.contains(event.target)) collections.open = false;
+    if (mobile.matches && !links.hidden && (!header.contains(event.target) || event.target.closest('a'))) {
+        setMenuOpen(false);
+    }
 });
 header.addEventListener('focusout', event => {
-    if (!header.contains(event.relatedTarget)) closeMenu();
-    else if (!collections.contains(event.relatedTarget)) collections.open = false;
+    if (!header.contains(event.relatedTarget)) {
+        setMenuOpen(false);
+    }
 });
 header.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
-    if (collections.open) {
-        collections.open = false;
-        collections.querySelector('summary').focus();
-    } else if (mobile.matches && !links.hidden) {
-        closeMenu();
+    if (event.key === 'Escape' && mobile.matches && !links.hidden) {
+        setMenuOpen(false);
         toggle.focus();
     }
 });
+
+if ('IntersectionObserver' in window && matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+    const reveal = new IntersectionObserver((entries, observer) => {
+        for (const entry of entries) {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('shop-revealed');
+                observer.unobserve(entry.target);
+            }
+        }
+    }, { rootMargin: '0px 0px -24px' });
+
+    document.querySelectorAll('[data-shop-reveal]').forEach(section => reveal.observe(section));
+}
