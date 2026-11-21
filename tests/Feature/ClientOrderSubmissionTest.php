@@ -275,6 +275,25 @@ class ClientOrderSubmissionTest extends TestCase
         return $key;
     }
 
+    public function test_tracking_scopes_both_entry_points_and_handles_pickup_without_history(): void
+    {
+        $this->signIn($this->customer);
+        $this->get(route('client.tracking'))->assertOk()->assertSeeText('Browse flowers');
+        $this->post(route('client.checkout.store'), ['request_key' => $this->review()])->assertRedirect();
+        $order = Order::sole();
+        $url = route('client.tracking', $order);
+        $this->get(route('client.orders.show', $order))->assertSee($url);
+        $this->get(route('client.tracking'))->assertSee($url);
+        $order->histories()->delete();
+        $order->update(['status' => 'Ready for Pickup']);
+        $this->get($url)->assertOk()->assertSeeText('Get directions')->assertSeeText('Barangay 471')->assertDontSeeText('Fulfillment updates');
+        $order->update(['status' => 'Completed']);
+        $this->get($url)->assertOk()->assertSeeText('Completed')->assertDontSeeText('Get directions');
+        $this->signIn($this->customer());
+        $this->get(route('client.tracking'))->assertDontSeeText($order->code);
+        $this->get($url)->assertNotFound();
+    }
+
     private function signIn(User $user): void
     {
         $this->actingAs($user)->withSession([AccountSession::KEY => AccountSession::signature($user)]);

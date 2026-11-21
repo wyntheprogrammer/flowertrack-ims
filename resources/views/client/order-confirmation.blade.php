@@ -16,9 +16,11 @@
             </div>
             <div>
                 <a class="checkout-link" href="{{ route('client.orders') }}">{{ ($history ?? false) ? 'Back to My Orders' : 'My Orders' }}</a>
-                @unless ($history ?? false)
+                @if ($history ?? false)
+                    <a class="checkout-link ms-3" href="{{ route('client.tracking', $order) }}">Track order</a>
+                @else
                     <a class="checkout-link ms-3" href="{{ route('client.cart') }}">Back to cart</a>
-                @endunless
+                @endif
             </div>
         </header>
 

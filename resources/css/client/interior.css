@@ -83,3 +83,11 @@
     .order-entry > div:first-child { grid-column: 1 / -1; }
     .order-entry-actions { justify-items: end; }
 }
+
+.shop-tracking .account-content a:not(.shop-action,.page-link) { text-decoration: none; font-weight: 600; }
+.shop-tracking .account-content a:not(.shop-action,.page-link):hover { color: #17613b; }
+.tracking-status { display: inline-block; color: var(--shop-green); background: #edf3ed; border-radius: 1rem; padding: .25rem .85rem; margin-bottom: .65rem; }
+.tracking-events { margin: 1rem 0 1.5rem .45rem; padding: 0; list-style: none; }
+.tracking-events li { position: relative; display: grid; border-left: 1px solid var(--shop-line); padding: 0 0 1rem 1.2rem; }
+.tracking-events li::before { content: ''; position: absolute; left: -.29rem; top: .4rem; width: .55rem; height: .55rem; border-radius: 50%; background: var(--shop-green); }
+.tracking-events time { color: var(--shop-muted); }

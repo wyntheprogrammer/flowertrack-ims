@@ -156,6 +156,12 @@ class DeliveryBackendTest extends TestCase
         $this->assertSame(4, BatchDailyObservation::where('flower_id', $this->stem->id)->first()->released_quantity);
         $this->assertSame(2, BatchDailyObservation::where('flower_id', $this->bouquet->id)->first()->released_quantity);
         $this->assertSame(0, BatchDailyObservation::where('is_complete', true)->count());
+        $this->withoutVite();
+        $customer = $this->client->user;
+        $this->actingAs($customer)->withSession([AccountSession::KEY => AccountSession::signature($customer)]);
+        $this->get(route('client.tracking', $order))->assertOk()
+            ->assertSeeTextInOrder(['Completed', 'Fulfillment updates', 'Out for Delivery', 'Completed'])
+            ->assertDontSee($result->proof_path)->assertDontSeeText('Actual Recipient');
         Storage::disk('local')->assertExists($result->proof_path);
         $this->assertCount(1, Storage::disk('local')->allFiles('delivery-proofs'));
         $this->assertArrayNotHasKey('proof_path', $service->row($result, $this->supplier));
@@ -382,6 +388,31 @@ class DeliveryBackendTest extends TestCase
         $this->assertSame(1, Delivery::where('order_id', $order->id)->count());
 
         return [$order->fresh(), $delivery];
+    }
+
+    public function test_tracking_uses_recorded_delivery_events_and_hides_staff_details(): void
+    {
+        $this->withoutVite();
+        [$order, $delivery] = $this->ready();
+        $customer = $this->client->user;
+        $this->actingAs($customer)->withSession([AccountSession::KEY => AccountSession::signature($customer)]);
+        $url = route('client.tracking', $order);
+        $slot = now('Asia/Manila')->addDay()->setTime(14, 0);
+        $delivery = $this->deliveryAction($delivery, ['action' => 'schedule', 'scheduled_at' => $slot->toIso8601String()]);
+        $this->travelTo($slot->copy()->addHour());
+        $this->get($url)->assertOk()->assertSeeText('Scheduled for 2:00 PM')->assertDontSeeText('Out for Delivery');
+        $delivery = $this->deliveryAction($delivery, ['action' => 'assign', 'assigned_to' => $this->user('courier', User::ROLE_DELIVERY)->id]);
+        $delivery = $this->deliveryAction($delivery, ['action' => 'dispatch']);
+        $this->get($url)->assertOk()->assertSeeText('Out for Delivery');
+        $delivery = $this->deliveryAction($delivery, ['action' => 'fail']);
+        $this->get($url)->assertSeeTextInOrder(['Delivery attempt failed', 'Check back for a new delivery schedule']);
+        $delivery = $this->deliveryAction($delivery, ['action' => 'schedule', 'scheduled_at' => $slot->copy()->addDay()->toIso8601String()]);
+        $this->get($url)->assertOk()->assertSeeTextInOrder(['Fulfillment updates', 'Delivery scheduled', 'Out for Delivery', 'Delivery attempt failed', 'Delivery rescheduled'])
+            ->assertDontSeeText('Actual delivery operation test.')->assertDontSeeText('Test courier');
+        $this->deliveryAction($delivery, ['action' => 'cancel']);
+        $this->get($url)->assertSeeText('Delivery cancelled');
+        $this->assertSame(2, InventoryReservation::where('status', 'Active')->count());
+        $this->assertSame(0, SalesRecord::count());
     }
 
     private function dispatched(): array
