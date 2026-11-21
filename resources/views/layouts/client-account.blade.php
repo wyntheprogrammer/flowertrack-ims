@@ -2,7 +2,7 @@
 @section('content')
     <section class="shop-width shop-interior">
         <header class="account-heading" data-shop-back-top-threshold>
-            @unless(request()->routeIs('client.orders', 'client.tracking'))
+            @unless(request()->routeIs('client.orders', 'client.tracking', 'client.payments'))
                 <a class="shop-back" href="{{ route('client.home') }}"><i class="bi bi-arrow-left"></i> Shop home</a>
             @endunless
             <h1 tabindex="-1">@yield('title')</h1></header>

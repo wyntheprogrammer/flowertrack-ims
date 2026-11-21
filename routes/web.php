@@ -6,6 +6,7 @@ use App\Http\Controllers\Client\CatalogController;
 use App\Http\Controllers\Client\CheckoutOrderController;
 use App\Http\Controllers\Client\OrderHistoryController;
 use App\Http\Controllers\Client\OrderTrackingController;
+use App\Http\Controllers\Client\PaymentHistoryController;
 use App\Http\Controllers\Supplier\AuditTrailController;
 use App\Http\Controllers\Supplier\BatchController;
 use App\Http\Controllers\Supplier\ClientController;
@@ -49,7 +50,7 @@ Route::prefix('shop')->name('client.')->middleware(EnsureStorefrontSession::clas
         Route::get('orders', [OrderHistoryController::class, 'index'])->name('orders');
         Route::get('orders/{order}', [OrderHistoryController::class, 'show'])->whereNumber('order')->name('orders.show');
         Route::get('tracking/{order?}', OrderTrackingController::class)->whereNumber('order')->name('tracking');
-        Route::view('payments', 'client.payments')->name('payments');
+        Route::get('payments', PaymentHistoryController::class)->name('payments');
         Route::view('profile', 'client.profile')->name('profile');
     });
 });

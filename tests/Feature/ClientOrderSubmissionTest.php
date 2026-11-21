@@ -265,6 +265,51 @@ class ClientOrderSubmissionTest extends TestCase
         $this->assertSame([$ids[1]], $next->pluck('id')->all());
     }
 
+    public function test_customer_payment_history_keeps_original_payment_and_scopes_receipt_access(): void
+    {
+        $this->signIn($this->customer);
+        $this->withSession([CheckoutSession::CART => [$this->bouquet->id => 1], CheckoutSession::SELECTION => [$this->bouquet->id]]);
+        $this->post(route('client.checkout.store'), ['request_key' => $this->review()])->assertRedirect();
+        $order = Order::sole();
+        $url = route('client.payments');
+        $this->get($url)->assertOk()->assertSeeText('No payments recorded yet')->assertSee(route('client.orders'));
+        $payment = $order->payment()->create(['code' => 'PAY-001', 'method' => 'Cash', 'amount_cents' => 80000,
+            'status' => 'Pending', 'remarks' => 'Private staff note']);
+        $receipt = route('client.orders.show', $order);
+        $this->get($url)->assertOk()->assertSee($receipt)->assertSeeText($order->code)->assertSeeText('₱800.00')
+            ->assertSeeText('Pending confirmation')->assertDontSeeText('Private staff note');
+        $payment->update(['status' => 'Confirmed']);
+        $this->get($url)->assertSeeText('Confirmed')->assertDontSeeText('Pending confirmation');
+        $payment->update(['status' => 'Refunded']);
+        $this->travelTo(Carbon::parse('2026-11-21 18:00 UTC'));
+        $payment->refunds()->create(['code' => 'REF-001', 'amount_cents' => 25000, 'reason' => 'Private refund reason',
+            'actor_id' => $this->customer->id, 'actor_name' => 'Private actor']);
+        $this->get($url)->assertSeeTextInOrder(['₱800.00', 'Refunded', '₱250.00', 'Nov 22, 2026 · 2:00 AM PHT'])
+            ->assertDontSeeText('Private refund reason')->assertDontSeeText('Private actor')->assertViewHas('payments', fn ($rows) => $rows->total() === 1);
+        $this->signIn($this->customer());
+        $this->get($url)->assertSeeText('No payments recorded yet')->assertDontSee($receipt);
+        $this->get($receipt)->assertNotFound();
+    }
+
+    public function test_payments_for_staff_orders_paginate_by_payment_date_then_id(): void
+    {
+        $staff = User::factory()->create(['role' => User::ROLE_ADMIN]);
+        $ids = [];
+        for ($i = 0; $i < 11; $i++) {
+            $order = app(OrderService::class)->store(['request_key' => (string) Str::uuid(),
+                'client_id' => $this->customer->clientProfile->id, 'method' => 'Customer Pickup',
+                'items' => [['flower_id' => $this->rose->id, 'quantity' => 1]]], $staff);
+            $payment = $order->payment()->create(['code' => 'PAY-'.$i, 'amount_cents' => 5000, 'method' => 'Cash', 'status' => 'Pending']);
+            $payment->created_at = $i === 0 ? today() : today()->subDay();
+            $payment->save();
+            $ids[] = $payment->id;
+        }
+        $this->signIn($this->customer);
+        $page = $this->get(route('client.payments'))->assertOk()->viewData('payments');
+        $this->assertSame([$ids[0], ...array_reverse(array_slice($ids, 2))], $page->pluck('id')->all());
+        $this->assertSame([$ids[1]], $this->get($page->nextPageUrl())->assertOk()->viewData('payments')->pluck('id')->all());
+    }
+
     private function review(?string $method = null): string
     {
         $url = route('client.checkout', $method === null ? [] : ['method' => $method]);

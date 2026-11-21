@@ -91,3 +91,4 @@
 .tracking-events li { position: relative; display: grid; border-left: 1px solid var(--shop-line); padding: 0 0 1rem 1.2rem; }
 .tracking-events li::before { content: ''; position: absolute; left: -.29rem; top: .4rem; width: .55rem; height: .55rem; border-radius: 50%; background: var(--shop-green); }
 .tracking-events time { color: var(--shop-muted); }
+.payment-refund { grid-column: 1 / -1; margin: 0; }
