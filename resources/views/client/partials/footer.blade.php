@@ -1,4 +1,4 @@
-@php($usesFloatingTop = request()->routeIs('client.home', 'client.catalog'))
+@php($usesFloatingTop = request()->routeIs('client.home', 'client.catalog', 'client.about'))
 
 <footer @class(['shop-footer', 'shop-footer-featured' => $usesFloatingTop])>
     <div class="shop-width shop-footer-inner">

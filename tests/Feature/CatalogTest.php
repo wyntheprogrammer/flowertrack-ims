@@ -132,11 +132,26 @@ class CatalogTest extends TestCase
             ->assertDontSeeText('Shop by Collection');
     }
 
-    public function test_about_links_to_catalog_without_a_collections_destination(): void
+    public function test_about_shows_the_shop_story_and_visit_links_in_order(): void
     {
         $this->get(route('client.about'))
             ->assertOk()
+            ->assertSeeTextInOrder([
+                'About Gemma’s Flower Shop',
+                'How the shop got its name',
+                'Roses and Friends in Quiapo',
+                'Stems and bouquets',
+                'Browse flowers',
+                'Visit the shop',
+                'Laon Laan – Juaning Consolidation Area',
+                'Barangay 471, Sampaloc, Manila 1008',
+                'Get directions',
+                'Visit Gemma’s on Facebook',
+            ])
             ->assertSee('href="'.route('client.catalog').'">Browse flowers', false)
+            ->assertSee('href="https://www.google.com/maps/dir/?api=1&amp;destination=14.6114375%2C120.9863871"', false)
+            ->assertSee('href="https://www.facebook.com/profile.php?id=100063693678426"', false)
+            ->assertSee('src="https://maps.google.com/maps?q=14.6114375,120.9863871&amp;z=18&amp;output=embed"', false)
             ->assertDontSee('/shop/collections');
     }
 
