@@ -193,19 +193,6 @@
 }
 
 .home-flowers .catalog-photo { aspect-ratio: 1.29; }
-.home-photo-placeholder {
-    display: grid;
-    height: 100%;
-    place-content: center;
-    justify-items: center;
-    gap: .4rem;
-    color: #42634d;
-    background: #eee9de;
-}
-
-.home-photo-placeholder-bouquet { background: #f1e2dc; }
-.home-photo-placeholder i { font-size: clamp(1.75rem, 4vw, 3rem); }
-.home-photo-placeholder small { font-size: .75rem; }
 .home-flowers .catalog-item-copy { padding: .45rem .15rem 0; }
 .home-flowers .catalog-item-copy > small { font-size: .75rem; }
 .home-flowers .catalog-item-name { margin: .15rem 0; }
@@ -255,42 +242,7 @@
 .home-about-copy { align-self: center; padding: clamp(1.25rem, 4vw, 4rem); }
 .home-about-copy p { max-width: 43ch; margin: 1rem 0 .35rem; }
 
-.shop-home .shop-footer {
-    margin-top: var(--home-section-gap);
-    padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
-    background: #153827;
-    color: #fff5e7;
-    border-color: #153827;
-}
-.shop-home .shop-footer p, .shop-home .shop-footer a { color: inherit; }
-.shop-home .shop-footer nav a { text-decoration: none; }
-.shop-home .shop-footer nav a:hover { color: #b9e4c2; }
-.shop-home .shop-footer :focus-visible { outline-color: #fff5e7; }
-.home-back-top:not([hidden]) {
-    position: fixed;
-    right: calc(20px + env(safe-area-inset-right, 0px));
-    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-    z-index: 11;
-    display: grid;
-    place-items: center;
-    width: 48px;
-    height: 48px;
-    padding: 0;
-    border: 0;
-    border-radius: 50%;
-    background: #153827;
-    color: white;
-    box-shadow: 0 3px 12px rgb(20 46 33 / 27%);
-    font-size: 1.3rem;
-}
-
-.home-back-top:hover { background: #24533a; }
-.home-back-top:focus-visible {
-    outline: 3px solid #fff5e7;
-    outline-offset: 2px;
-    box-shadow: 0 0 0 6px #153827;
-}
-.shop-home .shop-footer-brand img { filter: brightness(0) invert(1); }
+.shop-home .shop-footer { margin-top: var(--home-section-gap); }
 
 @media (max-width: 980px) {
     .home-hero-actions { max-width: 49%; }

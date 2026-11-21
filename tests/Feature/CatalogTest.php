@@ -50,7 +50,7 @@ class CatalogTest extends TestCase
             ->assertOk()->assertSeeText('Spring bunch')->assertDontSeeText('Spring stem')
             ->assertDontSeeText('Rose bunch')->assertSeeText('Price unavailable')->assertSeeText('Out of stock');
         $this->get(route('client.catalog', ['type' => 'Stem', 'category' => 'Roses']))
-            ->assertOk()->assertSeeText('No flowers match these filters.');
+            ->assertOk()->assertSeeTextInOrder(['No flowers match these filters.', 'Clear filters']);
     }
 
     public function test_cart_reviews_current_stock_and_price_without_reserving_or_submitting(): void
@@ -142,6 +142,25 @@ class CatalogTest extends TestCase
             ->assertDontSeeText('Rose Stem')
             ->assertDontSeeText('Rose Bunch')
             ->assertSee(route('client.catalog', [...$filters, 'page' => 2]));
+    }
+
+    public function test_type_choices_preserve_the_applied_filters_and_reset_the_page(): void
+    {
+        for ($number = 1; $number <= 13; $number++) {
+            $this->flower(sprintf('Rose Stem %02d', $number), 'Stem', 'Cut Flowers');
+        }
+
+        $filters = ['category' => 'Cut Flowers', 'q' => 'Rose'];
+        $response = $this->get(route('client.catalog', ['type' => 'Stem', ...$filters, 'page' => 2]));
+
+        $response->assertOk()
+            ->assertSeeText('Flower catalog')
+            ->assertSeeText('Rose Stem 13')
+            ->assertSeeText('Photo unavailable')
+            ->assertSee('name="type" value="Stem"', false)
+            ->assertSee('href="'.e(route('client.catalog', ['type' => 'Stem', ...$filters])).'" aria-current="page">', false)
+            ->assertSee('href="'.e(route('client.catalog', ['type' => 'Bouquet', ...$filters])).'"', false)
+            ->assertSee('href="'.e(route('client.catalog', $filters)).'"', false);
     }
 
     public function test_catalog_search_matches_wildcards_literally_and_escapes_the_search_field(): void

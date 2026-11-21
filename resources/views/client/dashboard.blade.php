@@ -8,7 +8,7 @@
 @endpush
 
 @section('content')
-    <section class="floral-hero" aria-labelledby="hero-title">
+    <section class="floral-hero" aria-labelledby="hero-title" data-shop-back-top-threshold>
         <picture class="home-hero-photo">
             <source media="(max-width: 760px)" srcset="{{ asset('images/shop-hero-mobile.webp') }}" width="960" height="660">
             <img src="{{ asset('images/shop-hero.webp') }}" width="2022" height="778" fetchpriority="high"
@@ -50,7 +50,7 @@
         @if ($featuredFlowers->isNotEmpty())
             <div class="catalog-grid featured-grid">
                 @foreach ($featuredFlowers as $flower)
-                    @include('client.partials.product-card', ['heading' => 'h3', 'isHomepage' => true])
+                    @include('client.partials.product-card', ['heading' => 'h3'])
                 @endforeach
             </div>
         @else
@@ -87,8 +87,4 @@
             <a class="home-text-link" href="{{ route('client.about') }}">More about Gemma’s</a>
         </div>
     </section>
-
-    <button class="home-back-top" type="button" aria-label="Back to top" hidden>
-        <i class="bi bi-arrow-up" aria-hidden="true"></i>
-    </button>
 @endsection

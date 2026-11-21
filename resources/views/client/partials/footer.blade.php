@@ -1,4 +1,6 @@
-<footer class="shop-footer">
+@php($usesFloatingTop = request()->routeIs('client.home', 'client.catalog'))
+
+<footer @class(['shop-footer', 'shop-footer-featured' => $usesFloatingTop])>
     <div class="shop-width shop-footer-inner">
         <a class="shop-footer-brand" href="{{ route('client.home') }}" aria-label="Gemma’s Flower Shop home">
             <img src="{{ asset('images/gemmas-logo.png') }}" width="733" height="340" loading="lazy" alt="Gemma’s Flower Shop">
@@ -18,9 +20,15 @@
             <p>For account access or password reset, contact your administrator.</p>
         </section>
     </div>
-    @unless (request()->routeIs('client.home'))
+    @unless ($usesFloatingTop)
         <div class="shop-width shop-footer-bottom">
             <a href="#top">Back to top <i class="bi bi-arrow-up" aria-hidden="true"></i></a>
         </div>
     @endunless
 </footer>
+
+@if ($usesFloatingTop)
+    <button class="shop-back-top" type="button" aria-label="Back to top" hidden>
+        <i class="bi bi-arrow-up" aria-hidden="true"></i>
+    </button>
+@endif

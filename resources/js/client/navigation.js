@@ -30,6 +30,22 @@ header.addEventListener('keydown', event => {
     }
 });
 
+const topButton = document.querySelector('.shop-back-top');
+const topThreshold = document.querySelector('[data-shop-back-top-threshold]');
+
+if (topButton && topThreshold && 'IntersectionObserver' in window) {
+    const topObserver = new IntersectionObserver(([entry]) => {
+        topButton.hidden = entry.isIntersecting || entry.boundingClientRect.bottom > 0;
+    });
+    topObserver.observe(topThreshold);
+
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+    topButton.addEventListener('click', () => {
+        topThreshold.querySelector('h1').focus({ preventScroll: true });
+        window.scrollTo({ top: 0, behavior: reduceMotion.matches ? 'instant' : 'smooth' });
+    });
+}
+
 if ('IntersectionObserver' in window && matchMedia('(prefers-reduced-motion: no-preference)').matches) {
     const reveal = new IntersectionObserver((entries, observer) => {
         for (const entry of entries) {
