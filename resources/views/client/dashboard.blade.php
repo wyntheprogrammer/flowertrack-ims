@@ -25,26 +25,6 @@
         </div>
     </section>
 
-    <section class="shop-width home-collections" aria-labelledby="collections-title">
-        <h2 class="home-section-title" id="collections-title">Shop by Collection</h2>
-        <div class="home-collection-grid">
-            <a class="home-collection-card" href="{{ route('client.catalog', ['type' => \App\Models\Flower::TYPE_STEM]) }}">
-                <img src="{{ asset('images/shop-stems.webp') }}" width="1040" height="400" loading="lazy" alt="">
-                <span class="home-collection-copy">
-                    <strong>Individual Stems</strong>
-                    <span>Build an arrangement stem by stem</span>
-                </span>
-            </a>
-            <a class="home-collection-card" href="{{ route('client.catalog', ['type' => \App\Models\Flower::TYPE_BOUQUET]) }}">
-                <img src="{{ asset('images/shop-bouquets.webp') }}" width="1040" height="400" loading="lazy" alt="">
-                <span class="home-collection-copy">
-                    <strong>Ready-made Bouquets</strong>
-                    <span>Choose a finished arrangement to give</span>
-                </span>
-            </a>
-        </div>
-    </section>
-
     <section class="shop-width home-flowers" aria-labelledby="featured-title">
         <h2 class="home-section-title" id="featured-title">Explore Our Flowers</h2>
         @if ($featuredFlowers->isNotEmpty())

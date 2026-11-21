@@ -33,12 +33,11 @@ if ('IntersectionObserver' in window && !reduceMotion.matches) {
     const revealCards = new IntersectionObserver((entries, observer) => {
         const visibleCards = entries.filter(entry => entry.isIntersecting);
         visibleCards.forEach(({ target }, index) => {
-            const delay = target.matches('.home-collection-card') ? (target.previousElementSibling ? 60 : 0) : index * 45;
-            target.style.setProperty('--home-card-delay', delay + 'ms');
+            target.style.setProperty('--home-card-delay', (index * 45) + 'ms');
             target.classList.add('home-card-entered');
             observer.unobserve(target);
         });
     }, { threshold: 0.1 });
-    document.querySelectorAll('.home-collection-card, .home-flowers .catalog-item')
+    document.querySelectorAll('.home-flowers .catalog-item')
         .forEach(card => revealCards.observe(card));
 }

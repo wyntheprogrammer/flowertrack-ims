@@ -25,8 +25,8 @@ use Illuminate\Support\Facades\Route;
 Route::view('/', 'welcome');
 Route::get('/shop', [CatalogController::class, 'home'])->name('client.home');
 Route::get('/shop/catalog', CatalogController::class)->name('client.catalog');
+Route::permanentRedirect('/shop/collections', '/shop/catalog');
 Route::prefix('shop')->name('client.')->group(function () {
-    Route::view('collections', 'client.collections')->name('collections');
     Route::view('about', 'client.about')->name('about');
     Route::get('flowers/{flower}', [CatalogController::class, 'show'])->whereNumber('flower')->name('product');
     Route::get('cart', [CartController::class, 'index'])->name('cart');

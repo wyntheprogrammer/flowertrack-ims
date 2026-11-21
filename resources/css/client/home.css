@@ -127,55 +127,6 @@
     content: '';
 }
 
-.home-collection-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--home-card-gap);
-}
-
-.home-collection-card {
-    position: relative;
-    isolation: isolate;
-    display: grid;
-    align-items: center;
-    min-height: clamp(9rem, 15vw, 15.5rem);
-    color: white;
-    background: #714d38;
-    text-decoration: none;
-}
-
-.home-collection-card img, .home-collection-card::after {
-    position: absolute;
-    z-index: -1;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.home-collection-card img { object-position: right center; }
-
-.home-collection-card::after {
-    background: linear-gradient(90deg, #211910eb, #211910c9 34%, #21191038 65%, transparent 85%);
-    content: '';
-}
-
-.home-collection-copy {
-    display: grid;
-    justify-items: start;
-    gap: .3rem;
-    max-width: 52%;
-    padding: .85rem 0 .85rem clamp(.75rem, 2.8vw, 2.3rem);
-}
-
-.home-collection-copy strong {
-    max-width: 13ch;
-    font: 500 clamp(1.4rem, 2.9vw, 2.8rem)/1.02 var(--shop-serif);
-}
-
-.home-collection-copy span { font-size: clamp(.72rem, 1vw, .95rem); }
-.home-collection-card:hover { color: #d1eed8; }
-
 .home-flowers { text-align: center; }
 .home-flowers .featured-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -266,7 +217,7 @@
     .shop-home main .shop-width { width: 92%; }
     .shop-home main .home-hero-copy { width: 90%; }
     .home-flowers .featured-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .home-collection-grid, .home-order ol, .home-about { grid-template-columns: 1fr; }
+    .home-order ol, .home-about { grid-template-columns: 1fr; }
     .home-order ol { gap: .85rem; }
     .home-order li { padding-block: .2rem; }
     .home-about > img { aspect-ratio: 1.85; }
@@ -274,13 +225,12 @@
 
 @media (prefers-reduced-motion: no-preference) {
     .home-card-entered {
-        animation: home-card-enter var(--home-reveal-duration, 300ms) ease-out var(--home-card-delay, 0ms) backwards;
+        animation: home-card-enter 300ms ease-out var(--home-card-delay, 0ms) backwards;
     }
-    .home-collection-card { --home-reveal-duration: 450ms; --home-reveal-distance: 16px; }
     .home-card-entered:focus-within { opacity: 1 !important; }
 
     @keyframes home-card-enter {
-        from { opacity: 0; transform: translateY(var(--home-reveal-distance, 10px)); }
+        from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
     }
 }

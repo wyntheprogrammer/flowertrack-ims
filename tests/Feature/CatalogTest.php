@@ -115,12 +115,29 @@ class CatalogTest extends TestCase
             ->assertSeeText('Shop the catalog');
     }
 
-    public function test_collections_links_to_the_two_catalog_filters(): void
+    public function test_old_collections_url_redirects_permanently_to_catalog(): void
     {
-        $this->get(route('client.collections'))->assertOk()
-            ->assertSeeText('Ready-made bouquets')
-            ->assertSee('href="'.route('client.catalog', ['type' => Flower::TYPE_STEM]).'"', false)
-            ->assertSee('href="'.route('client.catalog', ['type' => Flower::TYPE_BOUQUET]).'"', false);
+        $this->get('/shop/collections')
+            ->assertMovedPermanently()
+            ->assertRedirect(route('client.catalog'));
+    }
+
+    public function test_home_shopping_links_point_to_the_filtered_catalog(): void
+    {
+        $this->get(route('client.home'))
+            ->assertOk()
+            ->assertSee('href="'.route('client.catalog', ['type' => Flower::TYPE_STEM]).'">Shop by Stem</a>', false)
+            ->assertSee('href="'.route('client.catalog', ['type' => Flower::TYPE_BOUQUET]).'">Shop Bouquets</a>', false)
+            ->assertDontSee('/shop/collections')
+            ->assertDontSeeText('Shop by Collection');
+    }
+
+    public function test_about_links_to_catalog_without_a_collections_destination(): void
+    {
+        $this->get(route('client.about'))
+            ->assertOk()
+            ->assertSee('href="'.route('client.catalog').'">Browse flowers', false)
+            ->assertDontSee('/shop/collections');
     }
 
     public function test_catalog_search_combines_with_filters_and_persists_in_pagination(): void

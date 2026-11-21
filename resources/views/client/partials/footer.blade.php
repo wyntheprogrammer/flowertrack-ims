@@ -8,7 +8,7 @@
         <nav aria-labelledby="shop-footer-nav">
             <h2 id="shop-footer-nav">Shop</h2>
             <ul>
-                @foreach (['home' => 'Home', 'catalog' => 'Catalog', 'collections' => 'Collections', 'about' => 'About'] as $page => $label)
+                @foreach (['home' => 'Home', 'catalog' => 'Catalog', 'about' => 'About'] as $page => $label)
                     <li>
                         <a href="{{ route('client.'.$page) }}" @if(request()->routeIs('client.'.$page)) aria-current="page" @endif>{{ $label }}</a>
                     </li>
