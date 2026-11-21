@@ -23,4 +23,11 @@ class AccountSession
     {
         $request->session()->put(self::KEY, self::signature($user));
     }
+
+    public static function isCurrent(Request $request, User $user): bool
+    {
+        $saved = $request->session()->get(self::KEY);
+
+        return is_string($saved) && hash_equals(self::signature($user), $saved);
+    }
 }

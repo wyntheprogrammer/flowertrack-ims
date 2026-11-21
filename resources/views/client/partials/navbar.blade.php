@@ -11,7 +11,17 @@
             <a href="{{ route('client.catalog') }}" @if(request()->routeIs('client.catalog', 'client.product')) aria-current="{{ request()->routeIs('client.catalog') ? 'page' : 'location' }}" @endif>Catalog</a>
             <a href="{{ route('client.about') }}" @if(request()->routeIs('client.about')) aria-current="page" @endif>About</a>
             <a class="nav-cart" href="{{ route('client.cart') }}" @if(request()->routeIs('client.cart', 'client.checkout')) aria-current="{{ request()->routeIs('client.cart') ? 'page' : 'location' }}" @endif><i class="bi bi-bag" aria-hidden="true"></i> Cart</a>
-            <a href="{{ route('client.orders') }}" @if(request()->routeIs('client.orders', 'client.tracking', 'client.payments', 'client.profile')) aria-current="{{ request()->routeIs('client.orders') ? 'page' : 'location' }}" @endif><i class="bi bi-person" aria-hidden="true"></i> Account</a>
+            @if (auth()->user()?->isClient())
+                @unless (auth()->user()->must_change_password)
+                    <a href="{{ route('client.profile') }}" @if(request()->routeIs('client.orders', 'client.tracking', 'client.payments', 'client.profile')) aria-current="{{ request()->routeIs('client.profile') ? 'page' : 'location' }}" @endif>Account</a>
+                @endunless
+                <form class="shop-sign-out" method="post" action="{{ route('logout') }}">
+                    @csrf
+                    <button type="submit">Sign out</button>
+                </form>
+            @elseif (auth()->guest())
+                <a href="{{ route('client.login') }}" @if(request()->routeIs('client.login')) aria-current="page" @endif><i class="bi bi-person" aria-hidden="true"></i> Sign in</a>
+            @endif
         </nav>
     </div>
 </header>

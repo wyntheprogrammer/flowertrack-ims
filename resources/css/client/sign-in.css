@@ -1,0 +1,33 @@
+.shop-auth {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: #faf2e8;
+}
+
+.shop-auth main { flex: 1 0 auto; }
+.shop-auth .shop-header nav a:hover { text-decoration: none; }
+
+.shop-auth-page {
+    width: min(92%, 32rem);
+    margin-block: clamp(1.5rem, 5vw, 4rem);
+    padding: clamp(1.25rem, 4vw, 2.5rem);
+    border: 1px solid var(--shop-line);
+    border-top: 3px solid var(--shop-green);
+    background: var(--shop-surface);
+}
+
+.shop-auth-page h1 {
+    margin: 0 0 1rem;
+    font: 500 clamp(2.25rem, 5vw, 3.5rem)/1.05 var(--shop-serif);
+    letter-spacing: -.035em;
+}
+
+.shop-auth-form { display: grid; gap: 1rem; }
+.shop-auth-form label { font-weight: 600; }
+.shop-auth-form input { min-height: 44px; border-color: #948479; }
+.shop-auth-form input:focus-visible { border-color: var(--shop-green); box-shadow: none; }
+.shop-auth-form [aria-invalid="true"] { border-color: #98474f; }
+.shop-auth-form .shop-button { justify-self: start; margin-top: .25rem; border-radius: .55rem; }
+.shop-auth-note { margin: 1.15rem 0 0; color: var(--shop-muted); }

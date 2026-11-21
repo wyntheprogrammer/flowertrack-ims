@@ -71,8 +71,7 @@ class AuditRequests
             $exception instanceof AuthorizationException => 403,
             $exception instanceof TokenMismatchException => 419,
             $exception instanceof ValidationException => 422,
-            $exception instanceof HttpExceptionInterface =>
-                $exception->getStatusCode(),
+            $exception instanceof HttpExceptionInterface => $exception->getStatusCode(),
             default => 500,
         };
 
@@ -85,7 +84,7 @@ class AuditRequests
     private function capture(Request $request, int $status): void
     {
         if (
-            !in_array($status, [401, 403, 419, 422, 429], true)
+            ! in_array($status, [401, 403, 419, 422, 429], true)
             && $status < 500
         ) {
             return;
@@ -98,7 +97,7 @@ class AuditRequests
         try {
             $module = $this->module($request);
 
-            if (!$module) {
+            if (! $module) {
                 return;
             }
 
@@ -112,7 +111,7 @@ class AuditRequests
 
             $audit = app(AuditService::class);
 
-            if (!$audit->enabled(new User())) {
+            if (! $audit->enabled(new User)) {
                 return;
             }
 
@@ -160,8 +159,8 @@ class AuditRequests
             : '';
 
         if (
-            in_array($name, ['login.store', 'password.update'], true)
-            || $request->is('login', 'change-password')
+            in_array($name, ['login.store', 'client.login.store', 'password.update'], true)
+            || $request->is('login', 'shop/sign-in', 'change-password')
         ) {
             return 'Authentication';
         }
@@ -180,4 +179,3 @@ class AuditRequests
         return null;
     }
 }
-

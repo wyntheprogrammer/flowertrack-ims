@@ -13,9 +13,7 @@ class EnsureAccountSessionIsCurrent
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
-        $saved = $request->session()->get(AccountSession::KEY);
-
-        if (!$user || !is_string($saved) || !hash_equals(AccountSession::signature($user), $saved)) {
+        if (! $user || ! AccountSession::isCurrent($request, $user)) {
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();

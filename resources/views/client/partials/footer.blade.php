@@ -1,4 +1,4 @@
-@php($usesFloatingTop = request()->routeIs('client.home', 'client.catalog', 'client.about', 'client.cart', 'client.checkout'))
+@php($usesFloatingTop = request()->routeIs('client.home', 'client.catalog', 'client.about', 'client.cart', 'client.checkout', 'client.login', 'password.change'))
 
 <footer @class(['shop-footer', 'shop-footer-featured' => $usesFloatingTop])>
     <div class="shop-width shop-footer-inner">
@@ -17,7 +17,7 @@
         </nav>
         <section aria-labelledby="shop-footer-contact">
             <h2 id="shop-footer-contact">Contact</h2>
-            <p>For account access or password reset, contact your administrator.</p>
+            <p>Contact the shop for account access or a password reset.</p>
         </section>
     </div>
     @unless ($usesFloatingTop)

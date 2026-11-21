@@ -5,10 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Rules\SafeAccountPassword;
 use App\Support\AccountSession;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
@@ -18,24 +18,38 @@ use Illuminate\View\View;
 
 class AuthController extends Controller
 {
-    public function showLogin(): View|RedirectResponse
+    private const STOREFRONT_RETURN = 'shop.sign_in_return';
+
+    public function showLogin(Request $request): View|RedirectResponse
     {
         if (Auth::check()) {
-            return $this->redirectAfterLogin(Auth::user());
+            return $this->redirectAfterLogin($request, Auth::user());
         }
 
         return view('auth.login');
     }
 
+    public function showClientLogin(Request $request): View|RedirectResponse
+    {
+        $destination = $this->clientDestination($request->query('continue'));
+
+        if ($request->user()) {
+            return $this->redirectToClientDestination($request->user()->isClient() ? $destination : 'client.home');
+        }
+
+        return view('client.sign-in', compact('destination'));
+    }
+
     public function login(Request $request): RedirectResponse
     {
-        $request->merge([
-            'email' => Str::lower(trim((string) $request->input('email'))),
-        ]);
+        $email = $request->input('email');
+        if (is_string($email)) {
+            $request->merge(['email' => Str::lower(trim($email))]);
+        }
 
         $credentials = $request->validate([
             'email' => ['required', 'email', 'max:254'],
-            'password' => ['required', 'string', new SafeAccountPassword()],
+            'password' => ['required', 'string', new SafeAccountPassword],
         ]);
 
         $key = 'login:'.hash(
@@ -51,11 +65,14 @@ class AuthController extends Controller
             ]);
         }
 
-        $authenticated = Auth::attempt([
+        $storefront = $request->routeIs('client.login.store');
+        $authenticated = Auth::attemptWhen([
             'email' => $credentials['email'],
             'password' => $credentials['password'],
             'is_active' => true,
-        ]);
+        ], fn (User $user): bool => $storefront
+            ? $user->isClient() && $user->clientProfile()->exists()
+            : in_array($user->role, [User::ROLE_ADMIN, User::ROLE_SUPPLIER, User::ROLE_DELIVERY], true));
 
         if (! $authenticated) {
             RateLimiter::hit($key, 60);
@@ -67,22 +84,8 @@ class AuthController extends Controller
 
         $user = Auth::user();
 
-        // Client storefront authentication will be connected separately.
-        if (! in_array($user->role, [
-            User::ROLE_ADMIN,
-            User::ROLE_SUPPLIER,
-            User::ROLE_DELIVERY,
-        ], true)) {
-            Auth::logout();
-
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
-
-            RateLimiter::hit($key, 60);
-
-            throw ValidationException::withMessages([
-                'email' => 'Unable to sign in with these credentials.',
-            ]);
+        if ($storefront) {
+            $request->session()->put(self::STOREFRONT_RETURN, $this->clientDestination($request->input('continue')));
         }
 
         RateLimiter::clear($key);
@@ -91,12 +94,12 @@ class AuthController extends Controller
         $request->session()->regenerate();
         AccountSession::remember($request, $user);
 
-        return $this->redirectAfterLogin($user);
+        return $this->redirectAfterLogin($request, $user);
     }
 
     public function showChangePassword(Request $request): View|RedirectResponse
     {
-        return view('auth.change-password');
+        return view($request->user()->isClient() ? 'client.change-password' : 'auth.change-password');
     }
 
     public function updatePassword(Request $request): RedirectResponse
@@ -112,13 +115,13 @@ class AuthController extends Controller
                 'string',
                 'confirmed',
                 Password::min(12),
-                new SafeAccountPassword(),
+                new SafeAccountPassword,
             ],
         ]);
 
         $user = DB::transaction(function () use ($request, $validated) {
             $locked = User::query()->lockForUpdate()->findOrFail($request->user()->id);
-            if (!$locked->is_active || !Hash::check($validated['current_password'], $locked->password)) {
+            if (! $locked->is_active || ! Hash::check($validated['current_password'], $locked->password)) {
                 throw ValidationException::withMessages([
                     'current_password' => 'Account credentials changed. Sign in again.',
                 ]);
@@ -132,6 +135,7 @@ class AuthController extends Controller
             $locked->must_change_password = false;
             $locked->remember_token = Str::random(60);
             $locked->save();
+
             return $locked;
         });
 
@@ -140,24 +144,29 @@ class AuthController extends Controller
         $request->session()->regenerateToken();
         AccountSession::remember($request, $user);
 
-        return $this->redirectAfterLogin($user)
+        return $this->redirectAfterLogin($request, $user)
             ->with('status', 'Your password has been changed.');
     }
 
     public function logout(Request $request): RedirectResponse
     {
+        $storefront = $request->user()->isClient();
         Auth::logout();
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('login');
+        return to_route($storefront ? 'client.home' : 'login');
     }
 
-    private function redirectAfterLogin(User $user): RedirectResponse
+    private function redirectAfterLogin(Request $request, User $user): RedirectResponse
     {
         if ($user->must_change_password) {
             return redirect()->route('password.change');
+        }
+
+        if ($user->isClient()) {
+            return $this->redirectToClientDestination($request->session()->pull(self::STOREFRONT_RETURN));
         }
 
         if ($user->isDeliveryPersonnel()) {
@@ -165,5 +174,21 @@ class AuthController extends Controller
         }
 
         return redirect()->route('supplier.dashboard');
+    }
+
+    private function clientDestination(mixed $destination): string
+    {
+        return in_array($destination, ['client.checkout', 'client.checkout.delivery'], true)
+            ? $destination
+            : 'client.home';
+    }
+
+    private function redirectToClientDestination(mixed $destination): RedirectResponse
+    {
+        return match ($this->clientDestination($destination)) {
+            'client.checkout.delivery' => to_route('client.checkout', ['method' => 'delivery']),
+            'client.checkout' => to_route('client.checkout'),
+            default => to_route('client.home'),
+        };
     }
 }

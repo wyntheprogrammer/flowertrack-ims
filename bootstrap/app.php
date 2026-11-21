@@ -19,7 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(AuditRequests::class);
 
         $middleware->redirectGuestsTo(
-            fn (Request $request) => route('login')
+            fn (Request $request) => route($request->routeIs('client.*') ? 'client.login' : 'login')
         );
 
         $middleware->alias([
@@ -35,7 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
         );
 
         $exceptions->render(function (
-            \Throwable $exception,
+            Throwable $exception,
             Request $request
         ) {
             app(AuditRequests::class)->fromException(

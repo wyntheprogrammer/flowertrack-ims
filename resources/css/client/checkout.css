@@ -131,6 +131,7 @@
     border-top: 1px solid var(--shop-line);
 }
 .checkout-final-total dt, .checkout-final-total dd { font-weight: 700; }
+.checkout-sign-in { margin-top: 1rem; }
 
 @media (max-width: 730px) {
     .checkout-layout { grid-template-columns: minmax(0, 1fr); }

@@ -6,6 +6,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -17,8 +18,11 @@ class User extends Authenticatable
     use HasFactory, Notifiable;
 
     public const ROLE_ADMIN = 'admin';
+
     public const ROLE_SUPPLIER = 'supplier';
+
     public const ROLE_DELIVERY = 'delivery';
+
     public const ROLE_CLIENT = 'client';
 
     protected function casts(): array
@@ -49,5 +53,10 @@ class User extends Authenticatable
     public function isClient(): bool
     {
         return $this->role === self::ROLE_CLIENT;
+    }
+
+    public function clientProfile(): HasOne
+    {
+        return $this->hasOne(Client::class);
     }
 }

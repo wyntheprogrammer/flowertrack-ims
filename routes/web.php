@@ -16,6 +16,7 @@ use App\Http\Controllers\Supplier\SalesPaymentController;
 use App\Http\Controllers\Supplier\SpoilagePredictionController;
 use App\Http\Controllers\Supplier\UserController;
 use App\Http\Middleware\EnsureAccountSessionIsCurrent;
+use App\Http\Middleware\EnsureStorefrontSession;
 use Illuminate\Support\Facades\Route;
 
 // ========================================
@@ -23,11 +24,13 @@ use Illuminate\Support\Facades\Route;
 // ========================================
 
 Route::view('/', 'welcome');
-Route::get('/shop', [CatalogController::class, 'home'])->name('client.home');
-Route::get('/shop/catalog', CatalogController::class)->name('client.catalog');
 Route::permanentRedirect('/shop/collections', '/shop/catalog');
-Route::prefix('shop')->name('client.')->group(function () {
+Route::prefix('shop')->name('client.')->middleware(EnsureStorefrontSession::class)->group(function () {
+    Route::get('/', [CatalogController::class, 'home'])->name('home');
+    Route::get('catalog', CatalogController::class)->name('catalog');
     Route::view('about', 'client.about')->name('about');
+    Route::get('sign-in', [AuthController::class, 'showClientLogin'])->name('login');
+    Route::post('sign-in', [AuthController::class, 'login'])->middleware('guest')->name('login.store');
     Route::get('flowers/{flower}', [CatalogController::class, 'show'])->whereNumber('flower')->name('product');
     Route::get('cart', [CartController::class, 'index'])->name('cart');
     Route::post('cart/selection', [CartController::class, 'select'])->name('cart.selection');
@@ -35,10 +38,12 @@ Route::prefix('shop')->name('client.')->group(function () {
     Route::put('cart/{flower}', [CartController::class, 'save'])->whereNumber('flower')->name('cart.update');
     Route::delete('cart/{flower}', [CartController::class, 'remove'])->whereNumber('flower')->name('cart.remove');
     Route::get('checkout', [CartController::class, 'index'])->name('checkout');
-    Route::view('orders', 'client.orders')->name('orders');
-    Route::view('tracking', 'client.order-tracking')->name('tracking');
-    Route::view('payments', 'client.payments')->name('payments');
-    Route::view('profile', 'client.profile')->name('profile');
+    Route::middleware(['auth', 'role:client'])->group(function () {
+        Route::view('orders', 'client.orders')->name('orders');
+        Route::view('tracking', 'client.order-tracking')->name('tracking');
+        Route::view('payments', 'client.payments')->name('payments');
+        Route::view('profile', 'client.profile')->name('profile');
+    });
 });
 
 Route::get('/login', [AuthController::class, 'showLogin'])
@@ -65,13 +70,13 @@ Route::middleware('auth')->group(function () {
         Route::get('/change-password', [
             AuthController::class,
             'showChangePassword',
-        ])->name('password.change');
+        ])->middleware(EnsureStorefrontSession::class)->name('password.change');
 
         Route::put('/change-password', [
             AuthController::class,
             'updatePassword',
         ])
-            ->middleware('throttle:5,1')
+            ->middleware([EnsureStorefrontSession::class, 'throttle:5,1'])
             ->name('password.update');
 
         // ========================================

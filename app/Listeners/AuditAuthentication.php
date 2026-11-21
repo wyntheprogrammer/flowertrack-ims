@@ -26,8 +26,7 @@ class AuditAuthentication
     }
 
     /**
-     * Credentials passed authentication.
-     * Portal role restrictions still apply afterward.
+     * Record the account accepted by the requested portal.
      */
     public function login(Login $event): void
     {
@@ -35,20 +34,21 @@ class AuditAuthentication
             ? $event->user
             : null;
 
+        $storefront = request()->routeIs('client.login.store');
         $allowed = $user
             && $user->is_active
-            && in_array($user->role, [
+            && ($storefront ? $user->isClient() : in_array($user->role, [
                 User::ROLE_ADMIN,
                 User::ROLE_SUPPLIER,
                 User::ROLE_DELIVERY,
-            ], true);
+            ], true));
 
         $this->write(
             action: $allowed ? 'Login Accepted' : 'Login Rejected',
             result: $allowed ? 'Success' : 'Failed',
             description: $allowed
-                ? 'Credentials accepted; account access rules still apply.'
-                : 'Account cannot access the operational portal.',
+                ? ($storefront ? 'Customer storefront sign-in accepted.' : 'Operational portal sign-in accepted.')
+                : 'Account cannot access the requested portal.',
             record: $user,
             actor: $user
         );
@@ -104,7 +104,7 @@ class AuditAuthentication
         try {
             $audit = app(AuditService::class);
 
-            if (! $audit->enabled($record ?? new User())) {
+            if (! $audit->enabled($record ?? new User)) {
                 return;
             }
 

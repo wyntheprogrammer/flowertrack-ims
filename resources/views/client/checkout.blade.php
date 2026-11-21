@@ -90,6 +90,9 @@
                                         <dd>₱{{ \App\Support\Money::format($subtotal + ($delivery ? $fee : 0)) }}</dd>
                                     </div>
                                 </dl>
+                                @guest
+                                    <a class="shop-button primary checkout-sign-in" href="{{ route('client.login', ['continue' => $delivery ? 'client.checkout.delivery' : 'client.checkout']) }}">Sign in to continue</a>
+                                @endguest
                             </div>
                         @else
                             <h2 id="checkout-summary-title">Order summary</h2>
@@ -105,5 +108,11 @@
                 <a class="shop-button primary" href="{{ route('client.cart') }}">Return to cart</a>
             </div>
         @endif
+
+        @guest
+            @if (! $lines || ! $valid)
+                <a class="checkout-link checkout-sign-in" href="{{ route('client.login', ['continue' => 'client.checkout']) }}">Sign in to continue</a>
+            @endif
+        @endguest
     </section>
 @endsection
