@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Client;
 use App\Http\Controllers\Controller;
 use App\Models\Flower;
 use App\Services\OrderService;
+use App\Support\CheckoutSession;
 use App\Support\Money;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
@@ -18,12 +19,14 @@ class CartController extends Controller
 {
     public const MAX_REQUEST_QUANTITY = 4294967295;
 
-    private const SELECTION_KEY = 'shop.cart_selection';
-
     public function save(Request $request, int $flower): RedirectResponse|JsonResponse
     {
+        CheckoutSession::recover($request->session(), $request->user());
         $adding = $request->isMethod('post');
-        $cart = $request->session()->get('shop.cart', []);
+        $cart = $request->session()->get(CheckoutSession::CART, []);
+        if (! $adding && ! array_key_exists($flower, $cart)) {
+            return $this->cartUpdateError($request, $flower, 'This flower is no longer in your cart.');
+        }
         $item = Flower::storefront()->find($flower);
 
         if (! $item) {
@@ -66,12 +69,12 @@ class CartController extends Controller
         }
 
         $session = $request->session();
-        if (! array_key_exists($flower, $cart) && $session->has(self::SELECTION_KEY)) {
-            $session->push(self::SELECTION_KEY, $flower);
+        if (! array_key_exists($flower, $cart) && $session->has(CheckoutSession::SELECTION)) {
+            $session->push(CheckoutSession::SELECTION, $flower);
         }
 
         $cart[$flower] = $cartQuantity;
-        $session->put('shop.cart', $cart);
+        $session->put(CheckoutSession::CART, $cart);
 
         if (! $adding && $request->expectsJson()) {
             return response()->json([
@@ -79,7 +82,7 @@ class CartController extends Controller
                 'price' => (int) $item->price_cents,
                 'amount' => $item->price_cents * $cartQuantity,
                 'maxQuantity' => min($limit, self::MAX_REQUEST_QUANTITY),
-                'selected' => in_array($flower, $session->get(self::SELECTION_KEY, array_keys($cart)), true),
+                'selected' => in_array($flower, $session->get(CheckoutSession::SELECTION, array_keys($cart)), true),
             ]);
         }
 
@@ -92,13 +95,14 @@ class CartController extends Controller
 
     public function select(Request $request): RedirectResponse|Response
     {
+        CheckoutSession::recover($request->session(), $request->user());
         $input = $request->validate([
             'selected' => ['sometimes', 'array', 'list'],
             'selected.*' => ['required', 'integer', 'min:1'],
         ]);
-        $cart = $request->session()->get('shop.cart', []);
+        $cart = $request->session()->get(CheckoutSession::CART, []);
         $selected = array_values(array_intersect(array_keys($cart), $input['selected'] ?? []));
-        $request->session()->put(self::SELECTION_KEY, $selected);
+        $request->session()->put(CheckoutSession::SELECTION, $selected);
 
         if ($request->expectsJson()) {
             return response()->noContent();
@@ -110,19 +114,26 @@ class CartController extends Controller
     public function remove(Request $request, int $flower): RedirectResponse
     {
         $session = $request->session();
-        $session->forget('shop.cart.'.$flower);
-        if ($session->has(self::SELECTION_KEY)) {
-            $session->put(self::SELECTION_KEY, array_values(array_diff($session->get(self::SELECTION_KEY), [$flower])));
+        CheckoutSession::recover($session, $request->user());
+        $session->forget(CheckoutSession::CART.'.'.$flower);
+        if ($session->has(CheckoutSession::SELECTION)) {
+            $session->put(CheckoutSession::SELECTION, array_values(array_diff($session->get(CheckoutSession::SELECTION), [$flower])));
         }
 
         return to_route('client.cart')->with('cart_status', 'Item removed.');
     }
 
-    public function index(Request $request, OrderService $orders): View
+    public function index(Request $request, OrderService $orders): View|RedirectResponse
     {
         $session = $request->session();
-        $cart = $session->get('shop.cart', []);
-        $selection = array_fill_keys($session->get(self::SELECTION_KEY, array_keys($cart)), true);
+        $checkout = $request->routeIs('client.checkout');
+        $recovered = CheckoutSession::recover($session, $request->user());
+        if ($checkout && $recovered) {
+            return to_route('client.orders.confirmation', $recovered);
+        }
+
+        $cart = $session->get(CheckoutSession::CART, []);
+        $selection = CheckoutSession::selected($session);
         $flowers = Flower::storefront()->whereIn('flowers.id', array_keys($cart))->get()->keyBy('id');
         $lines = [];
         $selectedLines = [];
@@ -160,10 +171,12 @@ class CartController extends Controller
             }
         }
 
-        if (! $request->routeIs('client.checkout')) {
+        if (! $checkout) {
             $selectedCount = count($selectedLines);
 
-            return view('client.cart', compact('lines', 'subtotal', 'selectedCount', 'eligibleCount', 'overLimit'));
+            $selectionNeedsSave = $unavailableLines !== [];
+
+            return view('client.cart', compact('lines', 'subtotal', 'selectedCount', 'eligibleCount', 'overLimit', 'selectionNeedsSave'));
         }
 
         $inactiveIds = array_keys(array_filter($unavailableLines, fn (array $line): bool => $line['name'] === null));
@@ -182,9 +195,22 @@ class CartController extends Controller
             $fee = null;
         }
         $deliveryAvailable = $valid && $fee !== null && $subtotal <= Money::MAX_CENTS - $fee;
-        $delivery = $deliveryAvailable && $request->query('method') === 'delivery';
+        $deliveryRequested = $request->query('method') === 'delivery';
+        $delivery = $deliveryAvailable && $deliveryRequested;
+        $method = $delivery ? 'Delivery' : 'Customer Pickup';
+        $reviewKey = null;
+        $deliveryAddress = null;
+        $user = $request->user();
+        if ($user?->isClient() && $valid && $lines && ! $unavailableLines && (! $deliveryRequested || $deliveryAvailable)) {
+            $client = $user->clientProfile;
+            $reviewKey = CheckoutSession::issue($session, $client->id, $method, $selection, $subtotal + ($delivery ? $fee : 0));
+            $deliveryAddress = $client->address;
+        } else {
+            $session->forget(CheckoutSession::REVIEW);
+        }
 
-        return view('client.checkout', compact('lines', 'subtotal', 'valid', 'fee', 'deliveryAvailable', 'delivery', 'unavailableLines'));
+        return view('client.checkout', compact('lines', 'subtotal', 'valid', 'fee', 'deliveryAvailable', 'delivery',
+            'unavailableLines', 'reviewKey', 'deliveryAddress', 'deliveryRequested'));
     }
 
     private function lineIssue(?Flower $item, int $quantity): ?string

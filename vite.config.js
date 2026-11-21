@@ -18,6 +18,7 @@ export default defineConfig({
                 'resources/css/client/sign-in.css',
                 'resources/js/client/product.js',
                 'resources/js/client/cart.js',
+                'resources/js/client/checkout.js',
                 'resources/js/client/home.js',
                 'resources/js/client/navigation.js',
             ],

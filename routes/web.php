@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Client\CartController;
 use App\Http\Controllers\Client\CatalogController;
+use App\Http\Controllers\Client\CheckoutOrderController;
 use App\Http\Controllers\Supplier\AuditTrailController;
 use App\Http\Controllers\Supplier\BatchController;
 use App\Http\Controllers\Supplier\ClientController;
@@ -31,14 +32,18 @@ Route::prefix('shop')->name('client.')->middleware(EnsureStorefrontSession::clas
     Route::view('about', 'client.about')->name('about');
     Route::get('sign-in', [AuthController::class, 'showClientLogin'])->name('login');
     Route::post('sign-in', [AuthController::class, 'login'])->middleware('guest')->name('login.store');
+    Route::post('sign-in/switch-account', [AuthController::class, 'logout'])->middleware('auth')->name('login.switch')->block();
     Route::get('flowers/{flower}', [CatalogController::class, 'show'])->whereNumber('flower')->name('product');
-    Route::get('cart', [CartController::class, 'index'])->name('cart');
-    Route::post('cart/selection', [CartController::class, 'select'])->name('cart.selection');
-    Route::post('cart/{flower}', [CartController::class, 'save'])->whereNumber('flower')->name('cart.add');
-    Route::put('cart/{flower}', [CartController::class, 'save'])->whereNumber('flower')->name('cart.update');
-    Route::delete('cart/{flower}', [CartController::class, 'remove'])->whereNumber('flower')->name('cart.remove');
-    Route::get('checkout', [CartController::class, 'index'])->name('checkout');
+    Route::get('cart', [CartController::class, 'index'])->name('cart')->block();
+    Route::post('cart/selection', [CartController::class, 'select'])->name('cart.selection')->block();
+    Route::post('cart/{flower}', [CartController::class, 'save'])->whereNumber('flower')->name('cart.add')->block();
+    Route::put('cart/{flower}', [CartController::class, 'save'])->whereNumber('flower')->name('cart.update')->block();
+    Route::delete('cart/{flower}', [CartController::class, 'remove'])->whereNumber('flower')->name('cart.remove')->block();
+    Route::get('checkout', [CartController::class, 'index'])->name('checkout')->block();
     Route::middleware(['auth', 'role:client'])->group(function () {
+        Route::post('checkout', [CheckoutOrderController::class, 'store'])->name('checkout.store')->block(120, 30);
+        Route::get('orders/{order}/confirmation', [CheckoutOrderController::class, 'show'])
+            ->whereNumber('order')->name('orders.confirmation')->block();
         Route::view('orders', 'client.orders')->name('orders');
         Route::view('tracking', 'client.order-tracking')->name('tracking');
         Route::view('payments', 'client.payments')->name('payments');

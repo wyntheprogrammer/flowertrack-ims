@@ -23,14 +23,14 @@ use InvalidArgumentException;
 class OrderService
 {
     /** Create a pending order without reserving or deducting stock. */
-    public function store(array $input, User $actor): Order
+    public function store(array $input, User $actor, ?int $reviewedTotal = null): Order
     {
         $payload = $this->normalize($input);
         $key = strtolower($input['request_key']);
         $hash = hash('sha256', json_encode(['actor' => (int) $actor->id, ...$payload], JSON_THROW_ON_ERROR));
 
         try {
-            return DB::transaction(function () use ($payload, $key, $hash, $actor): Order {
+            return DB::transaction(function () use ($payload, $key, $hash, $actor, $reviewedTotal): Order {
                 $existing = Order::query()->where('request_key', $key)->first();
 
                 if ($existing !== null) {
@@ -47,13 +47,19 @@ class OrderService
                 }
 
                 $this->assertClient($client, true);
+                if ($reviewedTotal !== null && ((int) $client->user_id !== (int) $actor->id || $client->user->must_change_password)) {
+                    $this->invalid('checkout', 'Sign in with your current customer credentials before placing this order.');
+                }
                 $flowers = $this->lockFlowers(array_keys($payload['items']));
                 $lines = $this->lines($flowers, $payload['items'], collect());
-                $this->assertAvailability($flowers, $payload['items']);
+                $this->assertAvailability($flowers, $payload['items'], identifyFlower: $reviewedTotal !== null);
                 [$subtotal, $fee, $total] = $this->totals($lines, $payload['method']);
+                if ($reviewedTotal !== null && $total !== $reviewedTotal) {
+                    $this->invalid('review_total', 'Your order total changed to ₱'.Money::format($total).'. Review it and confirm again.');
+                }
 
                 $order = Order::create([
-                    'code' => 'TMP-' . Str::ulid(),
+                    'code' => 'TMP-'.Str::ulid(),
                     'request_key' => $key,
                     'request_hash' => $hash,
                     'client_id' => $client->id,
@@ -70,7 +76,7 @@ class OrderService
                     'stocked_out' => false,
                 ]);
 
-                $order->code = 'ORD-' . str_pad((string) $order->id, 3, '0', STR_PAD_LEFT);
+                $order->code = 'ORD-'.str_pad((string) $order->id, 3, '0', STR_PAD_LEFT);
                 $order->save();
 
                 $this->replaceItems($order, $lines);
@@ -101,7 +107,7 @@ class OrderService
             $locked->load(['items', 'payment']);
             $this->assertVersion($locked, $input['version']);
 
-            if (!in_array($locked->status, ['Pending', 'Confirmed'], true) || $locked->payment !== null) {
+            if (! in_array($locked->status, ['Pending', 'Confirmed'], true) || $locked->payment !== null) {
                 $this->invalid('order', 'Only pending or confirmed orders without any payment record can be edited.');
             }
 
@@ -173,10 +179,10 @@ class OrderService
 
             $flowers = $this->lockFlowers($locked->items->pluck('flower_id')->all());
             $quantities = $locked->items->mapWithKeys(
-                fn(OrderItem $item) => [(int) $item->flower_id => (int) $item->quantity]
+                fn (OrderItem $item) => [(int) $item->flower_id => (int) $item->quantity]
             )->all();
 
-            $note = 'Order marked ' . $desired . '.';
+            $note = 'Order marked '.$desired.'.';
 
             if ($desired === 'Cancelled') {
                 $reason = trim($input['reason'] ?? '');
@@ -205,7 +211,7 @@ class OrderService
             } elseif ($desired === 'Completed') {
                 if (
                     $locked->method !== 'Customer Pickup'
-                    || !filter_var($input['collected'] ?? false, FILTER_VALIDATE_BOOLEAN)
+                    || ! filter_var($input['collected'] ?? false, FILTER_VALIDATE_BOOLEAN)
                 ) {
                     $this->invalid('collected', 'Confirm actual pickup collection before completing this order.');
                 }
@@ -243,11 +249,11 @@ class OrderService
                 $sale = SalesRecord::create([
                     'order_id' => $locked->id,
                     'client_id' => $locked->client_id,
-                    'code' => 'TMP-' . Str::ulid(),
+                    'code' => 'TMP-'.Str::ulid(),
                     'client_name' => $locked->client_name,
                     'client_code' => $locked->client_code,
                     'items' => $locked->items->map(
-                        fn(OrderItem $item) => $this->itemRow($item)
+                        fn (OrderItem $item) => $this->itemRow($item)
                     )->values()->all(),
                     'subtotal_cents' => $locked->subtotal_cents,
                     'fee_cents' => $locked->fee_cents,
@@ -255,7 +261,7 @@ class OrderService
                     'completed_at' => $locked->completed_at,
                 ]);
 
-                $sale->code = 'SALE-' . str_pad((string) $sale->id, 3, '0', STR_PAD_LEFT);
+                $sale->code = 'SALE-'.str_pad((string) $sale->id, 3, '0', STR_PAD_LEFT);
                 $sale->save();
 
                 $note = 'Pickup collected; reserved stock issued and sale recorded.';
@@ -305,10 +311,10 @@ class OrderService
             'stockedOut' => (bool) $order->stocked_out,
             'version' => $this->version($order),
             'items' => $order->items->sortBy('flower_id')->map(
-                fn(OrderItem $item) => $this->itemRow($item)
+                fn (OrderItem $item) => $this->itemRow($item)
             )->values()->all(),
             'history' => $order->histories->sortBy('id')->map(
-                fn(OrderHistory $entry) => [
+                fn (OrderHistory $entry) => [
                     'status' => $entry->status,
                     'date' => $entry->created_at->copy()->setTimezone('Asia/Manila')->toIso8601String(),
                     'actor' => $entry->actor_name,
@@ -333,7 +339,7 @@ class OrderService
         }
 
         try {
-            if (!is_string($value) && !is_int($value)) {
+            if (! is_string($value) && ! is_int($value)) {
                 throw new InvalidArgumentException('Fee must be an exact decimal string.');
             }
 
@@ -374,7 +380,7 @@ class OrderService
 
         $method = $input['method'];
 
-        if (!in_array($method, ['Customer Pickup', 'Delivery'], true)) {
+        if (! in_array($method, ['Customer Pickup', 'Delivery'], true)) {
             $this->invalid('method', 'Select Customer Pickup or Delivery.');
         }
 
@@ -422,7 +428,7 @@ class OrderService
             $this->invalid('client_id', 'Select a valid client account.');
         }
 
-        if ($requireActive && !$client->user->is_active) {
+        if ($requireActive && ! $client->user->is_active) {
             $this->invalid('client_id', 'Only active clients can be selected for a new order.');
         }
     }
@@ -524,7 +530,8 @@ class OrderService
     private function assertAvailability(
         Collection $flowers,
         array $quantities,
-        ?string $ownReference = null
+        ?string $ownReference = null,
+        bool $identifyFlower = false,
     ): void {
         $ids = $flowers->keys()->all();
 
@@ -545,10 +552,17 @@ class OrderService
 
             $reserved = (int) $holds
                 ->where('flower_id', $id)
-                ->filter(fn($hold) => $hold->reference !== $ownReference)
+                ->filter(fn ($hold) => $hold->reference !== $ownReference)
                 ->sum('quantity');
 
             if ($quantity > $physical - $reserved) {
+                if ($identifyFlower) {
+                    $flower = $flowers->get($id);
+                    $available = max(0, $physical - $reserved);
+                    $this->invalid('items', "$flower->name has ".number_format($available).' '
+                        .Str::plural(strtolower($flower->product_type), $available).' available. Update your cart and try again.');
+                }
+
                 $this->invalid('items', 'Insufficient stock is available for one or more requested items.');
             }
         }
@@ -582,7 +596,7 @@ class OrderService
             ->get();
 
         foreach ($existing as $hold) {
-            if (!isset($quantities[$hold->flower_id])) {
+            if (! isset($quantities[$hold->flower_id])) {
                 $hold->status = 'Released';
                 $hold->save();
             }
@@ -642,7 +656,7 @@ class OrderService
                 'completed_at',
             ]),
             'items' => $order->items->sortBy('flower_id')->map(
-                fn($item) => $item->only([
+                fn ($item) => $item->only([
                     'flower_id',
                     'flower_code',
                     'name',
@@ -671,7 +685,7 @@ class OrderService
     /** Reject an edit/action issued against stale business state. */
     private function assertVersion(Order $order, string $version): void
     {
-        if (!hash_equals($this->version($order), strtolower($version))) {
+        if (! hash_equals($this->version($order), strtolower($version))) {
             $this->invalid('version', 'This order changed. Refresh and review its latest state before saving.');
         }
     }
@@ -679,7 +693,7 @@ class OrderService
     /** Return the existing request's order only when actor and canonical payload match. */
     private function replay(Order $order, string $hash): Order
     {
-        if (!hash_equals($order->request_hash, $hash)) {
+        if (! hash_equals($order->request_hash, $hash)) {
             $this->invalid('request_key', 'This creation request key was already used for different order details.');
         }
 

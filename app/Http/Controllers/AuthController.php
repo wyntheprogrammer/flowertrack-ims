@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Rules\SafeAccountPassword;
 use App\Support\AccountSession;
+use App\Support\CheckoutSession;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -33,8 +34,8 @@ class AuthController extends Controller
     {
         $destination = $this->clientDestination($request->query('continue'));
 
-        if ($request->user()) {
-            return $this->redirectToClientDestination($request->user()->isClient() ? $destination : 'client.home');
+        if ($request->user()?->isClient()) {
+            return $this->redirectToClientDestination($destination);
         }
 
         return view('client.sign-in', compact('destination'));
@@ -151,10 +152,23 @@ class AuthController extends Controller
     public function logout(Request $request): RedirectResponse
     {
         $storefront = $request->user()->isClient();
+        $switching = $request->routeIs('client.login.switch');
+        $session = $request->session();
+        $shoppingState = $switching ? array_filter([
+            CheckoutSession::CART => $session->get(CheckoutSession::CART),
+            CheckoutSession::SELECTION => $session->get(CheckoutSession::SELECTION),
+        ], fn (mixed $value): bool => $value !== null) : [];
         Auth::logout();
 
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
+        $session->invalidate();
+        $session->regenerateToken();
+
+        if ($switching) {
+            $session->put($shoppingState);
+            $destination = $this->clientDestination($request->input('continue'));
+
+            return to_route('client.login', $destination === 'client.home' ? [] : ['continue' => $destination]);
+        }
 
         return to_route($storefront ? 'client.home' : 'login');
     }

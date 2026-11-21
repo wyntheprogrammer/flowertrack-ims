@@ -29,7 +29,8 @@
         @endif
 
         @if ($lines)
-            <form id="cart-selection" method="post" action="{{ route('client.cart.selection') }}" data-subtotal-limit="{{ \App\Support\Money::MAX_CENTS }}">
+            <form id="cart-selection" method="post" action="{{ route('client.cart.selection') }}"
+                  data-subtotal-limit="{{ \App\Support\Money::MAX_CENTS }}" data-selection-needs-save="{{ $selectionNeedsSave ? 'true' : 'false' }}">
                 @csrf
             </form>
             <div class="shopping-cart-layout">

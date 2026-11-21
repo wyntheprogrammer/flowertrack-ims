@@ -19,9 +19,15 @@
                     @csrf
                     <button type="submit">Sign out</button>
                 </form>
-            @elseif (auth()->guest())
-                <a href="{{ route('client.login') }}" @if(request()->routeIs('client.login')) aria-current="page" @endif><i class="bi bi-person" aria-hidden="true"></i> Sign in</a>
             @endif
         </nav>
+        @unless (auth()->user()?->isClient())
+            @php
+                $continue = request()->routeIs('client.checkout')
+                    ? ['continue' => request()->query('method') === 'delivery' ? 'client.checkout.delivery' : 'client.checkout']
+                    : [];
+            @endphp
+            <a class="shop-sign-in-link" href="{{ route('client.login', $continue) }}" @if(request()->routeIs('client.login')) aria-current="page" @endif><i class="bi bi-person" aria-hidden="true"></i> Sign in</a>
+        @endunless
     </div>
 </header>

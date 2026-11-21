@@ -11,19 +11,14 @@
     gap: var(--home-section-gap);
 }
 
-.shop-home main .shop-width, .shop-home .shop-header-inner {
+.shop-home main .shop-width {
     width: min(95%, 1440px);
 }
 
 .shop-home .shop-header {
     position: absolute;
     inset: 0 0 auto;
-    background: rgb(255 255 255 / 84%);
 }
-
-.shop-home .shop-header-inner { gap: clamp(1rem, 5vw, 5rem); }
-.shop-home .shop-header a[aria-current] { box-shadow: inset 0 -2px #a7545d; }
-.shop-home .shop-header nav a:hover { color: var(--home-link-hover); text-decoration: none; }
 
 .floral-hero {
     position: relative;

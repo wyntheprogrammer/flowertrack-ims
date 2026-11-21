@@ -4,7 +4,7 @@
 @section('body-class', 'shop-checkout')
 
 @push('page-assets')
-    @vite(['resources/css/client/catalog.css', 'resources/css/client/checkout.css'])
+    @vite(['resources/css/client/catalog.css', 'resources/css/client/checkout.css', 'resources/js/client/checkout.js'])
 @endpush
 
 @section('content')
@@ -30,7 +30,7 @@
                                 @endforeach
                             </ul>
                             @if ($lines)
-                                <p>The total covers the flowers still available.</p>
+                                <p>Edit your cart before placing an order. The total below covers the flowers still available.</p>
                             @endif
                             <a class="checkout-link" href="{{ route('client.cart') }}">Edit cart</a>
                         </section>
@@ -68,6 +68,9 @@
                                 </nav>
                                 @unless ($deliveryAvailable)
                                     <p>Delivery is unavailable for this selection.</p>
+                                    @if ($deliveryRequested)
+                                        <p><a class="checkout-link" href="{{ route('client.checkout') }}">Choose pickup to place your order</a></p>
+                                    @endif
                                 @endunless
 
                                 @unless ($delivery)
@@ -90,9 +93,27 @@
                                         <dd>₱{{ \App\Support\Money::format($subtotal + ($delivery ? $fee : 0)) }}</dd>
                                     </div>
                                 </dl>
-                                @guest
+                                @unless (auth()->user()?->isClient())
                                     <a class="shop-button primary checkout-sign-in" href="{{ route('client.login', ['continue' => $delivery ? 'client.checkout.delivery' : 'client.checkout']) }}">Sign in to continue</a>
-                                @endguest
+                                @endunless
+                                @if ($reviewKey)
+                                    <form class="checkout-order-form" method="post" action="{{ route('client.checkout.store') }}" data-checkout-order>
+                                        @csrf
+                                        <input type="hidden" name="request_key" value="{{ $reviewKey }}">
+                                        @if ($delivery)
+                                            <div>
+                                                <label class="form-label" for="delivery-address">Delivery address</label>
+                                                <textarea id="delivery-address" class="form-control" name="address" rows="3"
+                                                          autocomplete="street-address" maxlength="500" required
+                                                          @error('address') aria-invalid="true" @enderror>{{ old('address', $deliveryAddress) }}</textarea>
+                                            </div>
+                                        @endif
+                                        <div class="checkout-order-action">
+                                            <button class="shop-button primary" type="submit">Place order</button>
+                                            <span role="status" data-order-status></span>
+                                        </div>
+                                    </form>
+                                @endif
                             </div>
                         @else
                             <h2 id="checkout-summary-title">Order summary</h2>
@@ -109,10 +130,10 @@
             </div>
         @endif
 
-        @guest
+        @unless (auth()->user()?->isClient())
             @if (! $lines || ! $valid)
                 <a class="checkout-link checkout-sign-in" href="{{ route('client.login', ['continue' => 'client.checkout']) }}">Sign in to continue</a>
             @endif
-        @endguest
+        @endunless
     </section>
 @endsection

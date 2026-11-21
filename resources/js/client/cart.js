@@ -16,6 +16,8 @@ if (form) {
     ]));
     let saveQueue = Promise.resolve();
     let selectionFailed = false;
+    let selectionNeedsSave = form.dataset.selectionNeedsSave === 'true';
+    let pendingSelectionSaves = 0;
     let waitingForSubmit = false;
     let submitting = false;
 
@@ -51,6 +53,7 @@ if (form) {
 
     function saveSelection(changedCheckboxes) {
         displaySelection();
+        pendingSelectionSaves++;
         enqueueSave(async () => {
             const selected = new Set(eligibleCheckboxes().filter(checkbox => checkbox.checked));
             try {
@@ -66,6 +69,7 @@ if (form) {
                 confirmedSelection.clear();
                 selected.forEach(checkbox => confirmedSelection.add(checkbox));
                 selectionFailed = false;
+                selectionNeedsSave = false;
                 selectionIssues.forEach(issue => {
                     issue.hidden = true;
                     issue.textContent = '';
@@ -81,6 +85,7 @@ if (form) {
             }
             error.hidden = !selectionFailed;
             saveButton.hidden = !selectionFailed;
+            pendingSelectionSaves--;
         });
     }
 
@@ -298,6 +303,8 @@ if (form) {
         const reviewing = submitter === review;
         if (submitter === saveButton) {
             saveSelection(checkboxes.filter(checkbox => !selectionIssues.get(checkbox).hidden));
+        } else if (reviewing && selectionNeedsSave && !selectionFailed && pendingSelectionSaves === 0) {
+            saveSelection(checkboxes.filter(checkbox => checkbox.disabled));
         }
         quantities.forEach(item => item.flush({ confirm: reviewing && item.checkbox.checked }));
         let pending;

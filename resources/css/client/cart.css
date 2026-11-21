@@ -10,10 +10,6 @@
 }
 
 .shop-cart main { flex: 1 0 auto; }
-.shop-cart .shop-header { background: rgb(255 255 255 / 84%); }
-.shop-cart .shop-header-inner { width: min(95%, 1440px); gap: clamp(1rem, 5vw, 5rem); }
-.shop-cart .shop-header a[aria-current] { box-shadow: inset 0 -2px #a7545d; }
-.shop-cart .shop-header nav a:hover { color: var(--cart-hover); text-decoration: none; }
 
 .shopping-cart {
     width: min(92%, 1240px);

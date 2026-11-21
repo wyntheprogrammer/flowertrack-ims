@@ -7,7 +7,6 @@
 }
 
 .shop-auth main { flex: 1 0 auto; }
-.shop-auth .shop-header nav a:hover { text-decoration: none; }
 
 .shop-auth-page {
     width: min(92%, 32rem);

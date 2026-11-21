@@ -184,6 +184,33 @@ class ClientAuthenticationTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_staff_can_find_customer_sign_in_and_switch_without_losing_the_checkout_cart(): void
+    {
+        $staff = User::factory()->create(['role' => User::ROLE_SUPPLIER, 'is_active' => true, 'must_change_password' => false]);
+        $rose = $this->stockProduct('Red Rose', 'Stem', 5000);
+        $cart = [$rose->id => 3];
+        $selected = [$rose->id];
+
+        $this->actingAs($staff)->withSession([
+            AccountSession::KEY => AccountSession::signature($staff),
+            'shop.cart' => $cart,
+            'shop.cart_selection' => $selected,
+        ]);
+        $signIn = route('client.login', ['continue' => 'client.checkout']);
+        $this->get(route('client.home'))->assertOk()
+            ->assertSee('class="shop-sign-in-link" href="'.route('client.login').'"', false);
+        $this->get(route('client.checkout'))->assertOk()
+            ->assertSee('class="shop-sign-in-link" href="'.$signIn.'"', false)
+            ->assertSeeText('Sign in to continue');
+        $this->get($signIn)->assertOk()->assertSeeText('Sign out of staff account')->assertDontSee('name="password"', false);
+        $this->post(route('client.login.switch'), ['continue' => 'client.checkout'])->assertRedirect($signIn)
+            ->assertSessionMissing(AccountSession::KEY)
+            ->assertSessionHas('shop.cart', $cart)
+            ->assertSessionHas('shop.cart_selection', $selected);
+        $this->assertGuest();
+        $this->get($signIn)->assertOk()->assertSee('name="password"', false);
+    }
+
     private function clientAccount(string $status = 'Active', bool $mustChangePassword = true): User
     {
         $identity = User::factory()->make();

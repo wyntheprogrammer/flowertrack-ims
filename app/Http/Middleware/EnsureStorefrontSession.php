@@ -20,7 +20,7 @@ class EnsureStorefrontSession
             return $next($request);
         }
 
-        if (! $user->is_active || ! AccountSession::isCurrent($request, $user) || ! $user->clientProfile()->exists()) {
+        if (! $user->is_active || ! AccountSession::isCurrent($request, $user) || ! $user->clientProfile) {
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();

@@ -6,10 +6,6 @@
     color: #142e21;
 }
 
-.shop-about .shop-header { background: rgb(255 255 255 / 84%); }
-.shop-about .shop-header-inner { width: min(95%, 1440px); gap: clamp(1rem, 5vw, 5rem); }
-.shop-about .shop-header a[aria-current] { box-shadow: inset 0 -2px #a7545d; }
-.shop-about .shop-header nav a:hover { color: var(--about-link-hover); text-decoration: none; }
 
 .about-page {
     display: grid;
