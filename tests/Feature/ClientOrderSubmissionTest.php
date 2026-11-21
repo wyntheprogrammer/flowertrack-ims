@@ -9,7 +9,9 @@ use App\Services\ClientService;
 use App\Services\OrderService;
 use App\Support\AccountSession;
 use App\Support\CheckoutSession;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class ClientOrderSubmissionTest extends TestCase
@@ -216,6 +218,51 @@ class ClientOrderSubmissionTest extends TestCase
         $this->signIn($this->customer);
         $this->post(route('client.checkout.store'))->assertRedirect(route('client.login'));
         $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_history_uses_current_status_saved_prices_and_customer_ownership(): void
+    {
+        $this->get(route('client.orders'))->assertRedirect(route('client.login'));
+        $this->signIn($this->customer);
+        $this->get(route('client.orders'))->assertSeeText('You haven’t placed an order yet')->assertSeeText('Browse flowers');
+        $this->post(route('client.checkout.store'), ['request_key' => $this->review()])->assertRedirect();
+        $order = Order::sole();
+        $detail = route('client.orders.show', $order);
+        $this->get(route('client.orders.confirmation', $order))->assertSee('href="'.route('client.orders').'"', false);
+        $history = $this->get(route('client.orders'))->assertOk()->assertSeeText('Pending')->assertSeeText('₱150.00')->assertSee($detail);
+        $this->assertSame(1, $history->viewData('orders')->total());
+        $admin = User::factory()->create(['role' => User::ROLE_ADMIN]);
+        $service = app(OrderService::class);
+        $service->action($order, ['status' => 'Confirmed', 'version' => $service->row($order, $admin)['version']], $admin);
+        DB::table('flower_prices')->where('flower_id', $this->rose->id)->update(['price_cents' => 9000]);
+        $this->get(route('client.orders'))->assertSeeText('Confirmed')->assertSeeText('₱150.00')->assertSee('shop-footer-nav');
+        $this->get($detail)->assertOk()->assertSeeTextInOrder(['Confirmed', 'Red Rose', '₱50.00', 'Quantity 3', '₱150.00'])
+            ->assertSee('shop-footer-nav')->assertDontSeeText('₱90.00');
+        $this->signIn($this->customer());
+        $this->get(route('client.orders'))->assertDontSeeText($order->code)->assertSeeText('You haven’t placed an order yet');
+        $this->get($detail)->assertNotFound();
+    }
+
+    public function test_staff_orders_are_paginated_by_purchase_date_and_id_with_philippine_dates(): void
+    {
+        $staff = User::factory()->create(['role' => User::ROLE_ADMIN]);
+        $service = app(OrderService::class);
+        $ids = [];
+        for ($i = 0; $i < 11; $i++) {
+            $order = $service->store([
+                'request_key' => (string) Str::uuid(),
+                'client_id' => $this->customer->clientProfile->id, 'method' => 'Customer Pickup',
+                'items' => [['flower_id' => $this->rose->id, 'quantity' => 1]],
+            ], $staff);
+            $order->created_at = Carbon::parse($i === 0 ? '2026-11-21 18:00 UTC' : '2026-11-20 18:00 UTC')->setTimezone(config('app.timezone'));
+            $order->save();
+            $ids[] = $order->id;
+        }
+        $this->signIn($this->customer);
+        $page = $this->get(route('client.orders'))->assertOk()->assertSeeText('Nov 22, 2026 · 2:00 AM PHT')->viewData('orders');
+        $this->assertSame([$ids[0], ...array_reverse(array_slice($ids, 2))], $page->pluck('id')->all());
+        $next = $this->get($page->nextPageUrl())->assertOk()->viewData('orders');
+        $this->assertSame([$ids[1]], $next->pluck('id')->all());
     }
 
     private function review(?string $method = null): string

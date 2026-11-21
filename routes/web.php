@@ -4,6 +4,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Client\CartController;
 use App\Http\Controllers\Client\CatalogController;
 use App\Http\Controllers\Client\CheckoutOrderController;
+use App\Http\Controllers\Client\OrderHistoryController;
 use App\Http\Controllers\Supplier\AuditTrailController;
 use App\Http\Controllers\Supplier\BatchController;
 use App\Http\Controllers\Supplier\ClientController;
@@ -44,7 +45,8 @@ Route::prefix('shop')->name('client.')->middleware(EnsureStorefrontSession::clas
         Route::post('checkout', [CheckoutOrderController::class, 'store'])->name('checkout.store')->block(120, 30);
         Route::get('orders/{order}/confirmation', [CheckoutOrderController::class, 'show'])
             ->whereNumber('order')->name('orders.confirmation')->block();
-        Route::view('orders', 'client.orders')->name('orders');
+        Route::get('orders', [OrderHistoryController::class, 'index'])->name('orders');
+        Route::get('orders/{order}', [OrderHistoryController::class, 'show'])->whereNumber('order')->name('orders.show');
         Route::view('tracking', 'client.order-tracking')->name('tracking');
         Route::view('payments', 'client.payments')->name('payments');
         Route::view('profile', 'client.profile')->name('profile');

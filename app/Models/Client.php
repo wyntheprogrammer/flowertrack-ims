@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Supplier-managed client contact details linked to one authoritative user account.
@@ -13,6 +14,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['code', 'user_id', 'phone', 'address'])]
 class Client extends Model
 {
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

@@ -64,3 +64,22 @@
     .empty-cart-layout { grid-template-columns: 1fr; }
     .empty-cart-layout > img { height: 6.5rem; order: -1; }
 }
+.shop-orders { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+.shop-orders main { flex: 1; }
+.shop-orders .account-heading h1 { font-size: clamp(2.1rem, 4.75vw, 4.6rem); }
+.order-entry { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 1rem 2rem; padding-block: 1.4rem; }
+.order-entry:first-child { padding-top: 0; }
+.order-entry + .order-entry { border-top: 1px solid var(--shop-line); }
+.order-entry h2 { font-size: clamp(1.4rem,2vw,1.85rem); margin: 0 0 .45rem; overflow-wrap: anywhere; }
+.order-entry strong { font-variant-numeric: tabular-nums; font-size: 1.12rem; }
+.order-entry-actions { display: grid; justify-items: start; }
+.order-entry-actions > span { background: #edf3ed; color: var(--shop-green); border-radius: 1rem; padding: .2rem .75rem; font-weight: 600; }
+.order-entry-actions a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
+.shop-orders .order-entry a, .account-menu a, .account-heading .shop-back { text-decoration: none; }
+.shop-orders .order-entry a:hover, .account-menu a:not([aria-current]):hover, .account-heading .shop-back:hover { color: #17613b; background: transparent; text-decoration: none; }
+@media (max-width: 767px) {
+    .shop-orders .account-menu a { padding: .5rem .75rem; }
+    .order-entry { grid-template-columns: 1fr auto; gap: .7rem; }
+    .order-entry > div:first-child { grid-column: 1 / -1; }
+    .order-entry-actions { justify-items: end; }
+}

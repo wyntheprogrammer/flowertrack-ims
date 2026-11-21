@@ -1,7 +1,7 @@
 @extends('layouts.client')
 
-@section('title', 'Order confirmation')
-@section('body-class', 'shop-checkout')
+@section('title', ($history ?? false) ? 'Order details' : 'Order confirmation')
+@section('body-class', ($history ?? false) ? 'shop-checkout shop-orders' : 'shop-checkout')
 
 @push('page-assets')
     @vite('resources/css/client/checkout.css')
@@ -14,7 +14,12 @@
                 <h1 id="order-title" tabindex="-1">Order {{ $order->code }}</h1>
                 <p class="checkout-confirmation-status">{{ $order->status === 'Pending' ? 'Pending confirmation' : $order->status }}</p>
             </div>
-            <a class="checkout-link" href="{{ route('client.cart') }}">Back to cart</a>
+            <div>
+                <a class="checkout-link" href="{{ route('client.orders') }}">{{ ($history ?? false) ? 'Back to My Orders' : 'My Orders' }}</a>
+                @unless ($history ?? false)
+                    <a class="checkout-link ms-3" href="{{ route('client.cart') }}">Back to cart</a>
+                @endunless
+            </div>
         </header>
 
         <div class="checkout-layout">
@@ -24,12 +29,12 @@
                     <article class="checkout-item checkout-confirmation-item" aria-labelledby="order-item-{{ $item->id }}">
                         <div class="checkout-item-info">
                             <h3 id="order-item-{{ $item->id }}">{{ $item->name }}</h3>
-                            <p>₱{{ \App\Support\Money::format($item->unit_price_cents) }} per {{ strtolower($item->base_unit) }}</p>
+                            <p>₱{{ number_format($item->unit_price_cents / 100, 2) }} per {{ strtolower($item->base_unit) }}</p>
                             <p>Quantity {{ number_format($item->quantity) }}</p>
                         </div>
                         <div class="checkout-line-total">
                             <span class="visually-hidden">Line total</span>
-                            <strong>₱{{ \App\Support\Money::format($item->subtotal_cents) }}</strong>
+                            <strong>₱{{ number_format($item->subtotal_cents / 100, 2) }}</strong>
                         </div>
                     </article>
                 @endforeach
@@ -43,11 +48,11 @@
                 @endif
                 <div class="checkout-totals">
                     <dl>
-                        <div><dt>Item subtotal</dt><dd>₱{{ \App\Support\Money::format($order->subtotal_cents) }}</dd></div>
+                        <div><dt>Item subtotal</dt><dd>₱{{ number_format($order->subtotal_cents / 100, 2) }}</dd></div>
                         @if ($order->method === 'Delivery')
-                            <div><dt>Delivery fee</dt><dd>₱{{ \App\Support\Money::format($order->fee_cents) }}</dd></div>
+                            <div><dt>Delivery fee</dt><dd>₱{{ number_format($order->fee_cents / 100, 2) }}</dd></div>
                         @endif
-                        <div class="checkout-final-total"><dt>Order total</dt><dd>₱{{ \App\Support\Money::format($order->total_cents) }}</dd></div>
+                        <div class="checkout-final-total"><dt>Order total</dt><dd>₱{{ number_format($order->total_cents / 100, 2) }}</dd></div>
                     </dl>
                 </div>
             </aside>
