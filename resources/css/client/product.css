@@ -1,0 +1,73 @@
+.shop-product {
+    background: #faf2e8;
+    color: #142e21;
+}
+
+.product-detail {
+    width: min(92%, 1320px);
+    padding-block: clamp(1.4rem, 3vw, 3rem) clamp(2.5rem, 5vw, 5rem);
+}
+
+.product-back {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-bottom: .75rem;
+    color: #142e21;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.product-back:hover { color: #17613b; }
+
+.product-detail-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
+    align-items: start;
+    gap: clamp(1.75rem, 5vw, 5rem);
+}
+
+.product-detail-photo { aspect-ratio: 4 / 3; }
+.product-detail-photo img { object-fit: contain; }
+.product-detail-copy { min-width: 0; overflow-wrap: anywhere; }
+.product-category, .product-availability, .product-quantity small, .product-no-script { color: var(--shop-muted); }
+.product-category { margin: 0 0 .5rem; font-size: .9rem; }
+.product-detail h1 {
+    margin: 0 0 .75rem;
+    font: 500 clamp(2.5rem, 4.7vw, 5rem)/1.02 var(--shop-serif);
+    letter-spacing: -.045em;
+}
+
+.product-detail-price { margin: 0 0 .25rem; color: #98474f; font: 600 1.55rem/1.2 var(--shop-serif); }
+.product-availability { margin: 0; }
+.product-description { max-width: 56ch; margin: 1.1rem 0 0; line-height: 1.6; white-space: pre-line; }
+
+.product-buy, .product-add-limit {
+    margin-top: clamp(1.25rem, 3vw, 2.25rem);
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--shop-line);
+}
+
+.product-quantity { display: grid; justify-items: start; gap: .35rem; }
+.product-quantity label { font-weight: 600; }
+.product-quantity input { width: 7.5rem; min-height: 44px; background: var(--shop-surface); border-color: var(--shop-line); }
+.product-quantity input:focus-visible { border-color: var(--shop-green); box-shadow: none; }
+
+.product-buy-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem 1.4rem; margin-top: 1.15rem; }
+.product-total { display: grid; gap: .15rem; }
+.product-total span { color: var(--shop-muted); font-size: .9rem; }
+.product-total output { font: 600 1.45rem var(--shop-serif); }
+.product-buy-actions .shop-button {
+    padding-inline: 1.35rem;
+    border-radius: .55rem;
+    border-color: #153827;
+    background: #153827;
+    font-family: var(--shop-serif);
+    font-size: 1rem;
+}
+.product-buy-actions .shop-button:hover { background: #24533a; }
+.product-no-script { margin: .65rem 0 0; font-size: .9rem; }
+
+@media (max-width: 730px) {
+    .product-detail-grid { grid-template-columns: minmax(0, 1fr); }
+}

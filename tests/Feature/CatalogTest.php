@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Flower;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class CatalogTest extends TestCase
@@ -81,6 +82,109 @@ class CatalogTest extends TestCase
         $this->get(route('client.cart'))->assertSeeText('Your cart is empty');
         $this->assertDatabaseCount('inventory_reservations', 0);
         $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_bouquet_details_show_the_per_bouquet_price_and_starting_total(): void
+    {
+        $flower = $this->flower('Garden Bouquet', 'Bouquet', 'Mixed Flowers');
+        DB::table('flower_prices')->insert(['flower_id' => $flower->id, 'price_cents' => 12575]);
+        $this->stockProduct($flower, 5);
+
+        $this->get(route('client.product', $flower))
+            ->assertOk()
+            ->assertSeeText('Photo unavailable')
+            ->assertSeeText('₱125.75 / bouquet')
+            ->assertSeeText('5 bouquets available')
+            ->assertSeeText('Number of bouquets')
+            ->assertSee('name="quantity" min="1" max="5" step="1" value="1"', false)
+            ->assertSeeTextInOrder(['Item total', '₱125.75']);
+    }
+
+    public function test_product_details_display_the_uploaded_photo_when_available(): void
+    {
+        $flower = $this->flower('Garden Bouquet', 'Bouquet', 'Mixed Flowers');
+        $photo = 'flowers/garden-bouquet.webp';
+        Storage::fake('public')->put($photo, file_get_contents(public_path('images/shop-bouquets.webp')));
+        $flower->update(['image_path' => $photo]);
+
+        $this->get(route('client.product', $flower))
+            ->assertOk()
+            ->assertSee('src="'.e(Storage::disk('public')->url($photo)).'"', false)
+            ->assertSee('alt="Garden Bouquet"', false)
+            ->assertDontSeeText('Photo unavailable');
+    }
+
+    public function test_addition_uses_current_stock_price_and_the_quantity_already_in_cart(): void
+    {
+        $flower = $this->flower('Garden Rose', 'Stem', 'Roses');
+        DB::table('flower_prices')->insert(['flower_id' => $flower->id, 'price_cents' => 5000]);
+        $this->stockProduct($flower, 7);
+        $product = route('client.product', $flower);
+        $add = route('client.cart.add', $flower);
+        $cartKey = 'shop.cart.'.$flower->id;
+
+        $this->post($add, ['quantity' => 3])
+            ->assertRedirect(route('client.cart'))
+            ->assertSessionHas('cart_status', '3 stems of Garden Rose added to your cart.');
+        $this->get($product)->assertOk()
+            ->assertSeeText('Number of stems')
+            ->assertSeeText('3 stems in your cart')
+            ->assertSee('name="quantity" min="1" max="4" step="1" value="1"', false);
+
+        DB::table('inventory_batches')->where('flower_id', $flower->id)->update(['remaining_quantity' => 5]);
+        DB::table('flower_prices')->where('flower_id', $flower->id)->update(['price_cents' => 5125]);
+
+        $this->post($add, ['quantity' => 3])
+            ->assertRedirect($product)
+            ->assertSessionHasErrors(['quantity' => 'You can add 2 more stems.'])
+            ->assertSessionHas($cartKey, 3);
+        $this->post($add, ['quantity' => 2, 'price_cents' => 5000])
+            ->assertRedirect(route('client.cart'))
+            ->assertSessionHas('cart_status', '2 stems of Garden Rose added to your cart.')
+            ->assertSessionHas($cartKey, 5);
+
+        $this->get(route('client.cart'))->assertOk()
+            ->assertSee('role="status">2 stems of Garden Rose added to your cart.', false)
+            ->assertSeeText('View cart')
+            ->assertSeeText('Continue shopping')
+            ->assertSeeText('₱256.25');
+        $this->assertDatabaseHas('inventory_batches', ['flower_id' => $flower->id, 'remaining_quantity' => 5]);
+        $this->assertDatabaseCount('inventory_reservations', 0);
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_product_with_stock_and_no_price_explains_why_it_cannot_be_added(): void
+    {
+        $flower = $this->flower('Unpriced Bouquet', 'Bouquet', 'Mixed Flowers');
+        $this->stockProduct($flower, 2);
+        $product = route('client.product', $flower);
+
+        $this->get($product)->assertOk()
+            ->assertSeeText('Price unavailable')
+            ->assertSeeText('Back to catalog')
+            ->assertDontSeeText('Add to cart');
+
+        $this->post(route('client.cart.add', $flower), ['quantity' => 1])
+            ->assertRedirect($product)
+            ->assertSessionHasErrors(['quantity' => 'The price for this flower is unavailable.'])
+            ->assertSessionMissing('shop.cart.'.$flower->id);
+    }
+
+    public function test_product_with_zero_stock_explains_why_it_cannot_be_added(): void
+    {
+        $flower = $this->flower('Garden Tulip', 'Stem', 'Tulips');
+        DB::table('flower_prices')->insert(['flower_id' => $flower->id, 'price_cents' => 5000]);
+        $product = route('client.product', $flower);
+
+        $this->get($product)->assertOk()
+            ->assertSeeText('Out of stock')
+            ->assertSeeText('Back to catalog')
+            ->assertDontSeeText('Add to cart');
+
+        $this->post(route('client.cart.add', $flower), ['quantity' => 1])
+            ->assertRedirect($product)
+            ->assertSessionHasErrors(['quantity' => 'This flower is out of stock.'])
+            ->assertSessionMissing('shop.cart.'.$flower->id);
     }
 
     public function test_home_shows_a_limited_catalog_preview_with_purchasable_flowers_first(): void
@@ -213,6 +317,15 @@ class CatalogTest extends TestCase
     public function test_catalog_rejects_an_array_as_a_search_term(): void
     {
         $this->get(route('client.catalog', ['q' => ['Rose']]))->assertNotFound();
+    }
+
+    private function stockProduct(Flower $flower, int $quantity): void
+    {
+        DB::table('inventory_batches')->insert([
+            'flower_id' => $flower->id, 'code' => 'BAT-'.$flower->id, 'received_date' => '2026-11-01',
+            'harvest_date' => '2026-11-01', 'received_quantity' => $quantity, 'receiving_unit' => $flower->product_type,
+            'conversion_factor' => 1, 'initial_quantity' => $quantity, 'remaining_quantity' => $quantity,
+        ]);
     }
 
     private function flower(string $name, string $type, string $category, string $status = 'Active'): Flower

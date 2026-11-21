@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -43,6 +44,13 @@ class Flower extends Model
     public function availableQuantity(): int
     {
         return max(0, (int) $this->on_hand - (int) $this->reserved);
+    }
+
+    public function cartQuantityLimit(): int
+    {
+        $price = (int) $this->price_cents;
+
+        return $price > 0 ? min($this->availableQuantity(), intdiv(Money::MAX_CENTS, $price)) : 0;
     }
 
     protected function casts(): array

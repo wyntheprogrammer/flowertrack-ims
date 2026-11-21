@@ -2,12 +2,24 @@
 @section('title', $checkout ? 'Checkout review' : 'Shopping cart')
 @section('content')
     <section class="shop-width shop-interior {{ $checkout ? 'checkout-page' : 'cart-page' }}">
-        <a class="shop-back" href="{{ route($checkout ? 'client.cart' : 'client.catalog') }}"><i class="bi bi-arrow-left"></i> {{ $checkout ? 'Edit cart' : 'Continue shopping' }}</a>
+        @unless (session('cart_addition'))
+            <a class="shop-back" href="{{ route($checkout ? 'client.cart' : 'client.catalog') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> {{ $checkout ? 'Edit cart' : 'Continue shopping' }}</a>
+        @endunless
         <h1>{{ $checkout ? 'Checkout review' : 'Your shopping cart' }}</h1>
-        @if (session('cart_status'))<p role="status">{{ session('cart_status') }}</p>@endif
+        @if (session('cart_status'))
+            <div class="alert {{ session('cart_addition') ? 'alert-success' : 'alert-light' }}">
+                <p class="mb-0" role="status">{{ session('cart_status') }}</p>
+                @if (session('cart_addition'))
+                    <div class="d-flex flex-wrap align-items-center gap-3 mt-2">
+                        <a class="shop-action" href="#cart-items">View cart</a>
+                        <a href="{{ route('client.catalog') }}">Continue shopping</a>
+                    </div>
+                @endif
+            </div>
+        @endif
         @if ($lines)
             <div class="shop-columns">
-                <div class="cart-lines">
+                <div class="cart-lines" id="cart-items" tabindex="-1">
                     @foreach ($lines as $line)
                         @php($item = $line['item'])
                         <article class="cart-line">

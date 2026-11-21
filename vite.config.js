@@ -12,6 +12,8 @@ export default defineConfig({
                 'resources/css/client/home.css',
                 'resources/css/client/catalog.css',
                 'resources/css/client/editorial.css',
+                'resources/css/client/product.css',
+                'resources/js/client/product.js',
                 'resources/js/client/home.js',
                 'resources/js/client/navigation.js',
             ],

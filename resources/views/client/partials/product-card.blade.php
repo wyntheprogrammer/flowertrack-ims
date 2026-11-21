@@ -6,14 +6,7 @@
 
 <article class="catalog-item">
     <div class="catalog-photo">
-        @if ($flower->image_path && Storage::disk('public')->exists($flower->image_path))
-            <img src="{{ Storage::disk('public')->url($flower->image_path) }}" loading="lazy" decoding="async" alt="{{ $flower->name }}">
-        @else
-            <div class="catalog-photo-placeholder catalog-photo-placeholder-{{ $unit }}">
-                <i class="bi {{ $unit === 'stem' ? 'bi-flower3' : 'bi-gift' }}" aria-hidden="true"></i>
-                <small>Photo unavailable</small>
-            </div>
-        @endif
+        @include('client.partials.product-photo')
     </div>
     <div class="catalog-item-copy">
         <small>{{ $flower->category }}</small>

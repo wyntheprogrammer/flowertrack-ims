@@ -43,8 +43,12 @@ class CatalogController extends Controller
         return view('client.catalog', compact('flowers', 'types', 'type', 'categories', 'category', 'search'));
     }
 
-    public function show(int $flower): View
+    public function show(Request $request, int $flower): View
     {
-        return view('client.product', ['flower' => Flower::storefront()->findOrFail($flower)]);
+        $item = Flower::storefront()->findOrFail($flower);
+        $quantityInCart = (int) $request->session()->get('shop.cart.'.$flower, 0);
+        $maxToAdd = min(CartController::MAX_REQUEST_QUANTITY, max(0, $item->cartQuantityLimit() - $quantityInCart));
+
+        return view('client.product', ['flower' => $item, 'maxToAdd' => $maxToAdd, 'quantityInCart' => $quantityInCart]);
     }
 }
