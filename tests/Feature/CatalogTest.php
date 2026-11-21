@@ -74,7 +74,7 @@ class CatalogTest extends TestCase
         $this->get(route('client.checkout', ['method' => 'delivery']))->assertOk()
             ->assertSeeText('Delivery total')->assertSeeText('₱95.50');
         DB::table('inventory_batches')->where('flower_id', $flower->id)->update(['remaining_quantity' => 1]);
-        $this->get(route('client.checkout'))->assertSeeText('Review item')->assertDontSeeText('Pickup total');
+        $this->get(route('client.checkout'))->assertSeeText('No items selected for checkout')->assertDontSeeText('Pickup total');
         $flower->update(['status' => 'Inactive']);
         $this->get(route('client.product', $flower))->assertNotFound();
         $this->get(route('client.cart'))->assertSeeText('Item unavailable')->assertDontSeeText('Spring Rose');
@@ -82,6 +82,193 @@ class CatalogTest extends TestCase
         $this->get(route('client.cart'))->assertSeeText('Your cart is empty');
         $this->assertDatabaseCount('inventory_reservations', 0);
         $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_mixed_cart_renders_line_calculations_and_recalculates_after_update(): void
+    {
+        $stem = $this->flower('Red Rose', 'Stem', 'Roses');
+        $bouquet = $this->flower('Garden Bouquet', 'Bouquet', 'Mixed Flowers');
+        $this->stockProduct($stem, 5);
+        $this->stockProduct($bouquet, 3);
+        DB::table('flower_prices')->insert([
+            ['flower_id' => $stem->id, 'price_cents' => 5000],
+            ['flower_id' => $bouquet->id, 'price_cents' => 27525],
+        ]);
+        $this->withSession(['shop.cart' => [$stem->id => 3, $bouquet->id => 1]]);
+
+        $cart = $this->get(route('client.cart'));
+        $cart->assertOk()->assertSeeTextInOrder(['Red Rose', '₱50.00 per stem', '× 3 = ₱150.00', 'Garden Bouquet', '₱275.25 per bouquet', '× 1 = ₱275.25', 'Selected subtotal', '₱425.25', 'Review checkout (2 items)'])
+            ->assertSeeText('Photo unavailable')
+            ->assertDontSeeText('Pickup total');
+
+        $this->put(route('client.cart.update', $stem), ['quantity' => 2])
+            ->assertRedirect(route('client.cart'))
+            ->assertSessionHas('cart_status', 'Red Rose updated to 2 stems.')
+            ->assertSessionHas('shop.cart.'.$bouquet->id, 1);
+
+        $this->get(route('client.cart'))->assertOk()
+            ->assertSeeTextInOrder(['Red Rose updated to 2 stems.', '₱100.00', 'Selected subtotal', '₱375.25']);
+        $this->get(route('client.checkout'))->assertOk()
+            ->assertSeeTextInOrder(['Checkout review', 'Item subtotal', '₱375.25', 'Pickup total', '₱375.25']);
+        $this->assertDatabaseHas('inventory_batches', ['flower_id' => $stem->id, 'remaining_quantity' => 5]);
+        $this->assertDatabaseCount('inventory_reservations', 0);
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_cart_pinpoints_invalid_lines_and_preserves_other_items(): void
+    {
+        $short = $this->flower('Red Rose', 'Stem', 'Roses');
+        $soldOut = $this->flower('White Tulip', 'Stem', 'Tulips');
+        $unpriced = $this->flower('Garden Bouquet', 'Bouquet', 'Mixed Flowers');
+        $this->stockProduct($short, 2);
+        $this->stockProduct($unpriced, 1);
+        DB::table('flower_prices')->insert([
+            ['flower_id' => $short->id, 'price_cents' => 5000],
+            ['flower_id' => $soldOut->id, 'price_cents' => 2500],
+        ]);
+        $this->withSession(['shop.cart' => [$short->id => 3, $soldOut->id => 1, $unpriced->id => 1]]);
+
+        $this->get(route('client.cart'))->assertOk()
+            ->assertSeeTextInOrder([
+                'Red Rose', 'Only 2 stems are available. Change your quantity to 2 or fewer.',
+                'White Tulip', 'This flower is sold out.',
+                'Garden Bouquet', 'The price for this flower is unavailable.',
+            ])
+            ->assertViewHas('selectedCount', 0);
+
+        $this->put(route('client.cart.update', $short), ['quantity' => 4])
+            ->assertRedirect(route('client.cart'))
+            ->assertSessionHas('shop.cart.'.$short->id, 3)
+            ->assertSessionHas('shop.cart.'.$soldOut->id, 1)
+            ->assertSessionHasErrors(['items.'.$short->id => 'Only 2 stems are available. Change your quantity to 2 or fewer.'], null, 'cart');
+    }
+
+    public function test_cart_selection_preserves_unchecked_lines_and_reviews_only_saved_choices(): void
+    {
+        $stem = $this->flower('Red Rose', 'Stem', 'Roses');
+        $bouquet = $this->flower('Garden Bouquet', 'Bouquet', 'Mixed Flowers');
+        $this->stockProduct($stem, 5);
+        $this->stockProduct($bouquet, 3);
+        DB::table('flower_prices')->insert([
+            ['flower_id' => $stem->id, 'price_cents' => 5000],
+            ['flower_id' => $bouquet->id, 'price_cents' => 80000],
+        ]);
+        $this->withSession(['shop.cart' => [$stem->id => 3, $bouquet->id => 1]]);
+
+        $this->get(route('client.cart'))->assertOk()
+            ->assertSeeTextInOrder(['Selected subtotal', '₱950.00', 'Review checkout (2 items)']);
+
+        $this->postJson(route('client.cart.selection'), ['selected' => [$stem->id, 999], 'subtotal' => 1])
+            ->assertNoContent()
+            ->assertSessionHas('shop.cart_selection', [$stem->id]);
+
+        $this->get(route('client.cart'))->assertOk()
+            ->assertSeeText('Garden Bouquet')
+            ->assertSeeTextInOrder(['Selected subtotal', '₱150.00', 'Review checkout (1 item)']);
+
+        $this->put(route('client.cart.update', $bouquet), ['quantity' => 2])
+            ->assertRedirect(route('client.cart'))
+            ->assertSessionHas('shop.cart_selection', [$stem->id])
+            ->assertSessionHas('shop.cart.'.$bouquet->id, 2);
+
+        $this->get(route('client.checkout'))->assertOk()
+            ->assertSeeTextInOrder(['Red Rose', 'Quantity 3', 'Item subtotal', '₱150.00'])
+            ->assertDontSeeText('Garden Bouquet');
+
+        $this->post(route('client.cart.selection'), ['selected' => [$stem->id, $bouquet->id], 'review' => 1])
+            ->assertRedirect(route('client.checkout'));
+
+        $this->get(route('client.checkout'))->assertOk()
+            ->assertSeeText('Garden Bouquet')
+            ->assertSeeText('₱1750.00');
+
+        $this->postJson(route('client.cart.selection'), [])->assertNoContent()
+            ->assertSessionHas('shop.cart_selection', []);
+        $this->get(route('client.cart'))->assertOk()
+            ->assertViewHas('selectedCount', 0)
+            ->assertSeeTextInOrder(['Selected subtotal', '₱0', 'Review checkout (0 items)']);
+        $this->get(route('client.checkout'))->assertOk()
+            ->assertSeeText('No items selected for checkout')
+            ->assertDontSeeText('Item subtotal');
+    }
+
+    public function test_cart_quantity_autosave_returns_current_totals_and_keeps_selection(): void
+    {
+        $stem = $this->flower('Red Rose', 'Stem', 'Roses');
+        $bouquet = $this->flower('Garden Bouquet', 'Bouquet', 'Mixed Flowers');
+        $this->stockProduct($stem, 12);
+        $this->stockProduct($bouquet, 3);
+        DB::table('flower_prices')->insert([
+            ['flower_id' => $stem->id, 'price_cents' => 5000],
+            ['flower_id' => $bouquet->id, 'price_cents' => 80000],
+        ]);
+        $this->withSession([
+            'shop.cart' => [$stem->id => 3, $bouquet->id => 1],
+            'shop.cart_selection' => [$stem->id],
+        ]);
+
+        $this->putJson(route('client.cart.update', $stem), ['quantity' => 12, 'price' => 1])
+            ->assertOk()
+            ->assertExactJson(['quantity' => 12, 'price' => 5000, 'amount' => 60000, 'maxQuantity' => 12, 'selected' => true]);
+        $this->putJson(route('client.cart.update', $bouquet), ['quantity' => 2])
+            ->assertOk()
+            ->assertJson(['quantity' => 2, 'amount' => 160000, 'selected' => false])
+            ->assertSessionHas('shop.cart_selection', [$stem->id]);
+        $this->putJson(route('client.cart.update', $stem), ['quantity' => 13])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'Only 12 stems are available. Change your quantity to 12 or fewer.')
+            ->assertSessionHas('shop.cart.'.$stem->id, 12)
+            ->assertSessionHas('shop.cart.'.$bouquet->id, 2);
+
+        $this->get(route('client.checkout'))->assertOk()
+            ->assertSeeTextInOrder(['Red Rose', 'Quantity 12', 'Item subtotal', '₱600.00'])
+            ->assertDontSeeText('Garden Bouquet');
+        $this->assertDatabaseHas('inventory_batches', ['flower_id' => $stem->id, 'remaining_quantity' => 12]);
+    }
+
+    public function test_checkout_skips_selected_items_that_become_unavailable_and_reprices_the_rest(): void
+    {
+        $stem = $this->flower('Red Rose', 'Stem', 'Roses');
+        $bouquet = $this->flower('Garden Bouquet', 'Bouquet', 'Mixed Flowers');
+        $this->stockProduct($stem, 5);
+        $this->stockProduct($bouquet, 3);
+        DB::table('flower_prices')->insert([
+            ['flower_id' => $stem->id, 'price_cents' => 5000],
+            ['flower_id' => $bouquet->id, 'price_cents' => 80000],
+        ]);
+        $this->withSession([
+            'shop.cart' => [$stem->id => 3, $bouquet->id => 1],
+            'shop.cart_selection' => [$stem->id, $bouquet->id],
+        ]);
+
+        DB::table('inventory_batches')->where('flower_id', $stem->id)->update(['remaining_quantity' => 2]);
+        DB::table('flower_prices')->where('flower_id', $bouquet->id)->update(['price_cents' => 82550]);
+
+        $this->get(route('client.checkout'))->assertOk()
+            ->assertSeeText('Some selected items are unavailable.')
+            ->assertSeeTextInOrder(['Garden Bouquet', 'Item subtotal', '₱825.50', 'Pickup total'])
+            ->assertDontSeeText('Red Rose');
+
+        $this->get(route('client.cart'))->assertOk()
+            ->assertSeeText('Only 2 stems are available. Change your quantity to 2 or fewer.')
+            ->assertSeeTextInOrder(['Selected subtotal', '₱825.50', 'Review checkout (1 item)'])
+            ->assertSessionHas('shop.cart.'.$stem->id, 3);
+        $this->assertDatabaseCount('inventory_reservations', 0);
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_removing_the_last_item_leaves_the_browse_flow_and_shared_footer(): void
+    {
+        $flower = $this->flower('Red Rose', 'Stem', 'Roses');
+        $this->withSession(['shop.cart' => [$flower->id => 1]])
+            ->delete(route('client.cart.remove', $flower))
+            ->assertRedirect(route('client.cart'));
+
+        $this->get(route('client.cart'))->assertOk()
+            ->assertSeeText('Your cart is empty')
+            ->assertSee('href="'.route('client.catalog').'">Browse flowers', false)
+            ->assertSee('shop-footer-featured', false)
+            ->assertDontSeeText('Review checkout');
     }
 
     public function test_bouquet_details_show_the_per_bouquet_price_and_starting_total(): void

@@ -1,86 +1,141 @@
 @extends('layouts.client')
-@section('title', $checkout ? 'Checkout review' : 'Shopping cart')
+
+@section('title', 'Shopping cart')
+@section('body-class', 'shop-cart')
+
+@push('page-assets')
+    @vite(['resources/css/client/catalog.css', 'resources/css/client/cart.css', 'resources/js/client/cart.js'])
+@endpush
+
 @section('content')
-    <section class="shop-width shop-interior {{ $checkout ? 'checkout-page' : 'cart-page' }}">
-        @unless (session('cart_addition'))
-            <a class="shop-back" href="{{ route($checkout ? 'client.cart' : 'client.catalog') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> {{ $checkout ? 'Edit cart' : 'Continue shopping' }}</a>
-        @endunless
-        <h1>{{ $checkout ? 'Checkout review' : 'Your shopping cart' }}</h1>
+    <section class="shop-width shopping-cart" aria-labelledby="cart-title">
+        <header class="shopping-cart-heading" data-shop-back-top-threshold>
+            <h1 id="cart-title" tabindex="-1">Your shopping cart</h1>
+            @if ($lines && ! session('cart_addition'))
+                <a class="cart-text-link" href="{{ route('client.catalog') }}">Continue shopping</a>
+            @endif
+        </header>
+
         @if (session('cart_status'))
-            <div class="alert {{ session('cart_addition') ? 'alert-success' : 'alert-light' }}">
-                <p class="mb-0" role="status">{{ session('cart_status') }}</p>
+            <div class="shopping-cart-feedback">
+                <p role="status">{{ session('cart_status') }}</p>
                 @if (session('cart_addition'))
-                    <div class="d-flex flex-wrap align-items-center gap-3 mt-2">
-                        <a class="shop-action" href="#cart-items">View cart</a>
-                        <a href="{{ route('client.catalog') }}">Continue shopping</a>
+                    <div class="shopping-cart-actions">
+                        <a class="cart-text-link" href="#cart-items">View cart</a>
+                        <a class="cart-text-link" href="{{ route('client.catalog') }}">Continue shopping</a>
                     </div>
                 @endif
             </div>
         @endif
+
         @if ($lines)
-            <div class="shop-columns">
-                <div class="cart-lines" id="cart-items" tabindex="-1">
+            <form id="cart-selection" method="post" action="{{ route('client.cart.selection') }}" data-subtotal-limit="{{ \App\Support\Money::MAX_CENTS }}">
+                @csrf
+            </form>
+            <div class="shopping-cart-layout">
+                <div class="shopping-cart-items" id="cart-items" tabindex="-1">
+                    <label class="cart-select-all" hidden>
+                        <input type="checkbox" id="cart-select-all" @checked($eligibleCount > 0 && $selectedCount === $eligibleCount) @disabled($eligibleCount === 0)>
+                        Select all
+                    </label>
                     @foreach ($lines as $line)
-                        @php($item = $line['item'])
-                        <article class="cart-line">
-                            <div class="cart-item-info">
-                                @if ($item && $item->image_path && Storage::disk('public')->exists($item->image_path))
-                                    <img src="{{ Storage::disk('public')->url($item->image_path) }}" alt="" loading="lazy">
+                        @php
+                            $item = $line['item'];
+                            $id = $line['id'];
+                            $unit = $item ? strtolower($item->product_type) : null;
+                            $updateError = $errors->getBag('cart')->first('items.'.$id);
+                        @endphp
+                        <article class="shopping-cart-item" aria-labelledby="cart-name-{{ $id }}">
+                            <label class="cart-line-select">
+                                <input type="checkbox" form="cart-selection" name="selected[]" value="{{ $id }}"
+                                       data-line-amount="{{ $line['amount'] }}" @checked($line['selected']) @disabled($line['issue'] !== null)>
+                                <span class="visually-hidden">Select {{ $item?->name ?? 'unavailable item' }} for checkout</span>
+                            </label>
+                            <div class="catalog-photo shopping-cart-photo">
+                                @if ($item)
+                                    @include('client.partials.product-photo', ['flower' => $item])
+                                @else
+                                    <div class="catalog-photo-placeholder">
+                                        <i class="bi bi-bag" aria-hidden="true"></i>
+                                        <small>Photo unavailable</small>
+                                    </div>
                                 @endif
-                                <small>{{ $item?->product_type }}</small>
-                                <h2>@if ($item)<a href="{{ route('client.product', $item->id) }}">{{ $item->name }}</a>@else Item unavailable @endif</h2>
-                                <p>{{ $item?->price_cents > 0 ? '₱'.\App\Support\Money::format((int) $item->price_cents).' / '.strtolower($item->product_type) : 'Price unavailable' }}</p>
                             </div>
-                            <strong>{{ $line['amount'] !== null ? '₱'.\App\Support\Money::format($line['amount']) : 'Review item' }}</strong>
-                            @if ($checkout)
-                                <small>Quantity {{ $line['quantity'] }}</small>
-                            @else
-                                <div class="cart-tools">
-                                    @if ($item && $item->price_cents > 0 && $item->availableQuantity())
-                                        <form method="post" action="{{ route('client.cart.update', $line['id']) }}">
-                                            @csrf @method('PUT')
-                                            <label>Quantity <input type="number" name="quantity" value="{{ $line['quantity'] }}" min="1" max="{{ $item->availableQuantity() }}" required></label>
-                                            <button>Update</button>
+
+                            <div class="shopping-cart-item-details">
+                                <h2 id="cart-name-{{ $id }}">
+                                    @if ($item)
+                                        <a class="cart-text-link" href="{{ route('client.product', $item->id) }}">{{ $item->name }}</a>
+                                    @else
+                                        Item unavailable
+                                    @endif
+                                </h2>
+
+                                @if ($line['priceAvailable'])
+                                    <p class="cart-equation">
+                                        <span><span data-cart-unit-price>₱{{ \App\Support\Money::format($line['price']) }}</span> per {{ $unit }}</span>
+                                        <span data-cart-equation @if ($line['amount'] === null) hidden @endif>× <span data-cart-saved-quantity>{{ number_format($line['quantity']) }}</span> = <strong data-cart-line-total>@if ($line['amount'] !== null)₱{{ \App\Support\Money::format($line['amount']) }}@endif</strong></span>
+                                    </p>
+                                @endif
+
+                                <div class="cart-item-issue" id="cart-issue-{{ $id }}" role="alert" @if (! $line['issue'] && ! $updateError) hidden @endif>
+                                    <div data-cart-stock-issue>
+                                        @if ($line['issue'])
+                                            <p>{{ $line['issue'] }}</p>
+                                        @endif
+                                    </div>
+                                    <p data-cart-save-error>{{ $updateError !== $line['issue'] ? $updateError : '' }}</p>
+                                </div>
+
+                                <div class="shopping-cart-actions">
+                                    @if ($line['maxQuantity'] > 0)
+                                        <form class="cart-quantity-form" method="post" action="{{ route('client.cart.update', $id) }}">
+                                            @csrf
+                                            @method('PUT')
+                                            <label for="cart-quantity-{{ $id }}">Quantity<span class="visually-hidden"> of {{ $item->name }}</span></label>
+                                            <div class="cart-quantity-controls">
+                                                <button class="cart-step" type="button" data-cart-step="-1" aria-label="Decrease quantity of {{ $item->name }}" hidden>−</button>
+                                                <input class="form-control" id="cart-quantity-{{ $id }}" name="quantity" type="number"
+                                                       inputmode="numeric" min="1" max="{{ $line['maxQuantity'] }}" step="1" value="{{ $line['quantity'] }}" required
+                                                       aria-describedby="cart-issue-{{ $id }}" @if ($line['issue'] || $updateError) aria-invalid="true" @endif>
+                                                <button class="cart-step" type="button" data-cart-step="1" aria-label="Increase quantity of {{ $item->name }}" hidden>+</button>
+                                            </div>
+                                            <span class="cart-quantity-status" data-cart-quantity-status role="status"></span>
+                                            <noscript><small>Press Enter to save the quantity.</small></noscript>
                                         </form>
                                     @else
-                                        <span>Quantity {{ $line['quantity'] }}</span>
+                                        <p class="cart-saved-quantity">Quantity {{ number_format($line['quantity']) }}</p>
                                     @endif
-                                    <form method="post" action="{{ route('client.cart.remove', $line['id']) }}">@csrf @method('DELETE') <button>Remove</button></form>
+
+                                    <form method="post" action="{{ route('client.cart.remove', $id) }}">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button class="cart-remove" type="submit">Remove<span class="visually-hidden"> {{ $item?->name ?? 'unavailable item' }}</span></button>
+                                    </form>
                                 </div>
-                            @endif
+                            </div>
                         </article>
                     @endforeach
                 </div>
-                <aside class="shop-summary">
-                    <h2>Order summary</h2>
-                    @if ($valid)
-                        <div class="summary-row"><span>Item subtotal</span><strong>₱{{ \App\Support\Money::format($subtotal) }}</strong></div>
-                        @if ($checkout)
-                            <nav class="fulfillment-options" aria-label="Review fulfillment totals">
-                                <a href="{{ route('client.checkout') }}" @if(!$delivery) aria-current="page" @endif><i class="bi bi-shop"></i> Pickup</a>
-                                @if ($deliveryAvailable)
-                                    <a href="{{ route('client.checkout', ['method' => 'delivery']) }}" @if($delivery) aria-current="page" @endif><i class="bi bi-truck"></i> Delivery</a>
-                                @endif
-                            </nav>
-                            @if ($delivery)
-                                <div class="summary-row"><span>Delivery fee</span><span>₱{{ \App\Support\Money::format($fee) }}</span></div>
-                            @elseif (!$deliveryAvailable)
-                                <p>Delivery unavailable for this cart.</p>
-                            @endif
-                            <div class="summary-row"><span>{{ $delivery ? 'Delivery total' : 'Pickup total' }}</span><strong>₱{{ \App\Support\Money::format($subtotal + ($delivery ? $fee : 0)) }}</strong></div>
-                            <p>Online order submission is pending. Your items are saved in this session.</p>
-                        @else
-                            <a class="shop-action" href="{{ route('client.checkout') }}">Review checkout <i class="bi bi-arrow-right"></i></a>
-                        @endif
-                    @else
-                        <p>Stock or pricing has changed. Update or remove the marked items to review your total.</p>
-                    @endif
+
+                <aside class="shopping-cart-summary" aria-labelledby="cart-summary-title">
+                    <h2 id="cart-summary-title">Order summary</h2>
+                    <div class="shopping-cart-subtotal">
+                        <span id="cart-subtotal-label">Selected subtotal</span>
+                        <output id="cart-subtotal" aria-labelledby="cart-subtotal-label">{{ $overLimit ? '—' : ($selectedCount ? '₱'.\App\Support\Money::format($subtotal) : '₱0') }}</output>
+                    </div>
+                    <p class="cart-selection-limit" id="cart-selection-limit" role="status" @if (! $overLimit) hidden @endif>Deselect an item to bring the selected subtotal within the cart limit.</p>
+                    <button class="shop-button primary" id="cart-review" type="submit" form="cart-selection" name="review" value="1"
+                            @disabled($selectedCount === 0 || $overLimit)>Review checkout ({{ $selectedCount }} {{ \Illuminate\Support\Str::plural('item', $selectedCount) }})</button>
+                    <button class="cart-update" id="cart-save-selection" type="submit" form="cart-selection">Save selection</button>
+                    <p class="cart-selection-error" id="cart-selection-error" role="alert" hidden>Could not save the selection. Try Save selection again.</p>
                 </aside>
             </div>
         @else
-            <div class="empty-cart-layout">
-                <div class="shop-empty"><i class="bi bi-bag" aria-hidden="true"></i><h2>Your cart is empty</h2><p>Choose a flower from the catalog to start your cart.</p><a class="shop-action" href="{{ route('client.catalog') }}">Browse flowers</a></div>
-                <img src="{{ asset('images/shop-stems.webp') }}" alt="">
+            <div class="shopping-cart-empty">
+                <i class="bi bi-bag" aria-hidden="true"></i>
+                <h2>Your cart is empty</h2>
+                <a class="shop-button primary" href="{{ route('client.catalog') }}">Browse flowers</a>
             </div>
         @endif
     </section>

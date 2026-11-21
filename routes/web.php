@@ -30,6 +30,7 @@ Route::prefix('shop')->name('client.')->group(function () {
     Route::view('about', 'client.about')->name('about');
     Route::get('flowers/{flower}', [CatalogController::class, 'show'])->whereNumber('flower')->name('product');
     Route::get('cart', [CartController::class, 'index'])->name('cart');
+    Route::post('cart/selection', [CartController::class, 'select'])->name('cart.selection');
     Route::post('cart/{flower}', [CartController::class, 'save'])->whereNumber('flower')->name('cart.add');
     Route::put('cart/{flower}', [CartController::class, 'save'])->whereNumber('flower')->name('cart.update');
     Route::delete('cart/{flower}', [CartController::class, 'remove'])->whereNumber('flower')->name('cart.remove');
