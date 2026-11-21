@@ -14,6 +14,7 @@ export default defineConfig({
                 'resources/css/client/editorial.css',
                 'resources/css/client/product.css',
                 'resources/css/client/cart.css',
+                'resources/css/client/checkout.css',
                 'resources/js/client/product.js',
                 'resources/js/client/cart.js',
                 'resources/js/client/home.js',

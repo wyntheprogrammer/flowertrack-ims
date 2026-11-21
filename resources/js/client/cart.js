@@ -10,7 +10,12 @@ if (form) {
     const saveButton = document.querySelector('#cart-save-selection');
     const error = document.querySelector('#cart-selection-error');
     const numberFormat = new Intl.NumberFormat('en-US');
+    const confirmedSelection = new Set(checkboxes.filter(checkbox => checkbox.checked));
+    const selectionIssues = new Map(checkboxes.map(checkbox => [
+        checkbox, document.getElementById(checkbox.getAttribute('aria-describedby')),
+    ]));
     let saveQueue = Promise.resolve();
+    let selectionFailed = false;
     let waitingForSubmit = false;
     let submitting = false;
 
@@ -44,9 +49,10 @@ if (form) {
         saveQueue = saveQueue.then(save);
     }
 
-    function saveSelection() {
+    function saveSelection(changedCheckboxes) {
         displaySelection();
         enqueueSave(async () => {
+            const selected = new Set(eligibleCheckboxes().filter(checkbox => checkbox.checked));
             try {
                 const response = await fetch(form.action, {
                     method: 'POST',
@@ -57,12 +63,24 @@ if (form) {
                 if (response.status !== 204) {
                     throw new Error('Selection was not saved.');
                 }
-                error.hidden = true;
-                saveButton.hidden = true;
+                confirmedSelection.clear();
+                selected.forEach(checkbox => confirmedSelection.add(checkbox));
+                selectionFailed = false;
+                selectionIssues.forEach(issue => {
+                    issue.hidden = true;
+                    issue.textContent = '';
+                });
             } catch {
-                error.hidden = false;
-                saveButton.hidden = false;
+                selectionFailed = true;
+                const unsaved = checkboxes.filter(checkbox => selected.has(checkbox) !== confirmedSelection.has(checkbox));
+                const affected = unsaved.length ? unsaved : changedCheckboxes;
+                selectionIssues.forEach((issue, checkbox) => {
+                    issue.hidden = !affected.includes(checkbox);
+                    issue.textContent = issue.hidden ? '' : 'Could not save the selection for this flower.';
+                });
             }
+            error.hidden = !selectionFailed;
+            saveButton.hidden = !selectionFailed;
         });
     }
 
@@ -72,7 +90,7 @@ if (form) {
         const status = quantityForm.querySelector('[data-cart-quantity-status]');
         const [minus, plus] = quantityForm.querySelectorAll('[data-cart-step]');
         const checkbox = row.querySelector('[name="selected[]"]');
-        const issue = row.querySelector('.cart-item-issue');
+        const issue = document.getElementById(input.getAttribute('aria-describedby'));
         const stockIssue = issue.querySelector('[data-cart-stock-issue]');
         const saveError = issue.querySelector('[data-cart-save-error]');
         const equation = row.querySelector('[data-cart-equation]');
@@ -111,6 +129,9 @@ if (form) {
             if (checkbox.disabled) {
                 checkbox.checked = result.selected;
                 checkbox.disabled = false;
+                if (result.selected) {
+                    confirmedSelection.add(checkbox);
+                }
             }
             checkbox.dataset.lineAmount = result.amount;
             displaySelection();
@@ -254,12 +275,13 @@ if (form) {
     const quantities = [...document.querySelectorAll('.cart-quantity-form')].map(setupQuantity);
 
     selectAll.addEventListener('change', () => {
-        eligibleCheckboxes().forEach(checkbox => {
+        const changed = eligibleCheckboxes().filter(checkbox => checkbox.checked !== selectAll.checked);
+        changed.forEach(checkbox => {
             checkbox.checked = selectAll.checked;
         });
-        saveSelection();
+        saveSelection(changed);
     });
-    checkboxes.forEach(checkbox => checkbox.addEventListener('change', saveSelection));
+    checkboxes.forEach(checkbox => checkbox.addEventListener('change', () => saveSelection([checkbox])));
 
     document.querySelector('.shopping-cart').addEventListener('submit', async event => {
         const { target, submitter } = event;
@@ -274,6 +296,9 @@ if (form) {
 
         waitingForSubmit = true;
         const reviewing = submitter === review;
+        if (submitter === saveButton) {
+            saveSelection(checkboxes.filter(checkbox => !selectionIssues.get(checkbox).hidden));
+        }
         quantities.forEach(item => item.flush({ confirm: reviewing && item.checkbox.checked }));
         let pending;
         do {
@@ -284,12 +309,29 @@ if (form) {
 
         if (reviewing) {
             const failed = quantities.filter(item => item.checkbox.checked && item.hasFailed());
+            waitingForSubmit = false;
             if (failed.length > 0) {
                 failed.forEach(item => item.clearFailure());
                 failed[0].focus();
-                waitingForSubmit = false;
                 return;
             }
+            if (selectionFailed) {
+                const affected = checkboxes.find(checkbox => !selectionIssues.get(checkbox).hidden);
+                (affected ?? saveButton).focus();
+                return;
+            }
+            if (!review.disabled) {
+                window.location.assign(review.dataset.checkoutUrl);
+            }
+            return;
+        }
+
+        if (submitter === saveButton) {
+            waitingForSubmit = false;
+            if (!selectionFailed) {
+                (review.disabled ? selectAll : review).focus();
+            }
+            return;
         }
 
         submitting = true;

@@ -1,67 +1,108 @@
 @extends('layouts.client')
 
 @section('title', 'Checkout review')
+@section('body-class', 'shop-checkout')
+
+@push('page-assets')
+    @vite(['resources/css/client/catalog.css', 'resources/css/client/checkout.css'])
+@endpush
 
 @section('content')
-    <section class="shop-width shop-interior checkout-page">
-        <a class="shop-back" href="{{ route('client.cart') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Edit cart</a>
-        <h1>Checkout review</h1>
+    <section class="shop-width checkout-page" aria-labelledby="checkout-title">
+        <header class="checkout-heading" data-shop-back-top-threshold>
+            <h1 id="checkout-title">Checkout review</h1>
+            @if ($lines)
+                <a class="checkout-link" href="{{ route('client.cart') }}">Edit cart</a>
+            @endif
+        </header>
 
-        @if ($excludedCount)
-            <p class="alert alert-warning" role="status">Some selected items are unavailable. Check the details in your cart.</p>
-        @endif
+        @if ($lines || $unavailableLines)
+            <div class="checkout-layout">
+                <section class="checkout-items" aria-labelledby="checkout-items-title">
+                    <h2 id="checkout-items-title">Selected flowers</h2>
 
-        @if ($lines)
-            <div class="shop-columns">
-                <div class="cart-lines" id="cart-items" tabindex="-1">
+                    @if ($unavailableLines)
+                        <section class="checkout-notice" aria-labelledby="checkout-unavailable-title">
+                            <h3 id="checkout-unavailable-title">Some selected items are unavailable.</h3>
+                            <ul>
+                                @foreach ($unavailableLines as $unavailable)
+                                    <li><strong>{{ $unavailable['name'] }}</strong> <span>{{ $unavailable['issue'] }}</span></li>
+                                @endforeach
+                            </ul>
+                            @if ($lines)
+                                <p>The total covers the flowers still available.</p>
+                            @endif
+                            <a class="checkout-link" href="{{ route('client.cart') }}">Edit cart</a>
+                        </section>
+                    @endif
+
                     @foreach ($lines as $line)
                         @php($item = $line['item'])
-                        <article class="cart-line">
-                            <div class="cart-item-info">
-                                @if ($item && $item->image_path && Storage::disk('public')->exists($item->image_path))
-                                    <img src="{{ Storage::disk('public')->url($item->image_path) }}" alt="" loading="lazy">
-                                @endif
-                                <small>{{ $item?->product_type }}</small>
-                                <h2>@if ($item)<a href="{{ route('client.product', $item->id) }}">{{ $item->name }}</a>@else Item unavailable @endif</h2>
-                                <p>{{ $line['priceAvailable'] ? '₱'.\App\Support\Money::format($line['price']).' / '.strtolower($item->product_type) : 'Price unavailable' }}</p>
+                        <article class="checkout-item" aria-labelledby="checkout-flower-{{ $line['id'] }}">
+                            <div class="catalog-photo checkout-photo">
+                                @include('client.partials.product-photo', ['flower' => $item])
                             </div>
-                            <strong>{{ $line['amount'] !== null ? '₱'.\App\Support\Money::format($line['amount']) : 'Review item' }}</strong>
-                            <small>Quantity {{ $line['quantity'] }}</small>
+                            <div class="checkout-item-info">
+                                <h3 id="checkout-flower-{{ $line['id'] }}">{{ $item->name }}</h3>
+                                <p>₱{{ \App\Support\Money::format($line['price']) }} per {{ strtolower($item->product_type) }}</p>
+                                <p>Quantity {{ number_format($line['quantity']) }}</p>
+                            </div>
+                            <div class="checkout-line-total">
+                                <span class="visually-hidden">Line total</span>
+                                <strong>₱{{ \App\Support\Money::format($line['amount']) }}</strong>
+                            </div>
                         </article>
                     @endforeach
-                </div>
+                </section>
 
-                <aside class="shop-summary">
-                    <h2>Order summary</h2>
-                    @if ($valid)
-                        <div class="summary-row"><span>Item subtotal</span><strong>₱{{ \App\Support\Money::format($subtotal) }}</strong></div>
-                        <nav class="fulfillment-options" aria-label="Review fulfillment totals">
-                            <a href="{{ route('client.checkout') }}" @if(!$delivery) aria-current="page" @endif><i class="bi bi-shop"></i> Pickup</a>
-                            @if ($deliveryAvailable)
-                                <a href="{{ route('client.checkout', ['method' => 'delivery']) }}" @if($delivery) aria-current="page" @endif><i class="bi bi-truck"></i> Delivery</a>
-                            @endif
-                        </nav>
-                        @if ($delivery)
-                            <div class="summary-row"><span>Delivery fee</span><span>₱{{ \App\Support\Money::format($fee) }}</span></div>
-                        @elseif (!$deliveryAvailable)
-                            <p>Delivery unavailable for this cart.</p>
+                @if ($lines)
+                    <aside class="checkout-summary" aria-labelledby="checkout-summary-title">
+                        @if ($valid)
+                            <div class="checkout-fulfillment">
+                                <h2 id="checkout-summary-title">Pickup or delivery</h2>
+                                <nav class="checkout-methods" aria-label="Fulfillment method">
+                                    <a href="{{ route('client.checkout') }}" @if (! $delivery) aria-current="true" @endif>Pickup</a>
+                                    @if ($deliveryAvailable)
+                                        <a href="{{ route('client.checkout', ['method' => 'delivery']) }}" @if ($delivery) aria-current="true" @endif>Delivery</a>
+                                    @endif
+                                </nav>
+                                @unless ($deliveryAvailable)
+                                    <p>Delivery is unavailable for this selection.</p>
+                                @endunless
+
+                                @unless ($delivery)
+                                    <div class="checkout-location">
+                                        <h3>Pickup address</h3>
+                                        <p>Laon Laan – Juaning Consolidation Area, Barangay 471, Sampaloc, Manila</p>
+                                        <a class="checkout-link" href="https://www.google.com/maps/dir/?api=1&amp;destination=14.6114375%2C120.9863871">Get directions</a>
+                                    </div>
+                                @endunless
+                            </div>
+                            <div class="checkout-totals">
+                                <h2>Order summary</h2>
+                                <dl>
+                                    <div><dt>Item subtotal</dt><dd>₱{{ \App\Support\Money::format($subtotal) }}</dd></div>
+                                    @if ($delivery)
+                                        <div><dt>Delivery fee</dt><dd>₱{{ \App\Support\Money::format($fee) }}</dd></div>
+                                    @endif
+                                    <div class="checkout-final-total">
+                                        <dt>{{ $delivery ? 'Delivery total' : 'Pickup total' }}</dt>
+                                        <dd>₱{{ \App\Support\Money::format($subtotal + ($delivery ? $fee : 0)) }}</dd>
+                                    </div>
+                                </dl>
+                            </div>
+                        @else
+                            <h2 id="checkout-summary-title">Order summary</h2>
+                            <p>The selected flowers exceed the cart total limit. Deselect an item to review the total.</p>
+                            <a class="checkout-link" href="{{ route('client.cart') }}">Edit cart</a>
                         @endif
-                        <div class="summary-row"><span>{{ $delivery ? 'Delivery total' : 'Pickup total' }}</span><strong>₱{{ \App\Support\Money::format($subtotal + ($delivery ? $fee : 0)) }}</strong></div>
-                        <p>Online order submission is pending. Your items are saved in this session.</p>
-                    @else
-                        <p>The selected items exceed the cart total limit. Edit your selection to review checkout.</p>
-                    @endif
-                </aside>
-            </div>
-        @elseif ($hasCart)
-            <div class="shop-empty">
-                <h2>No items selected for checkout</h2>
-                <p>Select available items in your cart to review checkout.</p>
+                    </aside>
+                @endif
             </div>
         @else
-            <div class="empty-cart-layout">
-                <div class="shop-empty"><i class="bi bi-bag" aria-hidden="true"></i><h2>Your cart is empty</h2><p>Choose a flower from the catalog to start your cart.</p><a class="shop-action" href="{{ route('client.catalog') }}">Browse flowers</a></div>
-                <img src="{{ asset('images/shop-stems.webp') }}" alt="">
+            <div class="checkout-empty">
+                <h2>Select items in your cart to review checkout</h2>
+                <a class="shop-button primary" href="{{ route('client.cart') }}">Return to cart</a>
             </div>
         @endif
     </section>

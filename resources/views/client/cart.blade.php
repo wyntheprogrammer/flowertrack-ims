@@ -48,7 +48,8 @@
                         <article class="shopping-cart-item" aria-labelledby="cart-name-{{ $id }}">
                             <label class="cart-line-select">
                                 <input type="checkbox" form="cart-selection" name="selected[]" value="{{ $id }}"
-                                       data-line-amount="{{ $line['amount'] }}" @checked($line['selected']) @disabled($line['issue'] !== null)>
+                                       data-line-amount="{{ $line['amount'] }}" aria-describedby="cart-selection-issue-{{ $id }}"
+                                       @checked($line['selected']) @disabled($line['issue'] !== null)>
                                 <span class="visually-hidden">Select {{ $item?->name ?? 'unavailable item' }} for checkout</span>
                             </label>
                             <div class="catalog-photo shopping-cart-photo">
@@ -78,6 +79,7 @@
                                     </p>
                                 @endif
 
+                                <p class="cart-item-issue cart-selection-issue" id="cart-selection-issue-{{ $id }}" role="alert" hidden></p>
                                 <div class="cart-item-issue" id="cart-issue-{{ $id }}" role="alert" @if (! $line['issue'] && ! $updateError) hidden @endif>
                                     <div data-cart-stock-issue>
                                         @if ($line['issue'])
@@ -126,6 +128,7 @@
                     </div>
                     <p class="cart-selection-limit" id="cart-selection-limit" role="status" @if (! $overLimit) hidden @endif>Deselect an item to bring the selected subtotal within the cart limit.</p>
                     <button class="shop-button primary" id="cart-review" type="submit" form="cart-selection" name="review" value="1"
+                            data-checkout-url="{{ route('client.checkout') }}"
                             @disabled($selectedCount === 0 || $overLimit)>Review checkout ({{ $selectedCount }} {{ \Illuminate\Support\Str::plural('item', $selectedCount) }})</button>
                     <button class="cart-update" id="cart-save-selection" type="submit" form="cart-selection">Save selection</button>
                     <p class="cart-selection-error" id="cart-selection-error" role="alert" hidden>Could not save the selection. Try Save selection again.</p>

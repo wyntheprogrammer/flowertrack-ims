@@ -91,6 +91,7 @@
 .cart-equation strong { color: #98474f; }
 .cart-equation span { display: inline-block; }
 .cart-item-issue { margin-top: .6rem; color: #853b31; font-size: .9rem; }
+.cart-selection-issue { margin-bottom: 0; }
 .cart-item-issue p, .cart-saved-quantity { margin: 0; }
 .cart-item-issue div:has(p) + p:not(:empty) { margin-top: .35rem; }
 

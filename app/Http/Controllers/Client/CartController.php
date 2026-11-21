@@ -127,7 +127,7 @@ class CartController extends Controller
         $lines = [];
         $selectedLines = [];
         $eligibleCount = 0;
-        $excludedCount = 0;
+        $unavailableLines = [];
         $subtotal = 0;
         $overLimit = false;
 
@@ -143,7 +143,9 @@ class CartController extends Controller
             $lines[] = $line;
 
             if ($amount === null) {
-                $excludedCount += (int) isset($selection[$id]);
+                if (isset($selection[$id])) {
+                    $unavailableLines[$id] = ['name' => $item?->name, 'issue' => $issue];
+                }
             } else {
                 $eligibleCount++;
             }
@@ -164,14 +166,25 @@ class CartController extends Controller
             return view('client.cart', compact('lines', 'subtotal', 'selectedCount', 'eligibleCount', 'overLimit'));
         }
 
+        $inactiveIds = array_keys(array_filter($unavailableLines, fn (array $line): bool => $line['name'] === null));
+        if ($inactiveIds !== []) {
+            $names = Flower::query()->whereKey($inactiveIds)->pluck('name', 'id');
+            foreach ($inactiveIds as $id) {
+                $unavailableLines[$id]['name'] = $names->get($id) ?? 'Flower #'.$id;
+            }
+        }
+
         $lines = $selectedLines;
-        $hasCart = $cart !== [];
         $valid = ! $overLimit;
-        $fee = $orders->configuredDeliveryFee();
+        try {
+            $fee = $orders->configuredDeliveryFee();
+        } catch (ValidationException) {
+            $fee = null;
+        }
         $deliveryAvailable = $valid && $fee !== null && $subtotal <= Money::MAX_CENTS - $fee;
         $delivery = $deliveryAvailable && $request->query('method') === 'delivery';
 
-        return view('client.checkout', compact('lines', 'subtotal', 'valid', 'fee', 'deliveryAvailable', 'delivery', 'hasCart', 'excludedCount'));
+        return view('client.checkout', compact('lines', 'subtotal', 'valid', 'fee', 'deliveryAvailable', 'delivery', 'unavailableLines'));
     }
 
     private function lineIssue(?Flower $item, int $quantity): ?string

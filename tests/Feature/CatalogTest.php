@@ -74,7 +74,10 @@ class CatalogTest extends TestCase
         $this->get(route('client.checkout', ['method' => 'delivery']))->assertOk()
             ->assertSeeText('Delivery total')->assertSeeText('₱95.50');
         DB::table('inventory_batches')->where('flower_id', $flower->id)->update(['remaining_quantity' => 1]);
-        $this->get(route('client.checkout'))->assertSeeText('No items selected for checkout')->assertDontSeeText('Pickup total');
+        $this->get(route('client.checkout'))->assertOk()
+            ->assertSeeTextInOrder(['Spring Rose', 'Only 1 stem is available.'])
+            ->assertSeeText('Edit cart')
+            ->assertDontSeeText('Pickup total');
         $flower->update(['status' => 'Inactive']);
         $this->get(route('client.product', $flower))->assertNotFound();
         $this->get(route('client.cart'))->assertSeeText('Item unavailable')->assertDontSeeText('Spring Rose');
@@ -172,8 +175,28 @@ class CatalogTest extends TestCase
             ->assertSessionHas('shop.cart.'.$bouquet->id, 2);
 
         $this->get(route('client.checkout'))->assertOk()
-            ->assertSeeTextInOrder(['Red Rose', 'Quantity 3', 'Item subtotal', '₱150.00'])
+            ->assertSeeTextInOrder(['Photo unavailable', 'Red Rose', '₱50.00 per stem', 'Quantity 3', 'Item subtotal', '₱150.00', 'Pickup total', '₱150.00'])
+            ->assertSeeText('Laon Laan – Juaning Consolidation Area, Barangay 471, Sampaloc, Manila')
+            ->assertSee('href="https://www.google.com/maps/dir/?api=1&amp;destination=14.6114375%2C120.9863871"', false)
+            ->assertSee('shop-footer-featured', false)
             ->assertDontSeeText('Garden Bouquet');
+
+        config(['orders.delivery_fee' => '15.50']);
+        $this->get(route('client.checkout', ['method' => 'delivery']))->assertOk()
+            ->assertSeeTextInOrder(['Red Rose', 'Quantity 3', 'Item subtotal', '₱150.00', 'Delivery fee', '₱15.50', 'Delivery total', '₱165.50'])
+            ->assertDontSeeText('Pickup address')
+            ->assertDontSeeText('Garden Bouquet');
+        $this->get(route('client.checkout'))->assertOk()->assertSeeTextInOrder(['Pickup total', '₱150.00']);
+        config(['orders.delivery_fee' => 'invalid']);
+        $this->get(route('client.checkout', ['method' => 'delivery']))->assertOk()
+            ->assertSeeText('Delivery is unavailable for this selection.')
+            ->assertSeeTextInOrder(['Pickup total', '₱150.00'])
+            ->assertDontSeeText('Delivery total');
+
+        $this->get(route('client.cart'))->assertOk()
+            ->assertSeeText('Garden Bouquet')
+            ->assertSessionHas('shop.cart.'.$bouquet->id, 2)
+            ->assertSessionHas('shop.cart_selection', [$stem->id]);
 
         $this->post(route('client.cart.selection'), ['selected' => [$stem->id, $bouquet->id], 'review' => 1])
             ->assertRedirect(route('client.checkout'));
@@ -188,7 +211,9 @@ class CatalogTest extends TestCase
             ->assertViewHas('selectedCount', 0)
             ->assertSeeTextInOrder(['Selected subtotal', '₱0', 'Review checkout (0 items)']);
         $this->get(route('client.checkout'))->assertOk()
-            ->assertSeeText('No items selected for checkout')
+            ->assertSeeText('Select items in your cart to review checkout')
+            ->assertSee('href="'.route('client.cart').'">Return to cart', false)
+            ->assertSee('shop-footer-featured', false)
             ->assertDontSeeText('Item subtotal');
     }
 
@@ -246,14 +271,27 @@ class CatalogTest extends TestCase
 
         $this->get(route('client.checkout'))->assertOk()
             ->assertSeeText('Some selected items are unavailable.')
-            ->assertSeeTextInOrder(['Garden Bouquet', 'Item subtotal', '₱825.50', 'Pickup total'])
-            ->assertDontSeeText('Red Rose');
+            ->assertSeeTextInOrder(['Red Rose', 'Only 2 stems are available.', 'Edit cart', 'Garden Bouquet', 'Item subtotal', '₱825.50', 'Pickup total']);
+
+        $this->withSession(['shop.cart_selection' => [$bouquet->id]]);
+        $this->get(route('client.checkout'))->assertOk()
+            ->assertDontSeeText('Red Rose')
+            ->assertDontSeeText('Some selected items are unavailable.')
+            ->assertSeeTextInOrder(['Garden Bouquet', 'Pickup total', '₱825.50']);
 
         $this->get(route('client.cart'))->assertOk()
             ->assertSeeText('Only 2 stems are available. Change your quantity to 2 or fewer.')
             ->assertSeeTextInOrder(['Selected subtotal', '₱825.50', 'Review checkout (1 item)'])
             ->assertSessionHas('shop.cart.'.$stem->id, 3);
+
+        DB::table('flower_prices')->where('flower_id', $bouquet->id)->delete();
+        $this->get(route('client.checkout'))->assertOk()
+            ->assertSeeTextInOrder(['Garden Bouquet', 'The price for this flower is unavailable.', 'Edit cart'])
+            ->assertDontSeeText('Pickup total');
+        $this->assertDatabaseHas('inventory_batches', ['flower_id' => $stem->id, 'remaining_quantity' => 2]);
+        $this->assertDatabaseHas('inventory_batches', ['flower_id' => $bouquet->id, 'remaining_quantity' => 3]);
         $this->assertDatabaseCount('inventory_reservations', 0);
+        $this->assertDatabaseCount('order_payments', 0);
         $this->assertDatabaseCount('orders', 0);
     }
 
