@@ -4,10 +4,12 @@ namespace App\Models;
 
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+#[Hidden(['spoilage_model'])]
 #[Fillable([
     'code',
     'name',
@@ -55,6 +57,6 @@ class Flower extends Model
 
     protected function casts(): array
     {
-        return ['minimum_stock' => 'integer'];
+        return ['minimum_stock' => 'integer', 'spoilage_model' => 'array'];
     }
 }

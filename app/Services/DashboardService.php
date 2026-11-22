@@ -163,17 +163,11 @@ class DashboardService
                 continue;
             }
             $fraction = (float) $prediction->predicted_fraction;
-            $thresholds = config('spoilage.risk_thresholds');
-            $expectedRisk = match (true) {
-                $fraction < $thresholds['medium'] => 'Low',
-                $fraction < $thresholds['high'] => 'Medium',
-                $fraction < $thresholds['critical'] => 'High',
-                default => 'Critical',
-            };
-            if ($prediction->risk_level !== $expectedRisk
+            if ($prediction->risk_level !== SpoilagePredictionService::riskLevel($fraction)
                 || abs((float) $prediction->predicted_quantity - $prediction->opening_quantity * $fraction) > 0.00001
-                || ! in_array($prediction->method, ['ARIMA own-batch history', 'Flower/storage/age fallback', 'Global profile fallback'], true)
-                || (count($plan['payload']['history']) < config('spoilage.minimum_history_days') && $plan['payload']['fallback'] === null)) {
+                || ! in_array($prediction->method, [SpoilagePythonService::ARIMA, SpoilagePythonService::FALLBACK], true)
+                || ($prediction->method === SpoilagePythonService::ARIMA && $plan['payload']['order'] === null)
+                || $plan['payload']['history'] === []) {
                 continue;
             }
             $result['current']++;

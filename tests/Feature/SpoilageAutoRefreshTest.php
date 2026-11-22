@@ -22,11 +22,17 @@ use Tests\TestCase;
 class SpoilageAutoRefreshTest extends TestCase
 {
     private SpoilagePredictionService $service;
+
     private User $actor;
+
     private InventoryBatch $first;
+
     private InventoryBatch $second;
+
     private int $calls = 0;
+
     private mixed $dispatcher;
+
     private string $originalConnection;
 
     protected function setUp(): void
@@ -42,10 +48,7 @@ class SpoilageAutoRefreshTest extends TestCase
             ],
             'cache.default' => 'array',
             'spoilage.observation_timezone' => 'Asia/Manila',
-            'spoilage.model_version' => 'arima-batch-v1',
             'spoilage.horizon_days' => 7,
-            'spoilage.minimum_history_days' => 6,
-            'spoilage.arima_order' => [0, 1, 0],
             'spoilage.risk_thresholds' => ['medium' => .1, 'high' => .25, 'critical' => .5],
         ]);
         DB::purge('spoilage_testing');
@@ -55,28 +58,43 @@ class SpoilageAutoRefreshTest extends TestCase
         Carbon::setTestNow('2026-11-15 04:00:00 UTC');
         CarbonImmutable::setTestNow('2026-11-15 04:00:00 UTC');
         Schema::create('users', function (Blueprint $table) {
-            $table->id(); $table->string('name'); $table->string('email')->unique();
-            $table->string('password'); $table->string('role');
-            $table->boolean('is_active'); $table->boolean('must_change_password');
+            $table->id();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->string('password');
+            $table->string('role');
+            $table->boolean('is_active');
+            $table->boolean('must_change_password');
             $table->timestamps();
         });
         Schema::create('flowers', function (Blueprint $table) {
-            $table->id(); $table->string('code'); $table->string('name');
-            $table->string('product_type'); $table->string('category');
-            $table->integer('minimum_stock'); $table->text('description');
-            $table->string('status'); $table->timestamps();
+            $table->id();
+            $table->string('code');
+            $table->string('name');
+            $table->string('product_type');
+            $table->string('category');
+            $table->integer('minimum_stock');
+            $table->text('description');
+            $table->string('status');
+            $table->timestamps();
         });
         Schema::create('inventory_batches', function (Blueprint $table) {
-            $table->id(); $table->foreignId('flower_id')->constrained('flowers');
-            $table->string('code'); $table->date('harvest_date');
-            $table->date('received_date'); $table->date('expiry_date')->nullable();
-            $table->integer('received_quantity'); $table->string('receiving_unit');
-            $table->integer('conversion_factor'); $table->integer('initial_quantity');
-            $table->integer('remaining_quantity'); $table->boolean('spoiled');
+            $table->id();
+            $table->foreignId('flower_id')->constrained('flowers');
+            $table->string('code');
+            $table->date('harvest_date');
+            $table->date('received_date');
+            $table->date('expiry_date')->nullable();
+            $table->integer('received_quantity');
+            $table->string('receiving_unit');
+            $table->integer('conversion_factor');
+            $table->integer('initial_quantity');
+            $table->integer('remaining_quantity');
+            $table->boolean('spoiled');
             $table->timestamps();
         });
         // Exercise the real observation/prediction migration constraints.
-        foreach (['*_create_batch_daily_observations_table.php', '*_create_batch_spoilage_predictions_table.php'] as $pattern) {
+        foreach (['*_create_batch_daily_observations_table.php', '*_create_batch_spoilage_predictions_table.php', '*_add_spoilage_model_to_flowers_table.php'] as $pattern) {
             $files = glob(database_path('migrations/'.$pattern)) ?: [];
             $this->assertCount(1, $files);
             (require $files[0])->up();
@@ -95,6 +113,8 @@ class SpoilageAutoRefreshTest extends TestCase
         $python = Mockery::mock(SpoilagePythonService::class);
         $python->shouldReceive('predictMany')->andReturnUsing(function (array $items) {
             $this->calls++;
+            $this->assertCount(1, $items);
+
             return $this->results($items);
         });
         $this->service = new SpoilagePredictionService($python);
@@ -102,8 +122,11 @@ class SpoilageAutoRefreshTest extends TestCase
 
     protected function tearDown(): void
     {
-        Carbon::setTestNow(); CarbonImmutable::setTestNow();
-        if ($this->dispatcher) Model::setEventDispatcher($this->dispatcher);
+        Carbon::setTestNow();
+        CarbonImmutable::setTestNow();
+        if ($this->dispatcher) {
+            Model::setEventDispatcher($this->dispatcher);
+        }
         DB::purge('spoilage_testing');
         config(['database.default' => $this->originalConnection]);
         parent::tearDown();
@@ -111,15 +134,20 @@ class SpoilageAutoRefreshTest extends TestCase
 
     public function test_reads_do_not_run_python_or_write_predictions(): void
     {
-        $a = $this->service->plan(); $b = $this->service->plan();
+        $a = $this->service->plan();
+        $b = $this->service->plan();
         $this->assertCount(2, $a);
         $this->assertSame($a[$this->first->id]['hash'], $b[$this->first->id]['hash']);
         $this->assertSame(0, $this->calls);
         $this->assertSame(0, BatchSpoilagePrediction::count());
     }
 
-    public function test_one_batch_call_saves_results_and_unchanged_refresh_is_reused(): void
+    public function test_one_flower_forecast_scales_to_each_batch_and_unchanged_refresh_is_reused(): void
     {
+        $this->second->update(['remaining_quantity' => 40]);
+        BatchDailyObservation::where('batch_id', $this->second->id)->update([
+            'opening_quantity' => 50, 'closing_quantity' => 40,
+        ]);
         $first = $this->service->refresh($this->actor);
         $second = $this->service->refresh($this->actor);
         $this->assertSame(2, $first['updated']);
@@ -128,6 +156,14 @@ class SpoilageAutoRefreshTest extends TestCase
         $this->assertSame(1, $this->calls);
         $this->assertSame(2, BatchSpoilagePrediction::count());
         $this->assertSame(90, $this->first->fresh()->remaining_quantity);
+        $plans = $this->service->plan();
+        $this->assertSame([
+            ['observation_date' => '2026-11-14', 'opening_quantity' => 150, 'spoiled_quantity' => 10],
+        ], $plans[$this->first->id]['payload']['history']);
+        $this->assertSame($plans[$this->first->id]['payload'], $plans[$this->second->id]['payload']);
+        $this->assertSame('9.000000', $plans[$this->first->id]['cached']->predicted_quantity);
+        $this->assertSame('4.000000', $plans[$this->second->id]['cached']->predicted_quantity);
+        $this->assertSame('Medium', $plans[$this->second->id]['cached']->risk_level);
     }
 
     public function test_stock_change_invalidates_only_the_changed_batch(): void
@@ -148,15 +184,17 @@ class SpoilageAutoRefreshTest extends TestCase
         BatchDailyObservation::where('batch_id', $this->second->id)->update([
             'spoiled_quantity' => 6, 'released_quantity' => 4,
         ]);
-        foreach ($this->service->plan() as $plan) $this->assertNull($plan['cached']);
+        foreach ($this->service->plan() as $plan) {
+            $this->assertNull($plan['cached']);
+        }
     }
 
     public function test_new_day_and_settings_changes_invalidate_predictions(): void
     {
         $this->service->refresh($this->actor);
-        config(['spoilage.arima_order' => [1, 0, 0]]);
+        config(['spoilage.horizon_days' => 5]);
         $this->assertNull($this->service->plan()[$this->first->id]['cached']);
-        config(['spoilage.arima_order' => [0, 1, 0]]);
+        config(['spoilage.horizon_days' => 7]);
         CarbonImmutable::setTestNow('2026-11-16 04:00:00 UTC');
         $this->assertNull($this->service->plan()[$this->first->id]['cached']);
     }
@@ -166,6 +204,7 @@ class SpoilageAutoRefreshTest extends TestCase
         $python = Mockery::mock(SpoilagePythonService::class);
         $python->shouldReceive('predictMany')->once()->andReturnUsing(function ($items) {
             $this->first->update(['remaining_quantity' => 79]);
+
             return $this->results($items);
         });
         $service = new SpoilagePredictionService($python);
@@ -192,11 +231,14 @@ class SpoilageAutoRefreshTest extends TestCase
     public function test_lock_prevents_overlapping_python_runs(): void
     {
         $key = 'spoilage-auto:'.hash('sha256', json_encode(['spoilage_testing', ':memory:'], JSON_THROW_ON_ERROR));
-        $lock = Cache::lock($key, 240); $this->assertTrue($lock->get());
+        $lock = Cache::lock($key, 240);
+        $this->assertTrue($lock->get());
         try {
             $this->assertTrue($this->service->refresh($this->actor)['busy']);
             $this->assertSame(0, $this->calls);
-        } finally { $lock->release(); }
+        } finally {
+            $lock->release();
+        }
     }
 
     public function test_depleted_batches_are_excluded(): void
@@ -205,6 +247,62 @@ class SpoilageAutoRefreshTest extends TestCase
         $plans = $this->service->plan();
         $this->assertArrayNotHasKey($this->first->id, $plans);
         $this->assertArrayHasKey($this->second->id, $plans);
+    }
+
+    public function test_training_persists_flower_order_and_refresh_uses_it(): void
+    {
+        $flower = $this->first->flower;
+        $report = [
+            'status' => 'Trained', 'order' => [2, 1, 0], 'adf_p_value' => .2,
+            'split_days' => ['train' => 30, 'validation' => 4, 'test' => 9],
+            'validation' => ['mae' => .1, 'mse' => .01, 'rmse' => .1, 'aic' => -10., 'bic' => -9.],
+            'test' => ['MAE_rate' => .2, 'MSE_rate' => .04, 'RMSE_rate' => .2],
+        ];
+        $observation = BatchDailyObservation::where('batch_id', $this->first->id)->firstOrFail();
+        for ($offset = 1; $offset <= 42; $offset++) {
+            $observation->replicate()->fill([
+                'observation_date' => CarbonImmutable::parse('2026-11-14')->subDays($offset)->toDateString(),
+                'harvest_date' => '2026-09-29', 'received_date' => '2026-09-30',
+                'spoiled_quantity' => $offset % 5, 'closing_quantity' => 95 - $offset % 5,
+            ])->save();
+        }
+        $this->service->refresh($this->actor);
+        $this->assertSame(SpoilagePythonService::FALLBACK, $this->service->plan()[$this->first->id]['cached']->method);
+
+        $python = $this->mock(SpoilagePythonService::class);
+        $python->shouldReceive('train')->once()->with($this->service->plan()[$this->first->id]['payload']['history'])
+            ->andReturn($report);
+        $python->shouldReceive('predictMany')->once()->withArgs(function (array $items) use ($flower): bool {
+            return count($items) === 1
+                && $items[0]['key'] === (string) $flower->id
+                && $items[0]['payload']['order'] === [2, 1, 0]
+                && count($items[0]['payload']['history']) === 43;
+        })->andReturnUsing(fn (array $items): array => $this->results($items));
+
+        $this->artisan('spoilage:train', ['flower_id' => (string) $flower->id])
+            ->expectsOutputToContain('ARIMA(2, 1, 0)')->assertSuccessful();
+        $model = $flower->fresh()->spoilage_model;
+        $this->assertSame($report['order'], $model['order']);
+        $this->assertSame('2026-11-14', $model['history_end']);
+        $this->assertSame($report['test'], $model['test']);
+        $this->assertNull($this->service->plan()[$this->first->id]['cached']);
+
+        $prediction = app(SpoilagePredictionService::class)->generate($this->first, $this->actor);
+        $this->assertSame(SpoilagePythonService::ARIMA, $prediction->method);
+        $this->assertSame($report['order'], $prediction->metadata['order']);
+    }
+
+    public function test_insufficient_history_during_retraining_preserves_the_saved_order(): void
+    {
+        $flower = $this->first->flower;
+        $model = ['order' => [2, 0, 0], 'version' => config('spoilage.model_version'), 'history_end' => '2026-11-14'];
+        $flower->forceFill(['spoilage_model' => $model])->save();
+        $this->mock(SpoilagePythonService::class)->shouldReceive('train')->once()
+            ->andReturn(['status' => 'InsufficientData', 'message' => 'Training needs at least 43 completed daily observations.']);
+
+        $this->artisan('spoilage:train', ['flower_id' => (string) $flower->id])
+            ->expectsOutputToContain('43 completed daily observations')->assertFailed();
+        $this->assertSame($model, $flower->fresh()->spoilage_model);
     }
 
     private function makeBatch(Flower $flower, string $code): InventoryBatch
@@ -224,6 +322,7 @@ class SpoilageAutoRefreshTest extends TestCase
             'spoiled_quantity' => 5, 'released_quantity' => 5, 'closing_quantity' => 90,
             'is_complete' => true,
         ]);
+
         return $batch;
     }
 
@@ -232,16 +331,15 @@ class SpoilageAutoRefreshTest extends TestCase
         $results = [];
         foreach ($items as $item) {
             $p = $item['payload'];
-            $results[$item['key']] = $p['fallback'] === null
-                ? ['status' => 'InsufficientData', 'message' => 'No supported historical reference.']
+            $results[$item['key']] = $p['history'] === []
+                ? ['status' => 'InsufficientData', 'message' => 'No completed spoilage history.']
                 : [
-                    'status' => 'Predicted', 'as_of_date' => $p['as_of_date'],
-                    'forecast_end_date' => '2026-11-21', 'opening_quantity' => $p['opening_quantity'],
-                    'predicted_fraction' => .1, 'predicted_quantity' => $p['opening_quantity'] * .1,
-                    'risk_level' => 'Medium', 'method' => 'Flower/storage/age fallback',
-                    'history_days' => count($p['history']), 'message' => null,
+                    'status' => 'Predicted', 'predicted_fraction' => .1,
+                    'method' => $p['order'] === null ? SpoilagePythonService::FALLBACK : SpoilagePythonService::ARIMA,
+                    'message' => null,
                 ];
         }
+
         return $results;
     }
 }

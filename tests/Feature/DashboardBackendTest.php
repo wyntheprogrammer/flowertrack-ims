@@ -106,6 +106,7 @@ class DashboardBackendTest extends TestCase
             'create_finance_tables',
             'create_batch_daily_observations_table',
             'create_batch_spoilage_predictions_table',
+            'add_spoilage_model_to_flowers_table',
         ] as $name) {
             $this->migrateOne($name);
         }
@@ -328,7 +329,7 @@ class DashboardBackendTest extends TestCase
         $this->forecast($high, 'High');
         $this->forecast($critical, 'Critical');
         $this->forecast($low, 'Low');
-        $this->mock(SpoilagePythonService::class)->shouldNotReceive('predictMany')->shouldNotReceive('predict');
+        $this->mock(SpoilagePythonService::class)->shouldNotReceive('predictMany')->shouldNotReceive('train');
         $before = [BatchSpoilagePrediction::count(), BatchDailyObservation::count(), AuditEvent::count()];
         $data = app(DashboardService::class)->data($this->supplier);
         $this->assertSame(2, $data['summary']['spoilageRiskBatches']);
@@ -451,7 +452,7 @@ class DashboardBackendTest extends TestCase
             'forecast_end_date' => CarbonImmutable::parse($plan['payload']['as_of_date'])->addDays(6)->toDateString(),
             'opening_quantity' => $batch->remaining_quantity, 'base_unit' => $batch->flower->product_type,
             'model_version' => config('spoilage.model_version'), 'input_hash' => $plan['hash'],
-            'status' => 'Predicted', 'method' => 'ARIMA own-batch history', 'risk_level' => $risk,
+            'status' => 'Predicted', 'method' => SpoilagePythonService::FALLBACK, 'risk_level' => $risk,
             'predicted_fraction' => $fraction, 'predicted_quantity' => $fraction * $batch->remaining_quantity,
             'history_days' => 6, 'generated_at' => now(), ...$overrides,
         ]);

@@ -12,12 +12,6 @@ return [
     // Predict today through six days later.
     'horizon_days' => 7,
 
-    // Completed daily records required before trying own-batch ARIMA.
-    'minimum_history_days' => 6,
-
-    // Settings selected during Colab validation.
-    'arima_order' => [0, 1, 0],
-
     // Boundaries expressed as fractions, not whole percentages.
     'risk_thresholds' => [
         'medium' => 0.10,
@@ -34,7 +28,8 @@ return [
 
     // Limit Python execution time per process.
     'process_timeout_seconds' => 120,
+    'training_timeout_seconds' => 600,
 
     // Identify this forecasting implementation.
-    'model_version' => 'arima-batch-v1',
+    'model_version' => 'arima-flower-v1',
 ];

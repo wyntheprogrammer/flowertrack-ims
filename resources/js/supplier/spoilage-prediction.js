@@ -46,7 +46,7 @@ function riskBadge(item) {
 
 function recommendation(item) {
     if (item.needsRefresh) return 'A current forecast is required before using the saved risk.';
-    if (!usablePrediction(item)) return 'Review completed daily history and storage information.';
+    if (!usablePrediction(item)) return 'Review completed daily observations for this flower.';
     return {
         Low: 'Maintain storage conditions and routine inspection.',
         Medium: 'Monitor closely and plan the use of usable stock.',
@@ -263,7 +263,7 @@ class SpoilagePredictionUI {
             ['Forecast end', formatDate(item.forecastEndDate)], ['Opening stock used', number(item.openingQuantity)],
             ['Predicted spoiled quantity', `${number(item.predictedQuantity, 2)} ${item.baseUnit ?? ''}`],
             ['Predicted spoiled percentage', item.predictedFraction == null ? 'Not available' : `${number(item.predictedFraction * 100, 2)}%`],
-            ['Forecast method', item.method ?? 'Not available'], ['Completed history days', number(item.historyDays)],
+            ['Forecast method', item.method ?? 'Not available'], ['Flower history days', number(item.historyDays)],
         ];
         document.getElementById('predictionViewModalLabel').textContent = `Risk Assessment - ${item.batch}`;
         document.getElementById('predictionViewContent').innerHTML = `
