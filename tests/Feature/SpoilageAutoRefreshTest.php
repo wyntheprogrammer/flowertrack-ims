@@ -148,6 +148,8 @@ class SpoilageAutoRefreshTest extends TestCase
         BatchDailyObservation::where('batch_id', $this->second->id)->update([
             'opening_quantity' => 50, 'closing_quantity' => 40,
         ]);
+        $observations = BatchDailyObservation::orderBy('id')->get()->toArray();
+
         $first = $this->service->refresh($this->actor);
         $second = $this->service->refresh($this->actor);
         $this->assertSame(2, $first['updated']);
@@ -164,6 +166,7 @@ class SpoilageAutoRefreshTest extends TestCase
         $this->assertSame('9.000000', $plans[$this->first->id]['cached']->predicted_quantity);
         $this->assertSame('4.000000', $plans[$this->second->id]['cached']->predicted_quantity);
         $this->assertSame('Medium', $plans[$this->second->id]['cached']->risk_level);
+        $this->assertSame($observations, BatchDailyObservation::orderBy('id')->get()->toArray());
     }
 
     public function test_stock_change_invalidates_only_the_changed_batch(): void
