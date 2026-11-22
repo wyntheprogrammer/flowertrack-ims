@@ -5,8 +5,13 @@ from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
+from statsmodels.tools.eval_measures import meanabs as mean_absolute_error
+from statsmodels.tools.eval_measures import mse as mean_squared_error
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.stattools import adfuller
+
+P_VALUES = range(5)
+Q_VALUES = range(5)
 
 
 def daily_series(history):
@@ -25,61 +30,70 @@ def daily_series(history):
 
 
 def determine_d(train):
-    adf_p_value = float(adfuller(train, autolag="AIC", result_object=False)[1])
-    # ARIMA applies first differencing during fitting when d = 1.
-    d = 0 if adf_p_value < 0.05 else 1
-    return d, adf_p_value
+    p_original = float(adfuller(train, autolag="AIC", result_object=False)[1])
+    if p_original < 0.05:
+        return 0, p_original
+
+    # ADF is undefined for constant first differences.
+    first_difference = train.diff().dropna()
+    if first_difference.nunique() > 1:
+        p_diff = adfuller(first_difference, autolag="AIC", result_object=False)[1]
+        if p_diff < 0.05:
+            return 1, p_original
+
+    # Keep d bounded at first differencing even if it does not establish stationarity.
+    return 1, p_original
 
 
-def fit(series, order):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        return ARIMA(
-            series, order=order, enforce_stationarity=False, enforce_invertibility=False
-        ).fit()
+def select_best_order(train, validation):
+    # STEP 4: STATIONARITY TESTING / DETERMINE d FROM TRAIN
+    d, adf_p_value = determine_d(train)
 
-
-def forecast(fitted, steps):
-    values = np.asarray(fitted.forecast(steps=steps), dtype=float)
-    if not np.isfinite(values).all():
-        raise ValueError("ARIMA returned a nonfinite forecast.")
-    return np.clip(values, 0, 1)
-
-
-def error_metrics(actual, predicted):
-    errors = actual - predicted
-    mae = float(np.mean(np.abs(errors)))
-    mse = float(np.mean(errors ** 2))
-    rmse = mse ** 0.5
-    return {"mae": mae, "mse": mse, "rmse": rmse}
-
-
-def select_order(train, validation, d):
+    # STEP 5: ARIMA ORDER SELECTION USING TRAIN AND VALIDATION
     candidates = []
-    actual = validation.to_numpy()
-
-    for p in range(5):
-        for q in range(5):
-            if p == q == 0:
+    for p in P_VALUES:
+        for q in Q_VALUES:
+            if p == 0 and q == 0:
                 continue
+
             order = (p, d, q)
             try:
-                candidate_model = fit(train, order)
-                predicted = forecast(candidate_model, len(validation))
-                metrics = error_metrics(actual, predicted)
-                aic, bic = float(candidate_model.aic), float(candidate_model.bic)
-                if np.isfinite([aic, bic]).all():
-                    candidates.append({"order": order, **metrics, "aic": aic, "bic": bic})
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    model = ARIMA(
+                        train, order=order,
+                        enforce_stationarity=False, enforce_invertibility=False,
+                    )
+                    fitted = model.fit()
+
+                forecast = np.asarray(fitted.forecast(steps=len(validation)), dtype=float)
+                if not np.isfinite(forecast).all() or not np.isfinite([fitted.aic, fitted.bic]).all():
+                    continue
+                forecast = np.clip(forecast, 0, 1)
+
+                mae = mean_absolute_error(validation.values, forecast)
+                mse = mean_squared_error(validation.values, forecast)
+                rmse = np.sqrt(mse)
+
+                candidates.append({
+                    "order": order,
+                    "validation_MAE": mae,
+                    "validation_MSE": mse,
+                    "validation_RMSE": rmse,
+                    "AIC": fitted.aic,
+                    "BIC": fitted.bic,
+                })
             except (ValueError, RuntimeError, ArithmeticError, np.linalg.LinAlgError):
                 continue
 
     if not candidates:
         raise RuntimeError("No ARIMA candidate could be fitted.")
 
+    candidate_df = pd.DataFrame(candidates)
     # Validation RMSE selects the order. MAE, AIC and BIC break ties.
-    return min(candidates, key=lambda candidate: tuple(
-        candidate[metric] for metric in ("rmse", "mae", "aic", "bic")
-    ))
+    candidate_df = candidate_df.sort_values(["validation_RMSE", "validation_MAE", "AIC", "BIC"])
+    best_candidate = candidate_df.iloc[0]
+    return tuple(best_candidate["order"]), adf_p_value, best_candidate
 
 
 # ============================================================
@@ -105,37 +119,48 @@ def train_model(payload):
     if len(train) < 30 or validation.empty or test.empty:
         return {"status": "InsufficientData", "message": "Training needs at least 43 completed daily observations."}
 
-    # STEP 4: STATIONARITY TESTING / DETERMINE d FROM TRAIN
     if train.nunique() < 2:
         return {"status": "InsufficientData", "message": "ADF is undefined for constant training history."}
-    d, adf_p_value = determine_d(train)
 
-    # STEP 5: ARIMA ORDER SELECTION USING TRAIN AND VALIDATION
-    best = select_order(train, validation, d)
-    order = best["order"]
+    # STEPS 4 AND 5: DETERMINE d AND SELECT THE BEST ORDER
+    order, adf_p_value, best_candidate = select_best_order(train, validation)
 
     # STEP 6: FINAL MODEL FITTING
-    # fit() creates a new ARIMA model and estimates it on Train + Validation.
     pre_test = pd.concat([train, validation])
-    final_model = fit(pre_test, order)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        final_model = ARIMA(
+            pre_test, order=order,
+            enforce_stationarity=False, enforce_invertibility=False,
+        ).fit()
 
     # STEP 7: FORECAST THE UNTOUCHED TEST PERIOD
-    predicted = forecast(final_model, len(test))
+    predicted = np.asarray(final_model.forecast(steps=len(test)), dtype=float)
+    if not np.isfinite(predicted).all():
+        raise ValueError("ARIMA returned a nonfinite forecast.")
+    predicted = np.clip(predicted, 0, 1)
 
     # STEPS 8–9: COMPARE TEST ACTUAL VS PREDICTED AND CALCULATE MAE / MSE / RMSE
     # These are errors on the spoilage-rate scale. Smaller values are better.
-    actual = test.to_numpy()
-    test_errors = error_metrics(actual, predicted)
+    mae = mean_absolute_error(test.values, predicted)
+    mse = mean_squared_error(test.values, predicted)
+    rmse = np.sqrt(mse)
     return {
         "status": "Trained",
         "order": order,
         "adf_p_value": adf_p_value,
         "split_days": {"train": len(train), "validation": len(validation), "test": len(test)},
-        "validation": {key: best[key] for key in ("mae", "mse", "rmse", "aic", "bic")},
+        "validation": {
+            "mae": float(best_candidate["validation_MAE"]),
+            "mse": float(best_candidate["validation_MSE"]),
+            "rmse": float(best_candidate["validation_RMSE"]),
+            "aic": float(best_candidate["AIC"]),
+            "bic": float(best_candidate["BIC"]),
+        },
         "test": {
-            "MAE_rate": test_errors["mae"],
-            "MSE_rate": test_errors["mse"],
-            "RMSE_rate": test_errors["rmse"],
+            "MAE_rate": float(mae),
+            "MSE_rate": float(mse),
+            "RMSE_rate": float(rmse),
         },
     }
 
@@ -170,8 +195,18 @@ def predict(payload):
                 0 <= p <= 4 and d in (0, 1) and 0 <= q <= 4 and p + q > 0
             ):
                 raise ValueError("Invalid selected ARIMA order.")
-            fitted = fit(series, tuple(order))
-            daily_rates = forecast(fitted, horizon)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                model = ARIMA(
+                    series, order=tuple(order),
+                    enforce_stationarity=False, enforce_invertibility=False,
+                )
+                fitted = model.fit()
+
+            daily_rates = np.asarray(fitted.forecast(steps=horizon), dtype=float)
+            if not np.isfinite(daily_rates).all():
+                raise ValueError("ARIMA returned a nonfinite forecast.")
+            daily_rates = np.clip(daily_rates, 0, 1)
             return inventory_result(daily_rates, "Flower ARIMA")
         except (ValueError, RuntimeError, ArithmeticError, np.linalg.LinAlgError) as error:
             reason = f"Flower ARIMA unavailable: {error}"

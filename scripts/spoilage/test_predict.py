@@ -5,11 +5,11 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
-from predict import daily_series, determine_d, inventory_result, predict, select_order, train_model
+from predict import daily_series, determine_d, inventory_result, predict, select_best_order, train_model
 from predict_many import predict_many
 
 
@@ -38,10 +38,20 @@ class SpoilageArimaTest(unittest.TestCase):
         with patch("predict.adfuller", return_value=(0, 0.01)) as adf:
             self.assertEqual((0, 0.01), determine_d(series))
             adf.assert_called_once()
+        for p_diff in (0.01, 0.4):
+            with self.subTest(p_diff=p_diff), patch(
+                "predict.adfuller", side_effect=[(0, 0.4), (0, p_diff)]
+            ) as adf:
+                self.assertEqual((1, 0.4), determine_d(series))
+                self.assertEqual(2, adf.call_count)
+                self.assertIs(series, adf.call_args_list[0].args[0])
+                self.assertTrue(adf.call_args_list[1].args[0].equals(series.diff().dropna()))
+
+    def test_adf_keeps_d_at_one_when_first_differences_are_constant(self):
+        series = daily_series(history([0, 25, 50, 75, 100]))
         with patch("predict.adfuller", return_value=(0, 0.4)) as adf:
             self.assertEqual((1, 0.4), determine_d(series))
             adf.assert_called_once()
-            self.assertIs(series, adf.call_args.args[0])
 
     def test_validation_ranking_and_tie_breakers(self):
         series = daily_series(history([20, 40, 50, 50, 50, 50]))
@@ -54,41 +64,51 @@ class SpoilageArimaTest(unittest.TestCase):
             (1, 1, 0): ([0.75, 0.5, 0.5, 0.5], -2, -2),
         }
 
-        def candidate_fit(values, order):
+        def candidate_model(values, *, order, enforce_stationarity, enforce_invertibility):
             self.assertTrue(values.equals(train))
             if order not in candidates:
                 raise ValueError("Candidate did not fit.")
             predicted, aic, bic = candidates[order]
-            return SimpleNamespace(aic=aic, bic=bic, forecast=lambda steps: predicted)
+            fitted = SimpleNamespace(aic=aic, bic=bic, forecast=lambda steps: predicted)
+            return Mock(fit=Mock(return_value=fitted))
 
-        with patch("predict.fit", side_effect=candidate_fit) as fit:
-            best = select_order(train, validation, d=1)
+        with patch("predict.determine_d", return_value=(1, 0.4)), patch(
+            "predict.ARIMA", side_effect=candidate_model
+        ) as arima:
+            order, _, best_candidate = select_best_order(train, validation)
 
-        self.assertEqual(24, fit.call_count)
+        self.assertEqual(24, arima.call_count)
         self.assertEqual(
             {(p, 1, q) for p in range(5) for q in range(5) if p or q},
-            {call.args[1] for call in fit.call_args_list},
+            {call.kwargs["order"] for call in arima.call_args_list},
         )
-        self.assertEqual((1, 1, 0), best["order"])
+        self.assertEqual((1, 1, 0), order)
+        self.assertAlmostEqual(0.0625, best_candidate["validation_MAE"])
+        self.assertAlmostEqual(0.015625, best_candidate["validation_MSE"])
+        self.assertAlmostEqual(0.125, best_candidate["validation_RMSE"])
 
     def test_training_uses_train_for_selection_and_refits_before_test(self):
         rows = history(([5, 8, 9, 6, 4] * 8) + [10] * 10)
-        fitted = SimpleNamespace(forecast=lambda steps: [0.2] * steps)
+        candidate = Mock(aic=1, bic=2, forecast=Mock(return_value=[0.06] * 5))
+        final = Mock(forecast=Mock(return_value=[0.2] * 10))
+        candidate_model = Mock(fit=Mock(return_value=candidate))
+        final_model = Mock(fit=Mock(return_value=final))
         with patch("predict.adfuller", return_value=(0, 0.02)) as adf, patch(
-            "predict.select_order",
-            return_value={"order": (1, 0, 0), "mae": 0.1, "mse": 0.01, "rmse": 0.1, "aic": 1, "bic": 2},
-        ) as select, patch("predict.fit", return_value=fitted) as fit:
+            "predict.ARIMA", side_effect=[candidate_model] * 24 + [final_model]
+        ) as arima:
             result = train_model({"history": rows})
 
         series = daily_series(rows)
         adf.assert_called_once()
         self.assertTrue(adf.call_args.args[0].equals(series.iloc[:35]))
-        self.assertTrue(select.call_args.args[0].equals(series.iloc[:35]))
-        self.assertTrue(select.call_args.args[1].equals(series.iloc[35:40]))
-        self.assertEqual(0, select.call_args.args[2])
-        fit.assert_called_once()
-        self.assertTrue(fit.call_args.args[0].equals(series.iloc[:40]))
-        self.assertEqual((1, 0, 0), fit.call_args.args[1])
+        for call in arima.call_args_list[:-1]:
+            self.assertTrue(call.args[0].equals(series.iloc[:35]))
+            self.assertEqual(0, call.kwargs["order"][1])
+        self.assertTrue(arima.call_args.args[0].equals(series.iloc[:40]))
+        self.assertEqual(result["order"], arima.call_args.kwargs["order"])
+        self.assertEqual(24, candidate_model.fit.call_count)
+        final_model.fit.assert_called_once_with()
+        final.forecast.assert_called_once_with(steps=10)
         self.assertEqual({"train": 35, "validation": 5, "test": 10}, result["split_days"])
         self.assertAlmostEqual(0.1, result["test"]["MAE_rate"])
         self.assertAlmostEqual(0.01, result["test"]["MSE_rate"])
@@ -112,15 +132,17 @@ class SpoilageArimaTest(unittest.TestCase):
         payload = {"history": rows, "order": [3, 1, 2], "as_of_date": "2026-02-14", "horizon_days": 4}
 
         fitted = SimpleNamespace(forecast=lambda steps: [-0.1, 0.10, 0.20, 1.1])
-        with patch("predict.fit", return_value=fitted) as fit, patch("predict.select_order") as select, patch(
+        model = Mock(fit=Mock(return_value=fitted))
+        with patch("predict.ARIMA", return_value=model) as arima, patch("predict.select_best_order") as select, patch(
             "predict.inventory_result", wraps=inventory_result
         ) as inventory:
             result = predict(payload)
 
         select.assert_not_called()
-        fit.assert_called_once()
-        self.assertTrue(fit.call_args.args[0].equals(daily_series(rows)))
-        self.assertEqual((3, 1, 2), fit.call_args.args[1])
+        arima.assert_called_once()
+        model.fit.assert_called_once_with()
+        self.assertTrue(arima.call_args.args[0].equals(daily_series(rows)))
+        self.assertEqual((3, 1, 2), arima.call_args.kwargs["order"])
         self.assertEqual("Flower ARIMA", result["method"])
         np.testing.assert_allclose(inventory.call_args.args[0], [0, 0.10, 0.20, 1])
         self.assertEqual(1.0, result["predicted_fraction"])
@@ -143,7 +165,7 @@ class SpoilageArimaTest(unittest.TestCase):
     def test_live_gaps_and_fit_failures_use_the_historical_fallback(self):
         rows = history([8, 12] * 22)
         payload = {"history": rows, "order": [1, 0, 0], "as_of_date": "2026-02-14", "horizon_days": 1}
-        with patch("predict.fit", side_effect=ValueError("Fit failed.")) as fit:
+        with patch("predict.ARIMA", side_effect=ValueError("Fit failed.")) as fit:
             gapped = predict({**payload, "history": rows[:20] + rows[21:]})
             stale = predict({**payload, "as_of_date": "2026-02-15"})
             fit.assert_not_called()
