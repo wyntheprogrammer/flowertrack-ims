@@ -11,7 +11,7 @@
     <a class="visually-hidden-focusable shop-skip" href="#main">Skip to content</a>
     @include('client.partials.navbar')
     <main id="main" tabindex="-1">
-        @if ($errors->any())
+        @if ($errors->any() && ! View::hasSection('field-errors'))
             <p class="shop-width alert alert-danger" role="alert">{{ $errors->first() }}</p>
         @endif
         @yield('content')

@@ -23,10 +23,12 @@
     letter-spacing: -.035em;
 }
 
-.shop-auth-form { display: grid; gap: 1rem; }
+.shop-auth-form { display: grid; gap: 1rem; max-width: 28rem; }
 .shop-auth-form label { font-weight: 600; }
 .shop-auth-form input { min-height: 44px; border-color: #948479; }
 .shop-auth-form input:focus-visible { border-color: var(--shop-green); box-shadow: none; }
 .shop-auth-form [aria-invalid="true"] { border-color: #98474f; }
 .shop-auth-form .shop-button { justify-self: start; margin-top: .25rem; border-radius: .55rem; }
+.shop-auth-form .invalid-feedback { margin-bottom: 0; color: #98474f; }
+.shop-auth-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
 .shop-auth-note { margin: 1.15rem 0 0; color: var(--shop-muted); }

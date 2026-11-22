@@ -99,9 +99,29 @@ class ClientAuthenticationTest extends TestCase
         $this->assertAuthenticatedAs($user);
 
         $this->get($checkout)->assertRedirect(route('password.change'));
+        $this->get(route('client.profile'))->assertRedirect(route('password.change'));
         $this->get(route('password.change'))->assertOk()
             ->assertSeeText('Change your password')
+            ->assertSeeText('Replace your temporary password to continue.')
+            ->assertDontSeeText('Back to My Profile')
             ->assertSee('shop-footer-featured', false);
+
+        $this->from(route('password.change'))->put(route('password.update'), [
+            'current_password' => self::TEMPORARY_PASSWORD,
+            'password' => self::NEW_PASSWORD, 'password_confirmation' => 'Different-new-password!',
+        ])->assertRedirect(route('password.change'))
+            ->assertSessionHasErrors(['password_confirmation' => 'The password confirmation does not match the new password.'])
+            ->assertSessionMissing('_old_input.current_password')
+            ->assertSessionMissing('_old_input.password')
+            ->assertSessionMissing('_old_input.password_confirmation')
+            ->assertSessionHas('shop.cart', [$rose->id => 3, $bouquet->id => 1])
+            ->assertSessionHas('shop.cart_selection', [$rose->id]);
+        $this->assertTrue($user->fresh()->must_change_password);
+        $this->assertSame($user->password, $user->fresh()->password);
+        $this->withCookie(session()->getName(), session()->getId())->get(route('password.change'))->assertOk()
+            ->assertSee('aria-describedby="password_confirmation-error"', false)
+            ->assertDontSee(self::NEW_PASSWORD)
+            ->assertDontSee('Different-new-password!');
 
         DB::table('flower_prices')->where('flower_id', $rose->id)->update(['price_cents' => 6000]);
 
@@ -118,7 +138,7 @@ class ClientAuthenticationTest extends TestCase
         $this->assertTrue(Hash::check(self::NEW_PASSWORD, $updated->password));
         $this->assertSame(AccountSession::signature($updated), session(AccountSession::KEY));
 
-        $this->get($checkout)->assertOk()
+        $this->withCookie(session()->getName(), session()->getId())->get($checkout)->assertOk()
             ->assertSeeTextInOrder(['Red Rose', '₱60.00 per stem', 'Quantity 3', 'Item subtotal', '₱180.00', 'Delivery total', '₱195.50'])
             ->assertDontSeeText('Garden Bouquet')
             ->assertDontSeeText('Sign in to continue');
@@ -132,6 +152,94 @@ class ClientAuthenticationTest extends TestCase
         $this->assertDatabaseCount('order_payments', 0);
         $this->assertDatabaseCount('inventory_reservations', 0);
         $this->assertDatabaseHas('inventory_batches', ['flower_id' => $rose->id, 'remaining_quantity' => 5]);
+    }
+
+    public function test_profile_displays_only_the_signed_in_customers_account_details(): void
+    {
+        $user = $this->clientAccount('Active', false);
+        $other = $this->clientAccount('Active', false);
+        $other->clientProfile()->update(['phone' => '09991234567', 'address' => 'Other address, Manila']);
+        $this->post(route('client.login.store'), ['email' => $user->email, 'password' => self::TEMPORARY_PASSWORD])
+            ->assertRedirect(route('client.home'));
+
+        $response = $this->get(route('client.profile', ['user_id' => $other->id, 'client_id' => $other->clientProfile->id]));
+
+        $response->assertOk()
+            ->assertSeeTextInOrder(['Account details', 'Name', $user->name, 'Sign-in email', $user->email,
+                'Phone number', '09171234567', 'Address on file', 'Sampaloc, Manila',
+                'Contact the shop to correct your account details.', 'Contact the shop', 'Security', 'Change password'])
+            ->assertSee('aria-current="page" >My Profile</a>', false)
+            ->assertSee('href="'.config('services.facebook.shop_url').'"', false)
+            ->assertSee('href="'.route('password.change').'"', false)
+            ->assertDontSeeText($other->email)
+            ->assertDontSeeText('09991234567')
+            ->assertDontSeeText('Other address, Manila');
+    }
+
+    public function test_profile_handles_blank_contact_details(): void
+    {
+        $user = $this->clientAccount('Active', false);
+        $user->clientProfile()->update(['phone' => '', 'address' => ' ']);
+        $this->actingAs($user)->withSession([AccountSession::KEY => AccountSession::signature($user)]);
+
+        $this->get(route('client.profile'))->assertOk()
+            ->assertSeeTextInOrder(['Phone number', 'Not on file', 'Address on file', 'Not on file']);
+    }
+
+    public function test_profile_signs_out_an_inactive_customer_and_rejects_staff(): void
+    {
+        $inactive = $this->clientAccount('Inactive', false);
+        $this->actingAs($inactive)->withSession([AccountSession::KEY => AccountSession::signature($inactive)]);
+        $this->get(route('client.profile'))->assertRedirect(route('client.login'));
+        $this->assertGuest();
+
+        $staff = User::factory()->create(['role' => User::ROLE_SUPPLIER, 'is_active' => true, 'must_change_password' => false]);
+        $this->actingAs($staff)->withSession([AccountSession::KEY => AccountSession::signature($staff)]);
+        $this->get(route('client.profile'))->assertForbidden();
+    }
+
+    public function test_voluntary_password_change_rejects_wrong_credentials_and_accepts_new_credentials_at_next_sign_in(): void
+    {
+        $user = $this->clientAccount('Active', false);
+        $this->get(route('password.change'))->assertRedirect(route('login'));
+        $this->post(route('client.login.store'), ['email' => $user->email, 'password' => self::TEMPORARY_PASSWORD])
+            ->assertRedirect(route('client.home'));
+        $this->get(route('password.change'))->assertOk()
+            ->assertSeeTextInOrder(['Current password', 'New password', 'Confirm new password', 'Save password', 'Back to My Profile'])
+            ->assertDontSeeText('Replace your temporary password');
+
+        $this->from(route('password.change'))->put(route('password.update'), [
+            'current_password' => 'Incorrect-current-password!',
+            'password' => self::NEW_PASSWORD, 'password_confirmation' => self::NEW_PASSWORD,
+        ])->assertRedirect(route('password.change'))->assertSessionHasErrors('current_password')
+            ->assertSessionMissing('_old_input.current_password')
+            ->assertSessionMissing('_old_input.password')
+            ->assertSessionMissing('_old_input.password_confirmation');
+        $this->assertSame($user->password, $user->fresh()->password);
+        $this->withCookie(session()->getName(), session()->getId())->get(route('password.change'))->assertOk()
+            ->assertSee('aria-describedby="current_password-error"', false)
+            ->assertDontSee('Incorrect-current-password!')
+            ->assertDontSee(self::NEW_PASSWORD);
+
+        $sessionId = session()->getId();
+        $this->put(route('password.update'), [
+            'current_password' => self::TEMPORARY_PASSWORD,
+            'password' => self::NEW_PASSWORD, 'password_confirmation' => self::NEW_PASSWORD,
+        ])->assertRedirect(route('client.profile'));
+        $this->assertNotSame($sessionId, session()->getId());
+        $this->withCookie(session()->getName(), session()->getId())->get(route('client.profile'))->assertOk()
+            ->assertSeeText('Your password has been changed.');
+
+        $this->post(route('logout'))->assertRedirect(route('client.home'));
+        $this->postJson(route('client.login.store'), ['email' => $user->email, 'password' => self::TEMPORARY_PASSWORD])
+            ->assertUnprocessable()->assertJsonPath('errors.email.0', self::GENERIC_ERROR);
+        $this->post(route('client.login.store'), ['email' => $user->email, 'password' => self::NEW_PASSWORD])
+            ->assertRedirect(route('client.home'));
+        $this->assertAuthenticatedAs($user);
+        $audit = AuditEvent::all()->toJson();
+        $this->assertStringNotContainsString('Incorrect-current-password!', $audit);
+        $this->assertStringNotContainsString(self::NEW_PASSWORD, $audit);
+        $this->assertStringNotContainsString(self::TEMPORARY_PASSWORD, $audit);
     }
 
     public function test_bad_credentials_inactive_accounts_missing_profiles_and_staff_roles_fail_without_starting_a_session(): void

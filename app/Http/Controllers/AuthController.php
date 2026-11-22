@@ -98,14 +98,19 @@ class AuthController extends Controller
         return $this->redirectAfterLogin($request, $user);
     }
 
-    public function showChangePassword(Request $request): View|RedirectResponse
+    public function showChangePassword(Request $request): View
     {
-        return view($request->user()->isClient() ? 'client.change-password' : 'auth.change-password');
+        $user = $request->user();
+
+        return view($user->isClient() ? 'client.change-password' : 'auth.change-password', [
+            'required' => $user->must_change_password,
+        ]);
     }
 
     public function updatePassword(Request $request): RedirectResponse
     {
-        $validated = $request->validate([
+        $customer = $request->user()->isClient();
+        $rules = [
             'current_password' => [
                 'required',
                 'string',
@@ -114,13 +119,19 @@ class AuthController extends Controller
             'password' => [
                 'required',
                 'string',
-                'confirmed',
+                ...($customer ? [] : ['confirmed']),
                 Password::min(12),
                 new SafeAccountPassword,
             ],
+        ];
+        if ($customer) {
+            $rules['password_confirmation'] = ['required', 'string', 'same:password'];
+        }
+        $validated = $request->validate($rules, [
+            'password_confirmation.same' => 'The password confirmation does not match the new password.',
         ]);
 
-        $user = DB::transaction(function () use ($request, $validated) {
+        [$user, $wasRequired] = DB::transaction(function () use ($request, $validated): array {
             $locked = User::query()->lockForUpdate()->findOrFail($request->user()->id);
             if (! $locked->is_active || ! Hash::check($validated['current_password'], $locked->password)) {
                 throw ValidationException::withMessages([
@@ -132,12 +143,13 @@ class AuthController extends Controller
                     'password' => 'Choose a different password from your current password.',
                 ]);
             }
+            $wasRequired = $locked->must_change_password;
             $locked->password = $validated['password'];
             $locked->must_change_password = false;
             $locked->remember_token = Str::random(60);
             $locked->save();
 
-            return $locked;
+            return [$locked, $wasRequired];
         });
 
         Auth::setUser($user);
@@ -145,8 +157,11 @@ class AuthController extends Controller
         $request->session()->regenerateToken();
         AccountSession::remember($request, $user);
 
-        return $this->redirectAfterLogin($request, $user)
-            ->with('status', 'Your password has been changed.');
+        $destination = $user->isClient() && ! $wasRequired
+            ? to_route('client.profile')
+            : $this->redirectAfterLogin($request, $user);
+
+        return $destination->with('status', 'Your password has been changed.');
     }
 
     public function logout(Request $request): RedirectResponse

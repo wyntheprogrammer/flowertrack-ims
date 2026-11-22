@@ -42,7 +42,7 @@
                 </address>
                 <div class="about-visit-links">
                     <a class="shop-button primary" href="https://www.google.com/maps/dir/?api=1&amp;destination=14.6114375%2C120.9863871">Get directions</a>
-                    <a class="about-text-link" href="https://www.facebook.com/profile.php?id=100063693678426">Visit Gemma’s on Facebook</a>
+                    <a class="about-text-link" href="{{ config('services.facebook.shop_url') }}">Visit Gemma’s on Facebook</a>
                 </div>
             </div>
             <iframe

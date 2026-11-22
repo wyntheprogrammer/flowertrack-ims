@@ -13,7 +13,7 @@
             <a class="nav-cart" href="{{ route('client.cart') }}" @if(request()->routeIs('client.cart', 'client.checkout')) aria-current="{{ request()->routeIs('client.cart') ? 'page' : 'location' }}" @endif><i class="bi bi-bag" aria-hidden="true"></i> Cart</a>
             @if (auth()->user()?->isClient())
                 @unless (auth()->user()->must_change_password)
-                    <a href="{{ route('client.profile') }}" @if(request()->routeIs('client.orders', 'client.tracking', 'client.payments', 'client.profile')) aria-current="{{ request()->routeIs('client.profile') ? 'page' : 'location' }}" @endif>Account</a>
+                    <a href="{{ route('client.profile') }}" @if(request()->routeIs('client.orders', 'client.tracking', 'client.payments', 'client.profile', 'password.change')) aria-current="{{ request()->routeIs('client.profile') ? 'page' : 'location' }}" @endif>Account</a>
                 @endunless
                 <form class="shop-sign-out" method="post" action="{{ route('logout') }}">
                     @csrf

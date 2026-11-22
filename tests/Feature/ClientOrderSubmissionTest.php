@@ -193,6 +193,12 @@ class ClientOrderSubmissionTest extends TestCase
         $order = Order::sole();
         $this->assertSame('New address, Manila', $order->address);
         $this->assertSame(4550, $order->fee_cents);
+
+        $clients = app(ClientService::class);
+        $profile = $this->customer->clientProfile;
+        $clients->update($profile, [...$clients->row($profile), 'address' => 'Corrected account address, Manila']);
+        $this->signIn($this->customer->fresh());
+        $this->get(route('client.profile'))->assertOk()->assertSeeText('Corrected account address, Manila');
         $this->get(route('client.orders.confirmation', $order))->assertOk()
             ->assertSeeTextInOrder(['Delivery', 'New address, Manila', 'Delivery fee', '₱45.50', 'Order total', '₱195.50']);
     }

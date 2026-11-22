@@ -1,36 +1,55 @@
-@extends('layouts.client')
+@extends($required ? 'layouts.client' : 'layouts.client-account')
 
 @section('title', 'Change your password')
-@section('body-class', 'shop-auth')
+@section('body-class', $required ? 'shop-auth' : 'shop-orders')
+@section('field-errors', 'true')
 
 @push('page-assets')
     @vite('resources/css/client/sign-in.css')
 @endpush
 
-@section('content')
-    <section class="shop-width shop-auth-page" aria-labelledby="change-password-title" data-shop-back-top-threshold>
-        <h1 id="change-password-title">Change your password</h1>
+@section('password-form')
+    @if ($required)
         <p>Replace your temporary password to continue. Use at least 12 characters.</p>
-        <form class="shop-auth-form" method="post" action="{{ route('password.update') }}">
-            @csrf
-            @method('PUT')
+    @else
+        <p>Use at least 12 characters for your new password.</p>
+    @endif
+    <form class="shop-auth-form" method="post" action="{{ route('password.update') }}">
+        @csrf
+        @method('PUT')
 
+        @foreach (['current_password' => 'Current password', 'password' => 'New password', 'password_confirmation' => 'Confirm new password'] as $field => $label)
             <div>
-                <label class="form-label" for="current_password">Current password</label>
-                <input class="form-control" id="current_password" name="current_password" type="password"
-                       autocomplete="current-password" required @error('current_password') aria-invalid="true" @enderror>
+                <label class="form-label" for="{{ $field }}">{{ $label }}</label>
+                <input class="form-control" id="{{ $field }}" name="{{ $field }}" type="password" required
+                       autocomplete="{{ $field === 'current_password' ? 'current-password' : 'new-password' }}"
+                       @if ($field !== 'current_password') minlength="12" @endif
+                       @error($field) aria-invalid="true" aria-describedby="{{ $field }}-error" @enderror>
+                @error($field)
+                    <p class="invalid-feedback d-block" id="{{ $field }}-error">{{ $message }}</p>
+                @enderror
             </div>
-            <div>
-                <label class="form-label" for="password">New password</label>
-                <input class="form-control" id="password" name="password" type="password"
-                       autocomplete="new-password" minlength="12" required @error('password') aria-invalid="true" @enderror>
-            </div>
-            <div>
-                <label class="form-label" for="password_confirmation">Confirm new password</label>
-                <input class="form-control" id="password_confirmation" name="password_confirmation" type="password"
-                       autocomplete="new-password" minlength="12" required>
-            </div>
-            <button class="shop-button primary" type="submit">Update password</button>
-        </form>
-    </section>
+        @endforeach
+        <div class="shop-auth-actions">
+            <button class="shop-button primary" type="submit">Save password</button>
+            @unless ($required)
+                <a class="account-text-link" href="{{ route('client.profile') }}">Back to My Profile</a>
+            @endunless
+        </div>
+    </form>
 @endsection
+
+@if ($required)
+    @section('content')
+        <section class="shop-width shop-auth-page" aria-labelledby="change-password-title">
+            <header data-shop-back-top-threshold>
+                <h1 id="change-password-title" tabindex="-1">Change your password</h1>
+            </header>
+            @yield('password-form')
+        </section>
+    @endsection
+@else
+    @section('account-content')
+        @yield('password-form')
+    @endsection
+@endif
