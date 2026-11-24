@@ -31,7 +31,7 @@ class OrderController extends Controller
     public function data(Request $request, OrderService $service): JsonResponse
     {
         $result = DB::transaction(function () use ($request, $service): array {
-            $orders = Order::query()->with(['items', 'histories', 'payment'])->orderByDesc('id')->get();
+            $orders = Order::query()->with(['items.flower:id,image_path', 'histories', 'payment'])->orderByDesc('id')->get();
             $clients = Client::query()->with('user')->whereHas('user', fn ($query) => $query->where('role', User::ROLE_CLIENT))->orderBy('id')->get();
             $flowers = Flower::query()->orderBy('id')->get();
             $prices = FlowerPrice::query()->get()->keyBy('flower_id');
@@ -98,6 +98,6 @@ class OrderController extends Controller
     /** Hydrate response relations inside a fresh read transaction after writes have committed. */
     private function currentRow(Order $order, User $actor, OrderService $service): array
     {
-        return DB::transaction(fn () => $service->row(Order::query()->with(['items', 'histories', 'payment'])->findOrFail($order->id), $actor));
+        return DB::transaction(fn () => $service->row(Order::query()->with(['items.flower:id,image_path', 'histories', 'payment'])->findOrFail($order->id), $actor));
     }
 }

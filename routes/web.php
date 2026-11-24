@@ -272,6 +272,9 @@ Route::middleware('auth')->group(function () {
                 Route::post('/sales-payments/payments', [SalesPaymentController::class, 'recordPayment'])
                     ->name('sales-payments.record');
 
+                Route::get('/sales-payments/payments/{payment}/proof', [SalesPaymentController::class, 'proof'])
+                    ->whereNumber('payment')->name('sales-payments.proof');
+
                 Route::post('/sales-payments/payments/{payment}/confirm', [SalesPaymentController::class, 'confirm'])
                     ->whereNumber('payment')
                     ->name('sales-payments.confirm');

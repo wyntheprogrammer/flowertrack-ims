@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * Received batch with its original unit conversion snapshot.
  */
-#[Fillable(['flower_id', 'code', 'received_date', 'harvest_date', 'expiry_date', 'received_quantity', 'receiving_unit', 'conversion_factor', 'initial_quantity', 'remaining_quantity', 'spoiled', 'remarks', 'storage_condition'])]
+#[Fillable(['flower_id', 'code', 'received_date', 'received_quantity', 'receiving_unit', 'conversion_factor', 'initial_quantity', 'remaining_quantity', 'spoiled', 'remarks', 'storage_condition'])]
 class InventoryBatch extends Model
 {
     protected $table = 'inventory_batches';
@@ -19,8 +19,6 @@ class InventoryBatch extends Model
     {
         return [
             'received_date' => 'date',
-            'harvest_date' => 'date',
-            'expiry_date' => 'date',
             'received_quantity' => 'integer',
             'conversion_factor' => 'integer',
             'initial_quantity' => 'integer',

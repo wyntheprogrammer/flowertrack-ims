@@ -7,7 +7,6 @@ use App\Models\Delivery;
 use App\Models\Flower;
 use App\Models\FlowerPrice;
 use App\Models\InventoryBatch;
-use App\Models\InventoryMovement;
 use App\Models\InventoryReservation;
 use App\Models\Order;
 use App\Models\OrderPayment;
@@ -31,12 +30,19 @@ use Tests\TestCase;
 class ReportBackendTest extends TestCase
 {
     private ReportService $reports;
+
     private InventoryService $inventory;
+
     private OrderService $orders;
+
     private SalesPaymentService $sales;
+
     private User $admin;
+
     private User $supplier;
+
     private bool $testConnectionConfigured = false;
+
     private string $previousTimezone;
 
     /** All schemas are created only in a named ephemeral database, never the owner's DB. */
@@ -64,19 +70,30 @@ class ReportBackendTest extends TestCase
         $this->assertSame('sqlite', DB::connection()->getDriverName());
         $this->assertSame(':memory:', DB::connection()->getDatabaseName());
         Schema::create('users', function (Blueprint $table) {
-            $table->id(); $table->string('name'); $table->string('email')->unique();
-            $table->string('password'); $table->string('role');
+            $table->id();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->string('password');
+            $table->string('role');
             $table->boolean('is_active')->default(true);
             $table->boolean('must_change_password')->default(false);
-            $table->timestamp('email_verified_at')->nullable(); $table->rememberToken(); $table->timestamps();
+            $table->timestamp('email_verified_at')->nullable();
+            $table->rememberToken();
+            $table->timestamps();
         });
         Schema::create('flowers', function (Blueprint $table) {
-            $table->id(); $table->string('code', 30)->unique(); $table->string('name', 150);
-            $table->enum('product_type', ['Stem', 'Bouquet']); $table->string('category', 100);
-            $table->unsignedInteger('minimum_stock'); $table->text('description');
-            $table->string('image_path')->nullable(); $table->enum('status', ['Active', 'Inactive']); $table->timestamps();
+            $table->id();
+            $table->string('code', 30)->unique();
+            $table->string('name', 150);
+            $table->enum('product_type', ['Stem', 'Bouquet']);
+            $table->string('category', 100);
+            $table->unsignedInteger('minimum_stock');
+            $table->text('description');
+            $table->string('image_path')->nullable();
+            $table->enum('status', ['Active', 'Inactive']);
+            $table->timestamps();
         });
-        foreach (['create_clients_table', 'create_inventory_tables', 'create_order_tables', 'create_delivery_tables', 'create_finance_tables'] as $name) {
+        foreach (['create_clients_table', 'create_inventory_tables', 'remove_harvest_and_expiry_dates_from_inventory_batches_table', 'create_order_tables', 'create_delivery_tables', 'create_finance_tables'] as $name) {
             $files = glob(database_path('migrations/*_'.$name.'.php')) ?: [];
             $this->assertCount(1, $files, 'Expected one '.$name.' migration.');
             (require $files[0])->up();
@@ -92,8 +109,12 @@ class ReportBackendTest extends TestCase
     /** Disconnect only the ephemeral named connection. */
     protected function tearDown(): void
     {
-        if ($this->testConnectionConfigured) DB::disconnect('report_backend_test');
-        if (isset($this->previousTimezone)) date_default_timezone_set($this->previousTimezone);
+        if ($this->testConnectionConfigured) {
+            DB::disconnect('report_backend_test');
+        }
+        if (isset($this->previousTimezone)) {
+            date_default_timezone_set($this->previousTimezone);
+        }
         parent::tearDown();
     }
 
@@ -105,7 +126,9 @@ class ReportBackendTest extends TestCase
         $keys = array_keys($result['data']);
         sort($keys);
         $this->assertSame(['clients', 'delivery', 'inventory', 'orders', 'payments', 'sales', 'spoilage'], $keys);
-        foreach ($result['data'] as $rows) $this->assertSame([], $rows);
+        foreach ($result['data'] as $rows) {
+            $this->assertSame([], $rows);
+        }
         $this->assertSame('Asia/Manila', $result['timezone']);
         $this->assertStringEndsWith('+08:00', $result['generatedAt']);
         $this->assertSame($before, $this->databaseSnapshot());
@@ -116,10 +139,12 @@ class ReportBackendTest extends TestCase
     {
         [$client, $stem, $bouquet] = $this->fixture();
         $completed = $this->complete($this->newOrder($client, $stem, 2));
-        $payment = $this->pay($completed);
+        $payment = $completed->payment;
         $this->refund($payment, '5.00');
         $deliveryOrder = $this->newOrder($client, $bouquet, 1, 'Delivery');
-        foreach (['Confirmed', 'Processing', 'Ready for Delivery'] as $status) $this->advance($deliveryOrder, $status);
+        foreach (['Confirmed', 'Processing', 'Ready for Delivery'] as $status) {
+            $this->advance($deliveryOrder, $status);
+        }
         $delivery = Delivery::where('order_id', $deliveryOrder->id)->firstOrFail();
         $this->inventory->stockOut([
             'request_key' => (string) Str::uuid(), 'flower_id' => $stem->id,
@@ -224,11 +249,10 @@ class ReportBackendTest extends TestCase
         $this->assertSame('Pending', $order->fresh()->status);
     }
 
-    /** Only actual negative spoilage issues count, never expiry flags or other stock uses. */
+    /** Only actual negative spoilage issues count. */
     public function test_spoilage_reports_only_qualifying_movement_events(): void
     {
         [$client, $stem, $bouquet] = $this->fixture();
-        InventoryBatch::where('flower_id', $stem->id)->update(['expiry_date' => '2020-01-01']);
         $this->inventory->stockOut([
             'request_key' => (string) Str::uuid(), 'flower_id' => $stem->id,
             'quantity' => 2, 'reason' => 'Other use', 'remarks' => 'Display arrangement.',
@@ -272,7 +296,7 @@ class ReportBackendTest extends TestCase
     {
         [$client, $stem] = $this->fixture();
         $order = $this->complete($this->newOrder($client, $stem, 2));
-        $payment = $this->pay($order);
+        $payment = $order->payment;
         $this->refund($payment, '5.00');
         $sale = SalesRecord::where('order_id', $order->id)->firstOrFail();
         $sale->completed_at = CarbonImmutable::parse('2026-11-06T16:00:00+00:00');
@@ -316,8 +340,12 @@ class ReportBackendTest extends TestCase
 
     private function assertBlocked(User $user): void
     {
-        try { $this->reports->data($user); $this->fail('Access must be rejected.'); }
-        catch (HttpException $exception) { $this->assertSame(403, $exception->getStatusCode()); }
+        try {
+            $this->reports->data($user);
+            $this->fail('Access must be rejected.');
+        } catch (HttpException $exception) {
+            $this->assertSame(403, $exception->getStatusCode());
+        }
     }
 
     private function fixture(): array
@@ -332,17 +360,20 @@ class ReportBackendTest extends TestCase
             $this->inventory->stockIn([
                 'request_key' => (string) Str::uuid(), 'flower_id' => $flower->id,
                 'quantity' => $quantity, 'unit' => $type, 'received' => '2026-01-02',
-                'harvest' => '2026-01-01', 'expiry' => null, 'remarks' => 'Report fixture receipt.',
+                'remarks' => 'Report fixture receipt.',
             ], $this->supplier);
             $items[] = $flower;
         }
+
         return [$client, ...$items];
     }
 
     private function newClient(string $label, string $name): Client
     {
         $user = $this->user($label, User::ROLE_CLIENT);
-        $user->name = $name; $user->save();
+        $user->name = $name;
+        $user->save();
+
         return Client::create(['code' => 'CLI-'.$user->id, 'user_id' => $user->id,
             'phone' => '09170000000', 'address' => 'Report test address']);
     }
@@ -357,6 +388,7 @@ class ReportBackendTest extends TestCase
     private function newOrder(Client $client, Flower $item, int $quantity, string $method = 'Customer Pickup'): Order
     {
         config(['orders.delivery_fee' => '150.00']);
+
         return $this->orders->store(['request_key' => (string) Str::uuid(),
             'client_id' => $client->id, 'method' => $method,
             'address' => $method === 'Delivery' ? 'Report delivery address' : null,
@@ -367,15 +399,17 @@ class ReportBackendTest extends TestCase
     private function advance(Order $order, string $status): Order
     {
         return $this->orders->action($order, ['status' => $status,
-            'version' => $this->orders->row($order->fresh(), $this->admin)['version'],
-            'collected' => $status === 'Completed'], $this->admin);
+            'version' => $this->orders->row($order->fresh(), $this->admin)['version']], $this->admin);
     }
 
     private function complete(Order $order): Order
     {
-        foreach (['Confirmed', 'Processing', 'Ready for Pickup', 'Completed'] as $status) {
+        foreach (['Confirmed', 'Processing', 'Ready for Pickup'] as $status) {
             $this->advance($order, $status);
         }
+
+        $this->pay($order);
+
         return $order->fresh();
     }
 
@@ -386,7 +420,10 @@ class ReportBackendTest extends TestCase
             'order_id' => $order->id, 'version' => $row['version'], 'method' => 'Cash',
             'amount' => Money::format((int) $order->total_cents)], $this->supplier);
         $payment = OrderPayment::where('order_id', $order->id)->firstOrFail();
-        if ($confirm) $this->confirmPayment($payment);
+        if ($confirm) {
+            $this->confirmPayment($payment);
+        }
+
         return $payment->fresh();
     }
 
@@ -409,6 +446,7 @@ class ReportBackendTest extends TestCase
     {
         $row = collect($rows)->first(fn ($row) => $row[$key] === $value);
         $this->assertNotNull($row, 'Report row not found: '.$key);
+
         return $row;
     }
 
@@ -421,6 +459,7 @@ class ReportBackendTest extends TestCase
             'deliveries', 'delivery_histories', 'finance_operations', 'payment_refunds'] as $table) {
             $snapshot[$table] = DB::table($table)->orderBy('id')->get()->map(fn ($row) => (array) $row)->all();
         }
+
         return $snapshot;
     }
 }

@@ -45,8 +45,6 @@ class BatchModel {
     constructor() {
         this.flowers = [];
         this.batches = [];
-        this.today = '';
-        this.warningDays = 3;
     }
 
     /* ==================================================
@@ -55,9 +53,7 @@ class BatchModel {
 
     hydrate(result) {
         const data = result?.data;
-        if (!data || !Array.isArray(data.flowers) || !Array.isArray(data.batches)
-            || !Number.isFinite(dayNumber(result.today))
-            || !Number.isInteger(result.warning_days) || result.warning_days < 0) {
+        if (!data || !Array.isArray(data.flowers) || !Array.isArray(data.batches)) {
             throw new Error('Invalid batch response. Refresh the page.');
         }
         for (const flower of data.flowers) {
@@ -72,8 +68,6 @@ class BatchModel {
                 || !/^[a-f0-9]{64}$/.test(batch.version)
                 || !data.flowers.some(flower => flower.code === batch.flower)
                 || !Number.isFinite(dayNumber(batch.received))
-                || !Number.isFinite(dayNumber(batch.harvest))
-                || (batch.expiry && !Number.isFinite(dayNumber(batch.expiry)))
                 || !Array.isArray(batch.history)) {
                 throw new Error('Invalid batch record. Refresh the page.');
             }
@@ -83,8 +77,6 @@ class BatchModel {
         }
         this.flowers = data.flowers;
         this.batches = data.batches;
-        this.today = result.today;
-        this.warningDays = result.warning_days;
     }
 
     /* ==================================================
@@ -122,60 +114,6 @@ class BatchModel {
         return batch.remaining === batch.initial
             ? 'Available'
             : 'Partially Used';
-    }
-
-    /* ==================================================
-       FRESHNESS
-    ================================================== */
-
-    freshness(batch) {
-        if (batch.spoiled || batch.remaining === 0) {
-            return {
-                style: 'unset',
-                text: 'No remaining stock',
-                warning: false
-            };
-        }
-
-        if (!batch.expiry) {
-            return {
-                style: 'unset',
-                text: 'Not set',
-                warning: false
-            };
-        }
-
-        const days = dayNumber(batch.expiry) - dayNumber(this.today);
-
-        if (days < 0) {
-            return {
-                style: 'expired',
-                text: 'Date passed',
-                warning: true
-            };
-        }
-
-        if (days === 0) {
-            return {
-                style: 'soon',
-                text: 'Due today',
-                warning: true
-            };
-        }
-
-        if (days <= this.warningDays) {
-            return {
-                style: 'soon',
-                text: `Due in ${days} day${days === 1 ? '' : 's'}`,
-                warning: true
-            };
-        }
-
-        return {
-            style: 'fresh',
-            text: `${days} days remaining`,
-            warning: false
-        };
     }
 
 }
@@ -289,29 +227,6 @@ const BatchUI = {
                         type === 'display' ? number(value) : value
                 },
                 {
-                    data: 'expiry',
-                    render: (value, type, batch) => {
-                        if (type === 'sort' || type === 'type') {
-                            return value || '9999-12-31';
-                        }
-
-                        const freshness = this.model.freshness(batch);
-
-                        if (type !== 'display') {
-                            return `${value} ${freshness.text}`;
-                        }
-
-                        return `
-                            ${value || '—'}
-                            <div>
-                                <span class="batch-freshness-badge ${freshness.style}">
-                                    ${freshness.text}
-                                </span>
-                            </div>
-                        `;
-                    }
-                },
-                {
                     data: null,
                     render: (_value, type, batch) => type === 'display'
                         ? this.badge(batch)
@@ -333,7 +248,7 @@ const BatchUI = {
                     className: 'dt-head-left dt-body-left'
                 },
                 {
-                    targets: [2, 3, 4, 5, 6, 7],
+                    targets: [2, 3, 4, 5, 6],
                     className: 'dt-head-center dt-body-center'
                 }
             ]
@@ -507,17 +422,6 @@ const BatchUI = {
                 (batch) => this.model.status(batch) === status
             ).length;
         }
-
-        const warnings = this.model.batches.filter(
-            (batch) => this.model.freshness(batch).warning
-        ).length;
-
-        this.el('batchFreshnessWarning').hidden = warnings === 0;
-
-        this.el('batchFreshnessWarning').textContent =
-            `${warnings} usable batch${warnings === 1 ? '' : 'es'} ` +
-            'reached or are approaching the expected freshness date. ' +
-            'Review them; dates do not automatically change stock or batch status.';
     },
 
     /* ==================================================
@@ -532,8 +436,6 @@ const BatchUI = {
             ['Item', `${flower.name} (${flower.code})`],
             ['Item Type / Base Unit', flower.baseUnit],
             ['Date Received', batch.received],
-            ['Harvest Date', batch.harvest],
-            ['Freshness / Expiry', batch.expiry || 'Not set'],
             ['Storage Condition', batch.storage_condition || 'Unknown'],
             ['Initial Quantity', `${number(batch.initial)} ${this.model.unitLabel(batch)}`],
             ['Remaining Quantity', `${number(batch.remaining)} ${this.model.unitLabel(batch)}`]
@@ -616,10 +518,8 @@ const BatchUI = {
             batchEditNumber: batch.id,
             batchEditFlower: `${this.model.flower(batch.flower).name} (${this.model.flower(batch.flower).baseUnit})`,
             batchEditReceived: batch.received,
-            batchEditHarvest: batch.harvest,
             batchEditInitial: batch.initial,
             batchEditRemaining: batch.remaining,
-            batchEditExpiry: batch.expiry,
             batchEditRemarks: batch.remarks,
             batchEditStorage: batch.storage_condition || ''
         };
@@ -628,7 +528,6 @@ const BatchUI = {
             this.el(id).value = value;
         }
 
-        this.el('batchEditHarvest').max = batch.received;
         this.editModal.show();
     },
 
@@ -643,7 +542,7 @@ const BatchUI = {
         const after = movement.metadata?.after;
         if (!before || !after) return '';
         const labels = {
-            received: 'Received', harvest: 'Harvest', expiry: 'Freshness / expiry',
+            received: 'Received',
             quantity: 'Receiving quantity', unit: 'Receiving unit', factor: 'Conversion factor',
             initial: 'Initial', remaining: 'Remaining', remarks: 'Remarks',
             storage_condition: 'Storage condition',
@@ -767,9 +666,7 @@ const BatchUI = {
         this.el('batchTableBody').querySelectorAll('[data-batch-action]').forEach(button => {
             button.disabled = disabled;
         });
-        ['batchEditHarvest', 'batchEditExpiry', 'batchEditRemarks'].forEach(id => {
-            this.el(id).disabled = this.saving;
-        });
+        this.el('batchEditRemarks').disabled = this.saving;
         this.el('batchEditForm').querySelector('[type="submit"]').disabled = disabled;
         this.el('batchEditForm').setAttribute('aria-busy', String(this.saving));
     },
@@ -790,8 +687,6 @@ const BatchUI = {
             const result = await this.request(this.endpoint(true), {
                 request_key: this.requestKey,
                 version: this.editingVersion,
-                harvest: this.el('batchEditHarvest').value,
-                expiry: this.el('batchEditExpiry').value || null,
                 remarks: this.el('batchEditRemarks').value.trim(),
                 storage_condition: this.el('batchEditStorage').value.trim() || null,
             });

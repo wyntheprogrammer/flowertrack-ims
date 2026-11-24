@@ -83,7 +83,9 @@ class BatchBackendTest extends TestCase
             'Expected exactly one *_create_inventory_tables.php file in database/migrations.'
         );
         (require $migrationFiles[0])->up();
+        (require database_path('migrations/2026_11_24_114410_remove_harvest_and_expiry_dates_from_inventory_batches_table.php'))->up();
         (require database_path('migrations/2026_11_14_144642_create_batch_daily_observations_table.php'))->up();
+        (require database_path('migrations/2026_11_24_114411_remove_harvest_date_from_batch_daily_observations_table.php'))->up();
         $this->actor = User::forceCreate([
             'name' => 'Inventory Test Admin', 'email' => 'inventory@example.test',
             'password' => 'test-only-password', 'role' => User::ROLE_ADMIN,
@@ -113,22 +115,20 @@ class BatchBackendTest extends TestCase
         $before = $batch->getRawOriginal();
         $version = $this->inventory->batchVersion($batch);
         $this->inventory->updateBatchMetadata($batch, $this->metadataInput($batch, [
-            'harvest' => '2025-12-31', 'expiry' => '2026-01-01', 'remarks' => 'Corrected freshness note.',
+            'remarks' => 'Corrected inspection note.',
         ]), $this->actor);
         $after = $batch->fresh();
         foreach (['id', 'code', 'flower_id', 'received_date', 'received_quantity', 'receiving_unit',
             'conversion_factor', 'initial_quantity', 'remaining_quantity', 'spoiled'] as $field) {
             $this->assertSame($before[$field], $after->getRawOriginal($field), $field);
         }
-        $this->assertSame('2025-12-31', $after->harvest_date->format('Y-m-d'));
-        $this->assertSame('2026-01-01', $after->expiry_date->format('Y-m-d'));
         $this->assertSame(10, $after->remaining_quantity);
-        $this->assertFalse($after->spoiled); // A past freshness date is advisory only.
+        $this->assertFalse($after->spoiled);
         $movement = InventoryMovement::orderByDesc('id')->first();
         $this->assertSame('Batch Metadata Update', $movement->type);
         $this->assertSame(0, $movement->quantity);
-        $this->assertSame('2026-01-01', $movement->metadata['before']['harvest']);
-        $this->assertSame('2025-12-31', $movement->metadata['after']['harvest']);
+        $this->assertSame(null, $movement->metadata['before']['remarks']);
+        $this->assertSame('Corrected inspection note.', $movement->metadata['after']['remarks']);
         $this->assertSame(10, (int) InventoryMovement::sum('quantity'));
         $this->assertNotSame($version, $this->inventory->batchVersion($after));
         $stable = $this->inventory->batchVersion($after);
@@ -136,20 +136,11 @@ class BatchBackendTest extends TestCase
         $this->assertSame($stable, $this->inventory->batchVersion($after));
     }
 
-    /**
-     * Date checks use the locked current received date and reject invalid ordering atomically.
-     */
-    public function test_invalid_metadata_dates_leave_stock_and_audit_unchanged(): void
+    public function test_removed_receipt_dates_are_absent_from_the_schema(): void
     {
-        $batch = $this->receive(10);
-        $this->rejected(fn () => $this->inventory->updateBatchMetadata($batch,
-            $this->metadataInput($batch, ['harvest' => '2026-01-03']), $this->actor), 'harvest');
-        $this->rejected(fn () => $this->inventory->updateBatchMetadata($batch,
-            $this->metadataInput($batch, ['expiry' => '2025-12-31']), $this->actor), 'expiry');
-        $this->assertSame('2026-01-01', $batch->fresh()->harvest_date->format('Y-m-d'));
-        $this->assertSame(10, $batch->fresh()->remaining_quantity);
-        $this->assertSame(1, InventoryOperation::count());
-        $this->assertSame(1, InventoryMovement::count());
+        $this->assertFalse(Schema::hasColumn('inventory_batches', 'harvest_date'));
+        $this->assertFalse(Schema::hasColumn('inventory_batches', 'expiry_date'));
+        $this->assertFalse(Schema::hasColumn('batch_daily_observations', 'harvest_date'));
     }
 
     /**
@@ -212,7 +203,7 @@ class BatchBackendTest extends TestCase
     }
 
     /**
-     * HTTP validation rejects stock/identity tampering and noncanonical metadata dates.
+     * HTTP validation rejects stock/identity tampering and removed receipt dates.
      */
     public function test_request_prohibits_stock_fields_and_requires_valid_metadata(): void
     {
@@ -227,7 +218,6 @@ class BatchBackendTest extends TestCase
                 $this->assertArrayHasKey($field, $validator->errors()->toArray());
             }
         }
-        $this->assertTrue(Validator::make([...$payload, 'harvest' => '01/01/2026'], $rules)->fails());
         $this->assertTrue(Validator::make([...$payload, 'version' => str_repeat('z', 64)], $rules)->fails());
     }
 
@@ -244,7 +234,7 @@ class BatchBackendTest extends TestCase
         $this->assertSame('Ambient', $receipt->metadata['receipt']['storage_condition']);
         $observation = BatchDailyObservation::create([
             'batch_id' => $batch->id, 'flower_id' => $batch->flower_id,
-            'observation_date' => '2026-01-02', 'harvest_date' => '2026-01-01',
+            'observation_date' => '2026-01-02',
             'received_date' => '2026-01-02', 'storage_condition' => 'Ambient',
             'base_unit' => 'Stem', 'opening_quantity' => 20, 'spoiled_quantity' => 0,
             'released_quantity' => 0, 'closing_quantity' => 20, 'is_complete' => true,
@@ -297,8 +287,6 @@ class BatchBackendTest extends TestCase
         return array_replace([
             'request_key' => (string) Str::uuid(),
             'version' => $this->inventory->batchVersion($batch),
-            'harvest' => $batch->harvest_date->format('Y-m-d'),
-            'expiry' => $batch->expiry_date?->format('Y-m-d'),
             'remarks' => $batch->remarks,
         ], $overrides);
     }
@@ -323,7 +311,7 @@ class BatchBackendTest extends TestCase
         return array_replace([
             'request_key' => (string) Str::uuid(), 'flower_id' => $this->flower->id,
             'quantity' => $quantity, 'unit' => 'Stem', 'received' => '2026-01-02',
-            'harvest' => '2026-01-01', 'expiry' => null, 'remarks' => null,
+            'remarks' => null,
         ], $overrides);
     }
 

@@ -4,9 +4,9 @@ namespace Tests\Feature;
 
 use App\Http\Requests\StorePaymentRequest;
 use App\Models\Client;
+use App\Models\FinanceOperation;
 use App\Models\Flower;
 use App\Models\FlowerPrice;
-use App\Models\FinanceOperation;
 use App\Models\InventoryBatch;
 use App\Models\InventoryMovement;
 use App\Models\InventoryReservation;
@@ -18,8 +18,8 @@ use App\Models\User;
 use App\Services\InventoryService;
 use App\Services\OrderService;
 use App\Services\SalesPaymentService;
-use App\Support\Money;
 use App\Support\AccountSession;
+use App\Support\Money;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -33,13 +33,21 @@ use Tests\TestCase;
 class SalesBackendTest extends TestCase
 {
     private OrderService $orders;
+
     private InventoryService $inventory;
+
     private SalesPaymentService $sales;
+
     private User $admin;
+
     private User $supplier;
+
     private Client $client;
+
     private Flower $stem;
+
     private Flower $bouquet;
+
     private bool $testConnectionConfigured = false;
 
     /** Isolate every schema operation in a named memory-only SQLite connection. */
@@ -64,19 +72,30 @@ class SalesBackendTest extends TestCase
         $this->assertSame('sqlite', DB::connection()->getDriverName());
         $this->assertSame(':memory:', DB::connection()->getDatabaseName());
         Schema::create('users', function (Blueprint $table) {
-            $table->id(); $table->string('name'); $table->string('email')->unique();
-            $table->string('password'); $table->string('role');
+            $table->id();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->string('password');
+            $table->string('role');
             $table->boolean('is_active')->default(true);
             $table->boolean('must_change_password')->default(false);
-            $table->timestamp('email_verified_at')->nullable(); $table->rememberToken(); $table->timestamps();
+            $table->timestamp('email_verified_at')->nullable();
+            $table->rememberToken();
+            $table->timestamps();
         });
         Schema::create('flowers', function (Blueprint $table) {
-            $table->id(); $table->string('code', 30)->unique(); $table->string('name', 150);
-            $table->enum('product_type', ['Stem', 'Bouquet']); $table->string('category', 100);
-            $table->unsignedInteger('minimum_stock'); $table->text('description');
-            $table->string('image_path')->nullable(); $table->enum('status', ['Active', 'Inactive']); $table->timestamps();
+            $table->id();
+            $table->string('code', 30)->unique();
+            $table->string('name', 150);
+            $table->enum('product_type', ['Stem', 'Bouquet']);
+            $table->string('category', 100);
+            $table->unsignedInteger('minimum_stock');
+            $table->text('description');
+            $table->string('image_path')->nullable();
+            $table->enum('status', ['Active', 'Inactive']);
+            $table->timestamps();
         });
-        foreach (['create_clients_table', 'create_inventory_tables', 'create_order_tables', 'create_delivery_tables', 'create_finance_tables'] as $name) {
+        foreach (['create_clients_table', 'create_inventory_tables', 'remove_harvest_and_expiry_dates_from_inventory_batches_table', 'create_order_tables', 'create_delivery_tables', 'create_finance_tables'] as $name) {
             $files = glob(database_path('migrations/*_'.$name.'.php')) ?: [];
             $this->assertCount(1, $files, 'Expected one '.$name.' migration.');
             (require $files[0])->up();
@@ -100,7 +119,9 @@ class SalesBackendTest extends TestCase
     /** Disconnect only the ephemeral named connection. */
     protected function tearDown(): void
     {
-        if ($this->testConnectionConfigured) DB::disconnect('sales_backend_test');
+        if ($this->testConnectionConfigured) {
+            DB::disconnect('sales_backend_test');
+        }
         parent::tearDown();
     }
 
@@ -150,8 +171,7 @@ class SalesBackendTest extends TestCase
         $this->assertSame(1, FinanceOperation::count());
     }
 
-    /** Actual receipt confirmation is independent of fulfillment and does not generate a sale. */
-    public function test_confirmation_is_replay_safe_and_never_issues_inventory(): void
+    public function test_payment_confirmation_for_a_pending_order_is_replay_safe(): void
     {
         $order = $this->orders->store($this->input(), $this->supplier);
         $payment = $this->record($order);
@@ -285,7 +305,7 @@ class SalesBackendTest extends TestCase
     {
         $order = $this->orders->store($this->input(), $this->supplier);
         $payload = $this->paymentInput($order);
-        $rules = (new StorePaymentRequest())->rules();
+        $rules = (new StorePaymentRequest)->rules();
         $this->assertTrue(Validator::make($payload, $rules)->passes());
         foreach (['status' => 'Confirmed', 'confirmed_by' => $this->admin->id,
             'confirmed_at' => '2026-01-01', 'stocked_out' => true, 'amount_cents' => 1,
@@ -313,7 +333,9 @@ class SalesBackendTest extends TestCase
                     $action();
                     $this->fail('Unauthorized financial access must be rejected.');
                 } catch (AuthorizationException|HttpException $exception) {
-                    if ($exception instanceof HttpException) $this->assertSame(403, $exception->getStatusCode());
+                    if ($exception instanceof HttpException) {
+                        $this->assertSame(403, $exception->getStatusCode());
+                    }
                 }
             }
         }
@@ -333,6 +355,11 @@ class SalesBackendTest extends TestCase
         $this->postJson(route('supplier.sales-payments.record'), [...$payload, 'status' => 'Confirmed'])
             ->assertUnprocessable()->assertJsonValidationErrors('status');
         $this->postJson(route('supplier.sales-payments.record'), $payload)
+            ->assertUnprocessable()->assertJsonValidationErrors('order');
+        $this->action($order, 'Confirmed', $this->admin);
+        $this->action($order, 'Processing', $this->supplier);
+        $this->action($order, 'Ready for Pickup', $this->supplier);
+        $this->postJson(route('supplier.sales-payments.record'), $this->paymentInput($order->fresh()))
             ->assertCreated()->assertJsonStructure(['message', 'data' => ['payments']]);
         $payment = OrderPayment::firstOrFail();
         $this->assertSame('Pending', $payment->status);
@@ -434,8 +461,8 @@ class SalesBackendTest extends TestCase
     {
         $this->inventory->stockIn([
             'request_key' => (string) Str::uuid(), 'flower_id' => $flower->id, 'quantity' => $quantity,
-            'unit' => $flower->product_type, 'received' => '2026-01-02', 'harvest' => '2026-01-01',
-            'expiry' => null, 'remarks' => 'Test receipt.',
+            'unit' => $flower->product_type, 'received' => '2026-01-02',
+            'remarks' => 'Test receipt.',
         ], $this->admin);
     }
 
@@ -481,9 +508,12 @@ class SalesBackendTest extends TestCase
     private function rejected(callable $action, ?string $field = null): void
     {
         try {
-            $action(); $this->fail('Expected financial validation to reject this operation.');
+            $action();
+            $this->fail('Expected financial validation to reject this operation.');
         } catch (ValidationException $exception) {
-            if ($field !== null) $this->assertArrayHasKey($field, $exception->errors());
+            if ($field !== null) {
+                $this->assertArrayHasKey($field, $exception->errors());
+            }
         }
     }
 }

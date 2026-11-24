@@ -40,13 +40,12 @@
                 <i class="bi bi-info-circle" aria-hidden="true"></i>
                 <span>
                     Payment recording and confirmation are manual. Verify actual receipts before
-                    confirming payments. Recording a refund does not transfer money automatically.
+                    confirming pickup payments. Rider collections appear here automatically. Each refund row records an actual return of part or all of one payment.
                 </span>
             </div>
 
             <div class="sales-notice" aria-live="polite">
                 <span id="salesPageError" class="sales-error" role="alert" hidden></span>
-                <button type="button" class="sales-secondary-btn" id="salesReloadData">Refresh Records</button>
                 <button type="button" class="sales-secondary-btn" id="salesRetryRequest" hidden>Retry pending request</button>
             </div>
 
@@ -163,7 +162,7 @@
                             <tr>
                                 <th scope="col">Sale / Order</th>
                                 <th scope="col">Client</th>
-                                <th scope="col">Completed</th>
+                                <th scope="col">Fulfilled</th>
                                 <th scope="col">Gross Sale</th>
                                 <th scope="col">Refunds</th>
                                 <th scope="col">Net Sale</th>
@@ -229,7 +228,7 @@
         <div class="sales-insights">
             <div class="sales-card sales-insight-card">
                 <h2>Top Selling Items</h2>
-                <p>Completed-order quantities grouped by Stem and Bouquet, before refund adjustments.</p>
+                <p>Fulfilled quantities grouped by Stem and Bouquet, before refund adjustments.</p>
                 <div id="salesTopFlowers"></div>
             </div>
 

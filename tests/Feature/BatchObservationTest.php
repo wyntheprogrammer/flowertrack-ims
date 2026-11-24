@@ -135,7 +135,7 @@ class BatchObservationTest extends TestCase
     public function test_philippine_midnight_and_backdated_receipts_do_not_fabricate_past_days(): void
     {
         $this->at('2026-11-10 15:59:59');
-        $batch = $this->receive(100, ['received' => '2026-11-08', 'harvest' => '2026-11-08']);
+        $batch = $this->receive(100, ['received' => '2026-11-08']);
         $this->at('2026-11-10 16:00:00');
         $this->issue($batch, 7, 'Spoilage');
         $this->at('2026-11-12 01:00:00');
@@ -287,7 +287,9 @@ class BatchObservationTest extends TestCase
         $predictions = app(SpoilagePredictionService::class);
         $plan = $predictions->plan([$batch->id])[$batch->id];
         $this->assertCount(6, $plan['payload']['history']);
-        $this->metadata($batch, ['harvest' => '2026-11-08']);
+        $this->inventory->correctReceipt($batch, $this->receiptInput(100, [
+            'received' => '2026-11-08', 'remarks' => 'Correct received date.',
+        ]), $this->actor);
         $nextPlan = $predictions->plan([$batch->id])[$batch->id];
         $this->assertSame([], $nextPlan['payload']['history']);
         $this->assertNotSame($plan['hash'], $nextPlan['hash']);
@@ -393,7 +395,7 @@ class BatchObservationTest extends TestCase
 
     public function test_stock_in_and_retried_movements_refresh_the_same_live_draft_without_double_counting(): void
     {
-        $input = $this->receiptInput(100, ['received' => '2026-11-08', 'harvest' => '2026-11-08']);
+        $input = $this->receiptInput(100, ['received' => '2026-11-08']);
         $result = $this->inventory->stockIn($input, $this->actor);
         $this->inventory->stockIn($input, $this->actor);
         $batch = InventoryBatch::findOrFail($result['batch_id']);
@@ -601,7 +603,7 @@ class BatchObservationTest extends TestCase
         return array_replace([
             'request_key' => (string) Str::uuid(), 'flower_id' => $this->flower->id,
             'quantity' => $quantity, 'unit' => $this->flower->product_type, 'received' => '2026-11-10',
-            'harvest' => '2026-11-09', 'expiry' => null, 'remarks' => null, 'storage_condition' => 'Ambient',
+            'remarks' => null, 'storage_condition' => 'Ambient',
         ], $overrides);
     }
 
@@ -624,7 +626,7 @@ class BatchObservationTest extends TestCase
     {
         $this->inventory->updateBatchMetadata($batch, [
             'request_key' => (string) Str::uuid(), 'version' => $this->inventory->batchVersion($batch->fresh()),
-            'harvest' => $batch->harvest_date->toDateString(), 'expiry' => null, 'remarks' => 'Storage update',
+            'remarks' => 'Storage update',
             ...$changes,
         ], $this->actor);
     }

@@ -45,7 +45,8 @@
             @php
                 $account = auth()->user();
                 $isAdmin = $account->role === \App\Models\User::ROLE_ADMIN;
-                $roleLabel = $isAdmin ? 'Administrator' : 'Supplier';
+                $isRider = $account->isDeliveryPersonnel();
+                $roleLabel = $isRider ? 'Rider' : ($isAdmin ? 'Administrator' : 'Supplier');
                 $dashboardSummary = $dashboard['summary'] ?? null;
                 $alertCount = $dashboardSummary
                     ? $dashboardSummary['lowStockItems'] + $dashboardSummary['pendingOrders'] + ($dashboardSummary['spoilageRiskBatches'] ?? 0)
@@ -53,6 +54,16 @@
             @endphp
 
             <nav class="sidebar-nav">
+                @if ($isRider)
+                    <a href="{{ route('delivery.deliveries') }}" class="sidebar-link active" aria-current="page" aria-label="Assigned Deliveries" title="Assigned Deliveries">
+                        <span class="sidebar-icon"><i class="bi bi-truck" aria-hidden="true"></i></span>
+                        <span class="sidebar-label">Assigned Deliveries</span>
+                    </a>
+                    <a href="{{ route('password.change') }}" class="sidebar-link" aria-label="Change Password" title="Change Password">
+                        <span class="sidebar-icon"><i class="bi bi-key" aria-hidden="true"></i></span>
+                        <span class="sidebar-label">Change Password</span>
+                    </a>
+                @else
                 @foreach ($supplierNavigation as [$module, $label, $icon])
                     @continue(! $isAdmin && in_array($module, ['reports', 'users', 'audit-trail'], true))
                     @php
@@ -69,6 +80,7 @@
                         <span class="sidebar-label">{{ $label }}</span>
                     </a>
                 @endforeach
+                @endif
             </nav>
 
 
@@ -119,15 +131,21 @@
                     <div class="supplier-notifications">
                         <button class="navbar-icon" type="button" id="supplierNotificationToggle"
                             aria-controls="supplierNotificationPanel" aria-expanded="false"
-                            aria-label="Show inventory, order and spoilage alerts">
+                            aria-label="{{ $isRider ? 'Show delivery alerts' : 'Show inventory, order and spoilage alerts' }}">
                             <i class="bi bi-bell" aria-hidden="true"></i>
-                            @if ($alertCount !== null && $alertCount > 0)
+                            @if ($isRider)
+                                <span class="notification-count" id="deliveryNotificationCount" hidden></span>
+                            @elseif ($alertCount !== null && $alertCount > 0)
                                 <span class="notification-count">{{ $alertCount > 99 ? '99+' : $alertCount }}</span>
                             @endif
                         </button>
                         <section id="supplierNotificationPanel" class="supplier-notification-panel"
                             aria-labelledby="supplierNotificationHeading" hidden>
-                            <h2 id="supplierNotificationHeading">Operational Alerts</h2>
+                            <h2 id="supplierNotificationHeading">{{ $isRider ? 'Delivery Alerts' : 'Operational Alerts' }}</h2>
+                            @if ($isRider)
+                                <a href="{{ route('delivery.deliveries') }}">Assigned deliveries <span id="deliveryActiveCount">0</span></a>
+                                <a href="{{ route('delivery.deliveries') }}">Delivered orders awaiting payment <span id="deliveryUnpaidCount">0</span></a>
+                            @else
                             <a href="{{ route('supplier.inventory') }}">
                                 Review low-stock items
                                 @if ($dashboardSummary) · {{ number_format($dashboardSummary['lowStockItems']) }} @endif
@@ -143,6 +161,7 @@
                                 <p>Counts reflect the Dashboard snapshot. Refresh the Dashboard for current counts.</p>
                             @else
                                 <p><a href="{{ route('supplier.dashboard') }}">Open Dashboard for current counts.</a></p>
+                            @endif
                             @endif
                         </section>
                     </div>

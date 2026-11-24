@@ -186,7 +186,7 @@ class SalesPaymentsUI {
     // Allow one full receipt only for non-cancelled orders without any prior receipt or refund.
     eligibleForPayment(order) {
         return Boolean(order)
-            && order.status !== 'Cancelled'
+            && order.method === 'Customer Pickup' && order.status === 'Ready for Pickup'
             && this.refunded(order.id) === 0
             && !this.payments.some((payment) => payment.orderId === order.id);
     }
@@ -430,9 +430,6 @@ class SalesPaymentsUI {
 
         this.el('recordPaymentBtn').addEventListener('click', () => this.openAction('payment'));
         this.el('salesRetryRequest').addEventListener('click', () => this.retryRequest());
-        this.el('salesReloadData').addEventListener('click', () => {
-            this.loadData().catch((error) => this.pageError(error.message));
-        });
         this.el('salesActionModal').addEventListener('hide.bs.modal', (event) => {
             if (this.submitting) event.preventDefault();
         });
@@ -530,7 +527,11 @@ class SalesPaymentsUI {
             const eligible = this.orders.filter((order) => this.eligibleForPayment(order));
 
             if (!eligible.length) {
-                this.announce('No unpaid orders are eligible for a full payment.');
+                this.action = null;
+                this.el('salesActionTitle').textContent = 'Record Payment';
+                this.el('salesActionFields').innerHTML = '<p class="sales-help">No unpaid orders are ready for pickup. Mark a pickup order Ready for Pickup to record its payment. Rider submissions appear in Payments for review.</p>';
+                this.el('salesActionSubmit').classList.add('d-none');
+                this.actionModal.show();
                 return;
             }
 
@@ -589,6 +590,8 @@ class SalesPaymentsUI {
                     for ${escapeHtml(payment.orderId)}?
                     Verify the actual receipt before confirming this payment.
                 </p>
+                ${payment.reference ? `<p class="sales-help">Reference: ${escapeHtml(payment.reference)}</p>` : ''}
+                ${payment.proofUrl ? `<p><a href="${escapeHtml(payment.proofUrl)}" target="_blank" rel="noopener">View payment photo</a></p>` : ''}
                 ${this.field(
                     '<label for="financeReason">Verification Remarks *</label>',
                     '<textarea id="financeReason" rows="3" maxlength="500" required></textarea>',
@@ -631,6 +634,7 @@ class SalesPaymentsUI {
         this.el('salesActionTitle').textContent = title;
         this.el('salesActionFields').innerHTML = fields;
 
+        this.el('salesActionSubmit').classList.remove('d-none');
         this.el('salesActionSubmit').textContent = {
             price: 'Save Price',
             payment: 'Record Payment',
@@ -807,7 +811,6 @@ class SalesPaymentsUI {
     async loadData() {
         if (this.readPromise) return this.readPromise;
         this.loading = true;
-        this.el('salesReloadData').disabled = true;
         this.el('recordPaymentBtn').disabled = true;
         this.readPromise = (async () => {
             try {
@@ -818,7 +821,6 @@ class SalesPaymentsUI {
             } finally {
                 this.loading = false;
                 this.readPromise = null;
-                this.el('salesReloadData').disabled = false;
                 this.setBusy(this.submitting);
             }
         })();
@@ -991,7 +993,7 @@ class SalesPaymentsUI {
 
             <p class="sales-help">
                 Refunds are shown separately and do not automatically reopen collection
-                for this order. Net sales are recognized from Completed orders,
+                for this order. Net sales are recognized when stock is fulfilled,
                 independently of confirmed payments.
             </p>
 

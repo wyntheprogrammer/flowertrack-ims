@@ -19,8 +19,11 @@ use Tests\TestCase;
 class InventoryBackendTest extends TestCase
 {
     private InventoryService $inventory;
+
     private User $actor;
+
     private Flower $flower;
+
     private bool $testConnectionConfigured = false;
 
     /**
@@ -76,6 +79,7 @@ class InventoryBackendTest extends TestCase
             'Expected exactly one *_create_inventory_tables.php file in database/migrations.'
         );
         (require $migrationFiles[0])->up();
+        (require database_path('migrations/2026_11_24_114410_remove_harvest_and_expiry_dates_from_inventory_batches_table.php'))->up();
         $this->actor = User::forceCreate([
             'name' => 'Inventory Test Admin', 'email' => 'inventory@example.test',
             'password' => 'test-only-password', 'role' => User::ROLE_ADMIN,
@@ -111,7 +115,7 @@ class InventoryBackendTest extends TestCase
         $this->assertSame(1, $batches[9]->fresh()->remaining_quantity);
         $this->assertSame('BAT-010', $batches[9]->code);
 
-        $older = $this->receive(2, ['received' => '2025-12-30', 'harvest' => '2025-12-29']);
+        $older = $this->receive(2, ['received' => '2025-12-30']);
         $this->issue(1);
         $this->assertSame(1, $older->fresh()->remaining_quantity);
         $this->assertSame(1, $batches[2]->fresh()->remaining_quantity);
@@ -207,6 +211,20 @@ class InventoryBackendTest extends TestCase
         $this->assertSame(3, InventoryOperation::count());
     }
 
+    public function test_increasing_receipt_quantity_records_only_the_increase(): void
+    {
+        $batch = $this->receive(10);
+
+        $this->inventory->correctReceipt($batch, $this->receiptInput(20, [
+            'remarks' => 'Correct original count.',
+        ]), $this->actor);
+
+        $correction = InventoryMovement::latest('id')->firstOrFail();
+        $this->assertSame('Receipt Correction', $correction->type);
+        $this->assertSame(10, $correction->quantity);
+        $this->assertSame(20, $batch->fresh()->remaining_quantity);
+    }
+
     /**
      * Settings affect new receipts, while same-unit corrections retain their original factor.
      */
@@ -274,7 +292,7 @@ class InventoryBackendTest extends TestCase
         return array_replace([
             'request_key' => (string) Str::uuid(), 'flower_id' => $this->flower->id,
             'quantity' => $quantity, 'unit' => 'Stem', 'received' => '2026-01-02',
-            'harvest' => '2026-01-01', 'expiry' => null, 'remarks' => null,
+            'remarks' => null,
         ], $overrides);
     }
 

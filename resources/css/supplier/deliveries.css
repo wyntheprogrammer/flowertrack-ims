@@ -167,7 +167,7 @@
 
 #deliveryTable {
     width: 100% !important;
-    min-width: 1100px;
+    min-width: 1180px;
     table-layout: fixed;
     margin: 0 !important;
     border-collapse: separate !important;
@@ -209,22 +209,22 @@
 
 #deliveryTable colgroup col:nth-child(1),
 #deliveryTable thead th:nth-child(1) {
-    width: 16% !important;
+    width: 13% !important;
 }
 
 #deliveryTable colgroup col:nth-child(2),
 #deliveryTable thead th:nth-child(2) {
-    width: 27% !important;
+    width: 23% !important;
 }
 
 #deliveryTable colgroup col:nth-child(3),
 #deliveryTable thead th:nth-child(3) {
-    width: 17% !important;
+    width: 26% !important;
 }
 
 #deliveryTable colgroup col:nth-child(4),
 #deliveryTable thead th:nth-child(4) {
-    width: 16% !important;
+    width: 14% !important;
 }
 
 #deliveryTable colgroup col:nth-child(5),
@@ -237,13 +237,13 @@
     width: 11% !important;
 }
 
-#deliveryTable thead th:nth-child(-n + 3),
-#deliveryTable tbody td:nth-child(-n + 3) {
+#deliveryTable thead th:nth-child(-n + 4),
+#deliveryTable tbody td:nth-child(-n + 4) {
     text-align: left !important;
 }
 
-#deliveryTable thead th:nth-child(n + 4),
-#deliveryTable tbody td:nth-child(n + 4) {
+#deliveryTable thead th:nth-child(n + 5),
+#deliveryTable tbody td:nth-child(n + 5) {
     text-align: center !important;
 }
 
@@ -255,6 +255,11 @@
     padding: 35px 17px !important;
     text-align: center !important;
     color: #92889a;
+}
+
+.delivery-payment-status {
+    display: block;
+    margin-top: 4px;
 }
 
 .delivery-cell strong {
@@ -300,7 +305,8 @@
     color: #6383aa;
 }
 
-.delivery-badge.delivered {
+.delivery-badge.delivered,
+.delivery-badge.completed {
     background: #eaf5ed;
     color: #4e9365;
 }
@@ -520,6 +526,14 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+}
+
+.delivery-modal [hidden] {
+    display: none !important;
+}
+
+#deliveryPaymentHelp {
+    margin: -8px 0 0;
 }
 
 .delivery-field label {

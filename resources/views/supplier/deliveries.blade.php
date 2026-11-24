@@ -1,4 +1,4 @@
-@extends(auth()->user()->isDeliveryPersonnel() ? 'layouts.delivery' : 'layouts.supplier')
+@extends('layouts.supplier')
 
 @section('title', 'Delivery Management')
 
@@ -8,7 +8,7 @@
             <div class="delivery-header">
                 <div>
                     <h1>Delivery Management</h1>
-                    <p>{{ auth()->user()->isDeliveryPersonnel() ? 'View your assigned deliveries and record actual delivery results.' : 'Manage delivery assignments, schedules, and fulfillment updates.' }}</p>
+                    <p>{{ auth()->user()->isDeliveryPersonnel() ? 'View your assigned deliveries and record actual delivery results.' : 'Manage delivery assignments and fulfillment updates.' }}</p>
                 </div>
 
             </div>
@@ -55,9 +55,9 @@
                     <thead>
                         <tr>
                             <th scope="col">Delivery / Order</th>
+                            <th scope="col">Flowers</th>
                             <th scope="col">Client / Address</th>
                             <th scope="col">Personnel</th>
-                            <th scope="col">Schedule</th>
                             <th scope="col">Status</th>
                             <th scope="col">Actions</th>
                         </tr>
@@ -99,7 +99,7 @@
 
                         <p id="deliveryManageSummary" class="delivery-help"></p>
 
-                        <div class="delivery-field">
+                        <div class="delivery-field" id="deliveryActionField">
                             <label for="deliveryAction">Action</label>
                             <select id="deliveryAction" required></select>
                         </div>
@@ -115,7 +115,7 @@
                         >
                             Cancel
                         </button>
-                        <button type="submit" class="delivery-primary-btn">
+                        <button type="submit" class="delivery-primary-btn" id="deliveryManageSubmit">
                             <i class="bi bi-check-lg" aria-hidden="true"></i>
                             Save Update
                         </button>

@@ -371,7 +371,7 @@ class ClientOrderSubmissionTest extends TestCase
         DB::table('flower_prices')->insert(['flower_id' => $flower->id, 'price_cents' => $price]);
         DB::table('inventory_batches')->insert([
             'flower_id' => $flower->id, 'code' => 'BAT-'.$flower->id,
-            'received_date' => '2026-11-01', 'harvest_date' => '2026-11-01', 'received_quantity' => 5,
+            'received_date' => '2026-11-01', 'received_quantity' => 5,
             'receiving_unit' => $type, 'conversion_factor' => 1, 'initial_quantity' => 5, 'remaining_quantity' => 5,
         ]);
 

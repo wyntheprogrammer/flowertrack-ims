@@ -4,18 +4,20 @@ namespace App\Services;
 
 use App\Models\Delivery;
 use App\Models\DeliveryHistory;
+use App\Models\FinanceOperation;
 use App\Models\Flower;
 use App\Models\InventoryReservation;
-use App\Models\SalesRecord;
 use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\SalesRecord;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use Carbon\CarbonImmutable;
 
 class DeliveryService
 {
@@ -23,7 +25,7 @@ class DeliveryService
     public function data(User $actor): array
     {
         $this->assertActor($actor, true);
-        $query = Delivery::with(['order', 'personnel', 'histories']);
+        $query = Delivery::with(['order.items.flower:id,image_path', 'order.payment', 'personnel', 'histories']);
         if ($actor->role === User::ROLE_DELIVERY) {
             $query->where('assigned_to', $actor->id);
         }
@@ -54,7 +56,7 @@ class DeliveryService
         if ($actor->role === User::ROLE_DELIVERY) {
             abort_unless((int) $delivery->assigned_to === (int) $actor->id, 403);
         }
-        $delivery->loadMissing(['order', 'personnel', 'histories']);
+        $delivery->loadMissing(['order.items.flower:id,image_path', 'personnel', 'histories']);
 
         return [
             'dbId' => $delivery->id,
@@ -64,7 +66,15 @@ class DeliveryService
             'address' => $delivery->order->address,
             'method' => $delivery->order->method,
             'orderStatus' => $delivery->order->status,
+            'items' => $delivery->order->items->sortBy('flower_id')->map(fn (OrderItem $item) => [
+                'flowerId' => $item->flower_code,
+                'flowerName' => $item->name,
+                'imageUrl' => $item->catalogImageUrl(),
+            ])->values()->all(),
             'status' => $delivery->status,
+            'paymentRecorded' => $delivery->order->payment !== null,
+            'paymentStatus' => $delivery->order->payment?->status,
+            'totalCents' => $delivery->order->total_cents,
             'personId' => $delivery->assigned_to === null
                 ? null : (int) $delivery->assigned_to,
             'personName' => $delivery->personnel?->name,
@@ -96,7 +106,7 @@ class DeliveryService
     {
         abort_unless(
             $actor->is_active
-            && !$actor->must_change_password
+            && ! $actor->must_change_password
             && in_array($actor->role, [
                 User::ROLE_ADMIN,
                 User::ROLE_SUPPLIER,
@@ -135,12 +145,12 @@ class DeliveryService
             }
 
             $delivery = Delivery::create([
-                'code' => 'TMP-' . Str::ulid(),
+                'code' => 'TMP-'.Str::ulid(),
                 'order_id' => $locked->id,
                 'status' => 'Pending',
             ]);
 
-            $delivery->code = 'DEL-' . str_pad(
+            $delivery->code = 'DEL-'.str_pad(
                 (string) $delivery->id,
                 3,
                 '0',
@@ -151,10 +161,10 @@ class DeliveryService
             DeliveryHistory::create([
                 'delivery_id' => $delivery->id,
                 'request_key' => (string) Str::uuid(),
-                'request_hash' => hash('sha256', 'create:' . $locked->id),
+                'request_hash' => hash('sha256', 'create:'.$locked->id),
                 'action' => 'create',
                 'status' => 'Pending',
-                'note' => 'Delivery created from ' . $locked->code . '.',
+                'note' => 'Delivery created from '.$locked->code.'.',
                 'actor_id' => $actor->id,
                 'actor_name' => $actor->name,
             ]);
@@ -162,7 +172,6 @@ class DeliveryService
             return $delivery;
         });
     }
-
 
     /** Apply delivery actions and actual completion with atomic stock fulfillment. */
     public function action(
@@ -174,10 +183,10 @@ class DeliveryService
 
         $action = $input['action'];
         if ($actor->role === User::ROLE_DELIVERY) {
-            abort_unless(in_array($action, ['deliver', 'fail'], true), 403);
+            abort_unless(in_array($action, ['deliver', 'fail', 'dispatch', 'payment'], true), 403);
         }
 
-        if (!in_array($action, ['schedule', 'assign', 'dispatch', 'fail', 'deliver', 'cancel'], true)) {
+        if (! in_array($action, ['schedule', 'assign', 'dispatch', 'fail', 'deliver', 'cancel', 'payment'], true)) {
             throw ValidationException::withMessages([
                 'action' => 'This delivery action is not connected yet.',
             ]);
@@ -190,7 +199,10 @@ class DeliveryService
             'scheduled_at' => ['required_if:action,schedule', 'nullable', 'date_format:Y-m-d\TH:i:sP'],
             'assigned_to' => ['required_if:action,assign', 'nullable', 'integer', 'min:1'],
             'recipient_name' => ['required_if:action,deliver', 'nullable', 'string', 'max:120'],
-            'proof' => ['required_if:action,deliver', 'nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'payment_method' => ['required_if:action,payment', 'in:Cash,Bank Transfer,GCash'],
+            'payment_amount' => ['required_if:action,payment', 'string', 'regex:/\A\d{1,10}(?:\.\d{1,2})?\z/'],
+            'payment_reference' => ['nullable', 'string', 'max:100'],
+            'proof' => ['required_if:action,deliver', 'required_if:payment_method,Bank Transfer,GCash', 'nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ])->validate();
 
         $reason = trim($input['reason'] ?? '');
@@ -208,12 +220,14 @@ class DeliveryService
                     'recipient_name' => 'Enter the actual recipient name.',
                 ]);
             }
+        }
+        if (isset($input['proof']) && in_array($action, ['deliver', 'payment'], true)) {
             // Inspect actual bytes as well as the upload's reported MIME type.
             $proofPath = $input['proof']->getRealPath();
             $image = $proofPath ? @getimagesize($proofPath) : false;
             if (
                 $image === false
-                || !in_array($image['mime'] ?? '', [
+                || ! in_array($image['mime'] ?? '', [
                     'image/jpeg', 'image/png', 'image/webp',
                 ], true)
                 || ($image[0] ?? 0) < 1
@@ -242,6 +256,10 @@ class DeliveryService
                 ? (int) $input['assigned_to']
                 : null,
         ];
+
+        if ($action === 'payment') {
+            $payload['payment'] = [$input['payment_method'], $input['payment_amount'], trim($input['payment_reference'] ?? '')];
+        }
 
         $hash = hash(
             'sha256',
@@ -276,7 +294,7 @@ class DeliveryService
                 if ($previous) {
                     if (
                         (int) $previous->delivery_id !== (int) $locked->id
-                        || !hash_equals($previous->request_hash, $hash)
+                        || ! hash_equals($previous->request_hash, $hash)
                     ) {
                         throw ValidationException::withMessages([
                             'request_key' => 'This request key was already used.',
@@ -288,7 +306,7 @@ class DeliveryService
 
                 $current = $this->row($locked, $actor);
 
-                if (!hash_equals($current['version'], $input['version'])) {
+                if (! hash_equals($current['version'], $input['version'])) {
                     throw ValidationException::withMessages([
                         'version' => 'Delivery changed. Refresh and try again.',
                     ]);
@@ -298,7 +316,8 @@ class DeliveryService
                     'schedule', 'assign' => [
                         'Pending', 'Scheduled', 'Assigned', 'Rescheduled', 'Failed',
                     ],
-                    'dispatch' => ['Assigned', 'Scheduled', 'Rescheduled'],
+                    'dispatch' => ['Assigned', 'Scheduled', 'Rescheduled', 'Failed'],
+                    'payment' => ['Delivered'],
                     'cancel' => ['Pending', 'Scheduled', 'Assigned', 'Rescheduled', 'Failed'],
                     'fail', 'deliver' => ['Out for Delivery'],
                 };
@@ -307,7 +326,7 @@ class DeliveryService
 
                 if (
                     $locked->status === 'Failed'
-                    && in_array($action, ['schedule', 'assign', 'cancel'], true)
+                    && in_array($action, ['schedule', 'assign', 'cancel', 'dispatch'], true)
                 ) {
                     $validOrderStatus = in_array(
                         $order->status,
@@ -320,11 +339,15 @@ class DeliveryService
                     $validOrderStatus = $order->status === 'Out for Delivery';
                 }
 
+                if ($action === 'payment') {
+                    $validOrderStatus = $actor->role === User::ROLE_DELIVERY && $order->status === 'Delivered' && $order->stocked_out;
+                }
+
                 if (
                     $order->method !== 'Delivery'
-                    || !in_array($locked->status, $allowedStates, true)
-                    || !$validOrderStatus
-                    || $order->stocked_out
+                    || ! in_array($locked->status, $allowedStates, true)
+                    || ! $validOrderStatus
+                    || ($action !== 'payment' && $order->stocked_out)
                 ) {
                     throw ValidationException::withMessages([
                         'action' => 'This action is unavailable for the current delivery.',
@@ -341,7 +364,7 @@ class DeliveryService
                         ->utc();
 
                     if (
-                        !$schedule->isFuture()
+                        ! $schedule->isFuture()
                         || $locked->scheduled_at?->equalTo($schedule)
                     ) {
                         throw ValidationException::withMessages([
@@ -363,7 +386,7 @@ class DeliveryService
 
                         $order->histories()->create([
                             'status' => $order->status,
-                            'note' => 'Failed delivery rescheduled. ' . $reason,
+                            'note' => 'Failed delivery rescheduled. '.$reason,
                             'actor_id' => $actor->id,
                             'actor_name' => $actor->name,
                         ]);
@@ -374,8 +397,8 @@ class DeliveryService
                         ->find($input['assigned_to']);
 
                     if (
-                        !$person
-                        || !$person->is_active
+                        ! $person
+                        || ! $person->is_active
                         || $person->role !== User::ROLE_DELIVERY
                         || (int) $locked->assigned_to === (int) $person->id
                     ) {
@@ -391,6 +414,12 @@ class DeliveryService
                     }
                 }
 
+                if ($action === 'payment') {
+                    if (isset($input['proof'])) {
+                        $storedProof ??= $input['proof']->store('payment-proofs', 'local') ?: throw ValidationException::withMessages(['proof' => 'Payment photo upload failed.']);
+                    }
+                    app(SalesPaymentService::class)->collectDeliveryPayment($order, $input, $actor, $storedProof);
+                }
 
                 if ($action === 'dispatch') {
                     $person = User::query()
@@ -398,20 +427,18 @@ class DeliveryService
                         ->find($locked->assigned_to);
 
                     if (
-                        !in_array(
+                        ! in_array(
                             $locked->status,
-                            ['Assigned', 'Scheduled', 'Rescheduled'],
+                            ['Assigned', 'Scheduled', 'Rescheduled', 'Failed'],
                             true
                         )
-                        || !$locked->scheduled_at
-                        || !$person
-                        || !$person->is_active
+                        || ! $person
+                        || ! $person->is_active
                         || $person->role !== User::ROLE_DELIVERY
-                        || $order->status !== 'Ready for Delivery'
                         || $order->stocked_out
                     ) {
                         throw ValidationException::withMessages([
-                            'action' => 'Dispatch requires a scheduled delivery, active personnel, and a ready order.',
+                            'action' => 'Starting delivery requires active assigned personnel and an outstanding order.',
                         ]);
                     }
 
@@ -432,7 +459,6 @@ class DeliveryService
                         'actor_name' => $actor->name,
                     ]);
                 }
-
 
                 if ($action === 'fail') {
                     $locked->status = 'Failed';
@@ -460,7 +486,9 @@ class DeliveryService
                     $this->completeDelivery($locked, $order, $input, $actor, $storedProof);
                 }
 
-                $locked->remarks = $reason;
+                if ($action !== 'payment') {
+                    $locked->remarks = $reason;
+                }
                 $locked->save();
 
                 DeliveryHistory::create([
@@ -496,7 +524,7 @@ class DeliveryService
         return $result;
     }
 
-    /** Complete the delivery, stock issue and sale in the caller's transaction. */
+    /** Record delivery and fulfillment, then complete the order if paid. */
     private function completeDelivery(
         Delivery $delivery,
         Order $order,
@@ -532,7 +560,7 @@ class DeliveryService
 
         if ($storedProof === null) {
             $path = $input['proof']->store('delivery-proofs', 'local');
-            if (!is_string($path) || $path === '') {
+            if (! is_string($path) || $path === '') {
                 throw ValidationException::withMessages(['proof' => 'Proof upload failed.']);
             }
             $storedProof = $path;
@@ -546,7 +574,7 @@ class DeliveryService
                 ->first();
 
             if (
-                !$reservation
+                ! $reservation
                 || $reservation->status !== 'Active'
                 || (int) $reservation->quantity !== (int) $item->quantity
             ) {
@@ -564,9 +592,8 @@ class DeliveryService
         }
 
         $completedAt = now();
-        $order->status = 'Completed';
+        $order->status = 'Delivered';
         $order->stocked_out = true;
-        $order->completed_at = $completedAt;
         $order->save();
 
         $sale = SalesRecord::create([
@@ -599,12 +626,14 @@ class DeliveryService
         $delivery->delivered_at = $completedAt;
 
         $order->histories()->create([
-            'status' => 'Completed',
+            'status' => 'Delivered',
             'note' => 'Delivery received by '.$delivery->recipient_name
                 .'; reserved stock issued and sale recorded.',
             'actor_id' => $actor->id,
             'actor_name' => $actor->name,
         ]);
+
+        app(OrderService::class)->completePaidOrder($order, $actor);
     }
 
     /** Remove rolled-back uploads only after confirming no committed delivery uses them. */
@@ -615,8 +644,9 @@ class DeliveryService
         }
 
         try {
-            if (!Delivery::query()->where('proof_path', $path)->exists()) {
-                if (!Storage::disk('local')->delete($path)) {
+            if (! Delivery::query()->where('proof_path', $path)->exists()
+                && ! FinanceOperation::query()->where('kind', 'delivery_payment')->where('metadata->proof_path', $path)->exists()) {
+                if (! Storage::disk('local')->delete($path)) {
                     Log::warning('Delivery proof cleanup did not complete.', ['path' => $path]);
                 }
             }
@@ -629,5 +659,3 @@ class DeliveryService
         }
     }
 }
-
-

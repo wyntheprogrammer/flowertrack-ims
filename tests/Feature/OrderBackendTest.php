@@ -19,11 +19,14 @@ use App\Models\User;
 use App\Services\ClientService;
 use App\Services\InventoryService;
 use App\Services\OrderService;
+use App\Services\SalesPaymentService;
+use App\Support\AccountSession;
 use App\Support\Money;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -96,9 +99,12 @@ class OrderBackendTest extends TestCase
         foreach ([
             'create_clients_table',
             'create_inventory_tables',
+            'remove_harvest_and_expiry_dates_from_inventory_batches_table',
             'create_order_tables',
             'create_delivery_tables',
+            'create_finance_tables',
             'create_batch_daily_observations_table',
+            'remove_harvest_date_from_batch_daily_observations_table',
             'add_collection_provenance_to_batch_daily_observations_table',
         ] as $name) {
             $files = glob(database_path('migrations/*_'.$name.'.php')) ?: [];
@@ -225,8 +231,7 @@ class OrderBackendTest extends TestCase
         $this->assertSame(3, $order->items()->first()->quantity);
     }
 
-    /** Pickup collection consumes both item units once and creates one immutable gross sale. */
-    public function test_pickup_completion_is_once_only_without_inventing_a_payment_gate(): void
+    public function test_confirming_full_pickup_payment_issues_stock_and_records_one_sale(): void
     {
         $order = $this->orders->store($this->input([
             'items' => [
@@ -239,9 +244,14 @@ class OrderBackendTest extends TestCase
         $this->action($order, 'Ready for Pickup', $this->supplier);
         $this->assertSame(20, $this->remaining($this->stem));
         $this->assertSame(5, $this->remaining($this->bouquet));
-        $payload = ['status' => 'Completed', 'collected' => true, 'version' => $this->orders->row($order->fresh(), $this->supplier)['version']];
-        $this->orders->action($order, $payload, $this->supplier);
-        $this->orders->action($order, $payload, $this->supplier);
+        $this->actingAs($this->supplier)->withSession([AccountSession::KEY => AccountSession::signature($this->supplier)]);
+        $this->postJson(route('supplier.orders.action', $order), [
+            'status' => 'Completed', 'version' => $this->orders->row($order->fresh(), $this->supplier)['version'],
+        ])->assertUnprocessable()->assertJsonValidationErrors('status');
+
+        [$payment, $payload] = $this->pickupPayment($order);
+        $this->postJson(route('supplier.sales-payments.confirm', $payment), $payload)->assertOk();
+        $this->postJson(route('supplier.sales-payments.confirm', $payment), $payload)->assertOk();
         $this->assertSame('Completed', $order->fresh()->status);
         $this->assertTrue($order->fresh()->stocked_out);
         $this->assertSame(16, $this->remaining($this->stem));
@@ -250,8 +260,8 @@ class OrderBackendTest extends TestCase
         $this->assertSame(2, InventoryReservation::where('status', 'Consumed')->count());
         $this->assertSame(1, SalesRecord::count());
         $this->assertSame(255000, SalesRecord::first()->total_cents);
-        $this->assertSame(0, OrderPayment::count());
-        $this->assertSame('Unpaid', $this->orders->row($order->fresh(), $this->supplier)['payment']);
+        $this->assertSame('Confirmed', $payment->fresh()->status);
+        $this->assertSame('Paid', $this->orders->row($order->fresh(), $this->supplier)['payment']);
         $this->assertSame(2, InventoryMovement::where('type', 'Stock-Out')->count());
         $this->assertSame(2, BatchDailyObservation::count());
         $this->assertSame(4, BatchDailyObservation::where('flower_id', $this->stem->id)->first()->released_quantity);
@@ -265,7 +275,7 @@ class OrderBackendTest extends TestCase
         $this->assertSame(255000, $profile['summary']['completed_purchases_cents']);
         $this->assertCount(1, $profile['orders']);
         $this->assertSame('Completed', $profile['orders'][0]['status']);
-        $this->assertSame('Unpaid', $profile['orders'][0]['payment']);
+        $this->assertSame('Paid', $profile['orders'][0]['payment']);
     }
 
     /** A later-item shortage rolls back earlier fulfillment and every outer completion write. */
@@ -280,12 +290,14 @@ class OrderBackendTest extends TestCase
         $this->action($order, 'Confirmed', $this->admin);
         $this->action($order, 'Processing', $this->supplier);
         $this->action($order, 'Ready for Pickup', $this->supplier);
+        [$payment, $confirmation] = $this->pickupPayment($order);
         // Deliberately simulate corrupt/out-of-band stock to exercise outer rollback.
         InventoryBatch::where('flower_id', $this->bouquet->id)->update(['remaining_quantity' => 1]);
         $observations = BatchDailyObservation::orderBy('id')->get()->toArray();
         $movements = InventoryMovement::count();
         $operations = InventoryOperation::count();
-        $this->rejected(fn () => $this->action($order, 'Completed', $this->supplier, ['collected' => true]));
+        $this->rejected(fn () => app(SalesPaymentService::class)->confirm($payment, $confirmation, $this->supplier));
+        $this->assertSame('Pending', $payment->fresh()->status);
         $this->assertSame(20, $this->remaining($this->stem));
         $this->assertSame(1, $this->remaining($this->bouquet));
         $this->assertSame(2, InventoryReservation::where('status', 'Active')->count());
@@ -314,7 +326,7 @@ class OrderBackendTest extends TestCase
         $this->action($order, 'Confirmed', $this->admin);
         $this->action($order, 'Processing', $this->supplier);
         $this->action($order, 'Ready for Delivery', $this->supplier);
-        $this->rejected(fn () => $this->action($order, 'Completed', $this->supplier, ['collected' => true]));
+        $this->rejected(fn () => $this->action($order, 'Completed', $this->supplier), 'status');
         $this->assertSame(20, $this->remaining($this->stem));
         $this->assertSame(0, SalesRecord::count());
     }
@@ -384,6 +396,56 @@ class OrderBackendTest extends TestCase
         }
     }
 
+    public function test_order_details_include_the_catalog_photo_for_each_item(): void
+    {
+        Storage::fake('public');
+        $this->stem->update(['image_path' => 'flowers/stem.webp']);
+        $order = $this->orders->store($this->input(['items' => [
+            ['flower_id' => $this->stem->id, 'quantity' => 1],
+            ['flower_id' => $this->bouquet->id, 'quantity' => 1],
+        ]]), $this->supplier);
+
+        $this->actingAs($this->supplier)->withSession([AccountSession::KEY => AccountSession::signature($this->supplier)]);
+        $this->getJson(route('supplier.orders.show', $order))->assertOk()
+            ->assertJsonPath('data.items.0.imageUrl', Storage::disk('public')->url('flowers/stem.webp'))
+            ->assertJsonPath('data.items.1.imageUrl', null);
+    }
+
+    public function test_prepaid_pickup_completes_when_admin_approves_the_order(): void
+    {
+        $order = $this->orders->store($this->input(), $this->supplier);
+        [$payment, $confirmation] = $this->pickupPayment($order);
+        app(SalesPaymentService::class)->confirm($payment, $confirmation, $this->supplier);
+        $this->assertSame('Pending', $order->fresh()->status);
+
+        $this->action($order, 'Confirmed', $this->admin);
+
+        $this->assertSame('Completed', $order->fresh()->status);
+        $this->assertSame(1, SalesRecord::where('order_id', $order->id)->count());
+    }
+
+    /** @return array{OrderPayment, array{request_key: string, version: string, reason: string}} */
+    private function pickupPayment(Order $order): array
+    {
+        $sales = app(SalesPaymentService::class);
+        $orderRow = collect($sales->data($this->supplier)['orders'])->firstWhere('dbId', $order->id);
+        $data = $sales->recordPayment([
+            'request_key' => (string) Str::uuid(),
+            'order_id' => $order->id,
+            'version' => $orderRow['version'],
+            'method' => 'Cash',
+            'amount' => Money::format($order->total_cents),
+        ], $this->supplier);
+        $payment = $order->payment()->firstOrFail();
+        $paymentRow = collect($data['payments'])->firstWhere('dbId', $payment->id);
+
+        return [$payment, [
+            'request_key' => (string) Str::uuid(),
+            'version' => $paymentRow['version'],
+            'reason' => 'Full cash payment verified.',
+        ]];
+    }
+
     /** Create one isolated account with the existing User hashing/casting behavior. */
     private function user(string $label, string $role): User
     {
@@ -423,8 +485,6 @@ class OrderBackendTest extends TestCase
             'quantity' => $quantity,
             'unit' => $flower->product_type,
             'received' => '2026-01-02',
-            'harvest' => '2026-01-01',
-            'expiry' => null,
             'remarks' => 'Test receipt.',
         ], $this->admin);
     }

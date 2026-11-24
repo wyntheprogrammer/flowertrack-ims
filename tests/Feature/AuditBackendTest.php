@@ -16,8 +16,8 @@ use App\Services\InventoryService;
 use App\Services\OrderService;
 use App\Support\AccountSession;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use LogicException;
@@ -27,8 +27,11 @@ use Tests\TestCase;
 class AuditBackendTest extends TestCase
 {
     private User $admin;
+
     private User $supplier;
+
     private bool $isolated = false;
+
     private string $timezone;
 
     /** No RefreshDatabase: all schema changes target this named memory database. */
@@ -91,6 +94,7 @@ class AuditBackendTest extends TestCase
         foreach ([
             'create_clients_table',
             'create_inventory_tables',
+            'remove_harvest_and_expiry_dates_from_inventory_batches_table',
             'create_order_tables',
             'create_delivery_tables',
             'create_finance_tables',
@@ -411,8 +415,6 @@ class AuditBackendTest extends TestCase
             'quantity' => 20,
             'unit' => 'Stem',
             'received' => '2026-11-01',
-            'harvest' => '2026-11-01',
-            'expiry' => null,
             'remarks' => 'Isolated audit receipt.',
         ], $this->admin);
 

@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Persisted order domain data; mutations are coordinated by the order service.
@@ -31,5 +32,12 @@ class OrderItem extends Model
     public function flower(): BelongsTo
     {
         return $this->belongsTo(Flower::class);
+    }
+
+    public function catalogImageUrl(): ?string
+    {
+        $path = $this->flower?->image_path;
+
+        return $path ? Storage::disk('public')->url($path) : null;
     }
 }

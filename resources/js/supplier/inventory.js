@@ -18,6 +18,7 @@ const escapeHTML = (value) => String(value ?? '').replace(
 );
 
 const number = (value) => Number(value).toLocaleString();
+const movementQuantity = (value) => (value > 0 ? '+' : '') + number(value);
 
 const today = () => {
     const parts = Object.fromEntries(
@@ -217,10 +218,31 @@ const InventoryUI = {
                 {
                     targets: 3,
                     className: 'dt-head-right dt-body-right',
-                    type: 'num'
+                    type: 'num',
+                    render: (value, type) => type === 'display' ? movementQuantity(value) : value
                 }
             ]
         });
+
+        for (const table of Object.values(this.tables)) {
+            const tableNode = table.table().node();
+            const scroller = document.createElement('div');
+            scroller.className = 'inv-table-scroll';
+            scroller.tabIndex = 0;
+            scroller.setAttribute('role', 'region');
+            scroller.setAttribute('aria-labelledby', tableNode.closest('[role="tabpanel"]').getAttribute('aria-labelledby'));
+            tableNode.before(scroller);
+            scroller.append(tableNode);
+
+            table.on('page', () => {
+                requestAnimationFrame(() => {
+                    if (table.table().container().querySelector('.dt-paging :focus-visible')) {
+                        scroller.focus({ preventScroll: true });
+                    }
+                    scroller.scrollIntoView({ block: 'start', inline: 'nearest' });
+                });
+            });
+        }
 
         this.bindEvents();
         this.reload();
@@ -465,14 +487,15 @@ const InventoryUI = {
         }
         this.requestKeys.stockIn = this.newRequestKey();
         this.el('stockInTitle').textContent = batch ? 'Edit Stock-In' : 'Stock-In';
+        this.el('stockInDescription').textContent = batch
+            ? 'Inventory History records the change in stock as a Receipt Correction.'
+            : 'Receive stock and create a batch record.';
         this.el('inBatchCode').value = batch?.id || 'Generated after saving';
         if (batch) this.el('inFlower').value = batch.flower;
         this.el('inFlower').disabled = Boolean(batch);
         this.el('inQuantity').value = batch?.quantity ?? 1;
         this.el('inReceived').value = batch?.received || today();
         this.el('inReceived').max = today();
-        this.el('inHarvest').value = batch?.harvest || today();
-        this.el('inExpiry').value = batch?.expiry || '';
         this.el('inRemarks').value = batch?.remarks || '';
         const storage = this.el('inStorage');
         storage.querySelector('[data-saved-storage]')?.remove();
@@ -632,8 +655,6 @@ const InventoryUI = {
                 <tr>
                     <td>${batch.id}</td>
                     <td>${batch.received}</td>
-                    <td>${batch.harvest}</td>
-                    <td>${batch.expiry || '—'}</td>
                     <td>${number(batch.initial)}</td>
                     <td>${escapeHTML(batch.storage_condition || 'Unknown')}</td>
                     <td>${number(batch.remaining)}</td>
@@ -660,7 +681,7 @@ const InventoryUI = {
                     <td>${escapeHTML(movement.date)}</td>
                     <td>${movement.batch}</td>
                     <td>${movement.type}</td>
-                    <td>${movement.quantity}</td>
+                    <td>${movementQuantity(movement.quantity)}</td>
                     <td>${escapeHTML(movement.remarks || '—')}</td>
                 </tr>
             `).join('');
@@ -680,8 +701,6 @@ const InventoryUI = {
                         <tr>
                             <th>Batch</th>
                             <th>Received</th>
-                            <th>Harvest</th>
-                            <th>Freshness / expiry</th>
                             <th>Initial</th>
                             <th>Storage</th>
                             <th>Remaining</th>
@@ -691,7 +710,7 @@ const InventoryUI = {
                     </thead>
                     <tbody>
                         ${batchRows ||
-                            '<tr><td colspan="9">No batches received yet.</td></tr>'}
+                            '<tr><td colspan="7">No batches received yet.</td></tr>'}
                     </tbody>
                 </table>
             </div>
@@ -917,8 +936,6 @@ const InventoryUI = {
             quantity: Number(this.el('inQuantity').value),
             unit: this.el('inUnit').value,
             received: this.el('inReceived').value,
-            harvest: this.el('inHarvest').value,
-            expiry: this.el('inExpiry').value || null,
             remarks: this.el('inRemarks').value.trim(),
         };
         if (!batch) {

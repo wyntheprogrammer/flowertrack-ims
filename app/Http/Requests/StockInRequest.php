@@ -21,8 +21,6 @@ class StockInRequest extends InventoryRequest
             'unit' => ['required', Rule::in(['Stem', 'Bunch', 'Bundle', 'Box', 'Bouquet'])],
             'storage_condition' => ['required', 'string', 'max:30'],
             'received' => ['required', 'date_format:Y-m-d', 'before_or_equal:'.$today],
-            'harvest' => ['required', 'date_format:Y-m-d', 'before_or_equal:received'],
-            'expiry' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:harvest'],
             'remarks' => ['nullable', 'string', 'max:5000'],
             'factor' => ['prohibited'],
         ];

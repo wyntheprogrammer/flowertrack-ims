@@ -1,6 +1,7 @@
 import * as bootstrap from 'bootstrap';
 import DataTable from 'datatables.net-bs5';
 import 'datatables.net-bs5/css/dataTables.bootstrap5.css';
+import { renderFlowerTableDetails, safeFlowerImageUrl } from './flower-table';
 
 /* ==================================================
    FLOWER MANAGEMENT — DATABASE BACKEND INTEGRATION
@@ -31,6 +32,7 @@ const FlowerManagement = {
         this.viewModal = bootstrap.Modal.getOrCreateInstance(this.elements.viewModal);
         this.createMessages();
         this.initializeDataTable();
+        this.mountTableScroller();
         this.bindEvents();
         this.loadFlowers();
         window.addEventListener('pagehide', () => this.releasePreview());
@@ -46,7 +48,7 @@ const FlowerManagement = {
             form: 'flowerForm', formModal: 'flowerFormModal', viewModal: 'flowerViewModal',
             viewContent: 'flowerViewContent', editingCode: 'flowerEditingCode', code: 'flowerCode',
             name: 'flowerName', category: 'flowerCategory', itemType: 'flowerItemType',
-            baseUnit: 'flowerBaseUnit', minimumHelp: 'flowerMinimumStockHelp',
+            minimumHelp: 'flowerMinimumStockHelp',
             minimumStock: 'flowerMinimumStock', status: 'flowerStatus', description: 'flowerDescription',
             image: 'flowerImage', imagePreview: 'flowerImagePreview',
             imagePreviewWrapper: 'flowerImagePreviewWrapper', removeImageButton: 'removeFlowerImage',
@@ -115,6 +117,17 @@ const FlowerManagement = {
         if (this.elements.pageLength) this.elements.pageLength.value = String(this.dataTable.page.len());
     },
 
+    mountTableScroller() {
+        const table = this.elements.table;
+        const scroller = document.createElement('div');
+        scroller.className = 'flower-table-scroll';
+        scroller.tabIndex = 0;
+        scroller.setAttribute('role', 'region');
+        scroller.setAttribute('aria-label', 'Flowers table. Scroll horizontally to see all columns.');
+        table.before(scroller);
+        scroller.append(table);
+    },
+
     /* ==================================================
        BIND SEARCH, FORM, IMAGE AND ROW ACTIONS
     ================================================== */
@@ -136,7 +149,8 @@ const FlowerManagement = {
         this.dataTable.on('length', (_event, _settings, length) => {
             if (this.elements.pageLength) this.elements.pageLength.value = String(length);
         });
-        this.elements.itemType.addEventListener('change', () => this.syncItemUnit());
+        this.dataTable.on('draw', () => this.syncRowActions());
+        this.elements.itemType.addEventListener('change', () => this.updateMinimumStockHelp());
         this.elements.image.addEventListener('change', () => this.handleImagePreview());
         this.elements.removeImageButton.addEventListener('click', () => {
             this.clearImage();
@@ -224,7 +238,6 @@ const FlowerManagement = {
             if (!Array.isArray(result.data)) throw new Error('Invalid flower list response.');
             this.flowers = result.data.map(flower => this.mapFlower(flower));
             this.renderTable();
-            this.applySearch();
             this.setNotice(this.flowers.length ? '' : 'No flower records yet. Click Add New Flower to begin.');
             loaded = true;
         } catch (error) {
@@ -263,6 +276,9 @@ const FlowerManagement = {
             this.renderStatus(flower.status), this.renderActions(flower),
         ]));
         this.dataTable.draw(false);
+        const { page, pages } = this.dataTable.page.info();
+        const lastPage = Math.max(0, pages - 1);
+        if (page > lastPage) this.dataTable.page(lastPage).draw('page');
     },
 
     /* ==================================================
@@ -270,36 +286,18 @@ const FlowerManagement = {
     ================================================== */
 
     renderFlowerDetails(flower) {
-        return `<div class="flower-table-details">
-            ${this.renderImage(flower, false)}
-            <div><strong>${this.escapeHTML(flower.name)}</strong><small>${this.escapeHTML(flower.code)}</small></div>
-        </div>`;
+        return renderFlowerTableDetails(flower, this.escapeHTML);
     },
 
     /* ==================================================
        SHARED IMAGE / PLACEHOLDER RENDERING
     ================================================== */
 
-    renderImage(flower, large) {
-        const prefix = large ? 'flower-view' : 'flower-table';
-        const url = this.safeImageUrl(flower.imageUrl);
+    renderViewImage(flower) {
+        const url = safeFlowerImageUrl(flower.imageUrl);
         return url
-            ? `<img src="${this.escapeHTML(url)}" class="${prefix}-image" alt="" loading="lazy">`
-            : `<div class="${prefix}-placeholder"><i class="bi bi-flower1" aria-hidden="true"></i></div>`;
-    },
-
-    /* ==================================================
-       ACCEPT ONLY HTTP(S) IMAGE URLS
-    ================================================== */
-
-    safeImageUrl(value) {
-        if (!value) return null;
-        try {
-            const url = new URL(value, window.location.href);
-            return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
-        } catch {
-            return null;
-        }
+            ? `<img src="${this.escapeHTML(url)}" class="flower-view-image" alt="" loading="lazy">`
+            : '<div class="flower-view-placeholder"><i class="bi bi-flower1" aria-hidden="true"></i></div>';
     },
 
     /* ==================================================
@@ -327,10 +325,10 @@ const FlowerManagement = {
             <button type="button" class="flower-action-btn view" data-action="view" data-id="${flower.id}" title="View" aria-label="View flower">
                 <i class="bi bi-eye" aria-hidden="true"></i>
             </button>
-            <button type="button" class="flower-action-btn edit" data-action="edit" data-id="${flower.id}" title="Edit" aria-label="Edit flower" ${this.saving ? 'disabled' : ''}>
+            <button type="button" class="flower-action-btn edit" data-action="edit" data-id="${flower.id}" title="Edit" aria-label="Edit flower">
                 <i class="bi bi-pencil-square" aria-hidden="true"></i>
             </button>
-            <button type="button" class="flower-action-btn deactivate" data-action="deactivate" data-id="${flower.id}" title="${flower.status === 'Inactive' ? 'Already inactive' : 'Deactivate'}" aria-label="Deactivate flower" ${this.saving || flower.status === 'Inactive' ? 'disabled' : ''}>
+            <button type="button" class="flower-action-btn deactivate" data-action="deactivate" data-id="${flower.id}" title="${flower.status === 'Inactive' ? 'Already inactive' : 'Deactivate'}" aria-label="Deactivate flower">
                 <i class="bi bi-person-x" aria-hidden="true"></i>
             </button>
         </div>`;
@@ -377,8 +375,8 @@ const FlowerManagement = {
         this.elements.minimumStock.value = flower.minimumStock;
         this.elements.description.value = flower.description;
         this.elements.status.value = flower.status;
-        this.syncItemUnit();
-        const url = this.safeImageUrl(flower.imageUrl);
+        this.updateMinimumStockHelp();
+        const url = safeFlowerImageUrl(flower.imageUrl);
         if (url) this.showImagePreview(url);
         this.elements.formModal.querySelector('.modal-title').textContent = 'Edit Flower';
         this.formModal.show();
@@ -398,16 +396,15 @@ const FlowerManagement = {
         this.elements.status.value = 'Active';
         this.clearImage();
         this.clearErrors();
-        this.syncItemUnit();
+        this.updateMinimumStockHelp();
     },
 
     /* ==================================================
-       SYNC BASE UNIT WITH PRODUCT TYPE
+       SHOW STOCK UNIT FOR THE SELECTED ITEM TYPE
     ================================================== */
 
-    syncItemUnit() {
+    updateMinimumStockHelp() {
         const bouquet = this.elements.itemType.value === 'Bouquet';
-        this.elements.baseUnit.value = bouquet ? 'Bouquet' : 'Stem';
         this.elements.minimumHelp.textContent = bouquet
             ? 'Minimum quantity in finished bouquets.' : 'Minimum quantity in stems.';
     },
@@ -442,9 +439,13 @@ const FlowerManagement = {
             this.elements[key].disabled = saving;
         }
         this.elements.itemType.disabled = saving || this.editingId !== null;
+        this.syncRowActions();
+    },
+
+    syncRowActions() {
         this.elements.table.querySelectorAll('[data-action="edit"], [data-action="deactivate"]').forEach(button => {
             const flower = this.flowers.find(record => record.id === Number(button.dataset.id));
-            button.disabled = saving || (button.dataset.action === 'deactivate' && flower?.status === 'Inactive');
+            button.disabled = this.saving || (button.dataset.action === 'deactivate' && flower?.status === 'Inactive');
         });
     },
 
@@ -529,7 +530,6 @@ const FlowerManagement = {
         if (index === -1) this.flowers.unshift(flower);
         else this.flowers.splice(index, 1, flower);
         this.renderTable();
-        this.applySearch();
     },
 
     /* ==================================================
@@ -595,7 +595,7 @@ const FlowerManagement = {
 
     restoreExistingImage() {
         const flower = this.flowers.find(record => record.id === this.editingId);
-        const url = this.safeImageUrl(flower?.imageUrl);
+        const url = safeFlowerImageUrl(flower?.imageUrl);
         if (url) this.showImagePreview(url);
     },
 
@@ -631,14 +631,14 @@ const FlowerManagement = {
         if (!flower) return;
         this.elements.viewContent.innerHTML = `
             <div class="flower-view-header">
-                ${this.renderImage(flower, true)}
+                ${this.renderViewImage(flower)}
                 <div><h5>${this.escapeHTML(flower.name)}</h5>
                     <span>${this.escapeHTML(flower.code)}</span>
                     <div class="mt-2">${this.renderStatus(flower.status)}</div>
                 </div>
             </div>
             <div class="flower-view-details">
-                <div><label>Item Type / Base Unit</label><p>${this.escapeHTML(flower.itemType)} / ${this.escapeHTML(flower.itemType)}</p></div>
+                <div><label>Item Type</label><p>${this.escapeHTML(flower.itemType)}</p></div>
                 <div><label>Category</label><p>${this.escapeHTML(flower.category)}</p></div>
                 <div><label>Minimum Stock</label><p>${this.formatQuantity(flower)}</p></div>
                 <div class="flower-form-full"><label>Description</label><p>${this.escapeHTML(flower.description)}</p></div>

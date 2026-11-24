@@ -56,7 +56,7 @@
     </div>
 
     {{-- Add / Edit Flower Modal --}}
-    <div class="modal fade" id="flowerFormModal" tabindex="-1" aria-labelledby="flowerFormModalLabel" aria-hidden="true">
+    <div class="modal" id="flowerFormModal" tabindex="-1" aria-labelledby="flowerFormModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content flower-modal-content">
                 <div class="modal-header flower-modal-header">
@@ -86,15 +86,11 @@
                             </div>
                             <div class="flower-form-group">
                                 <label for="flowerItemType">Item Type <span>*</span></label>
-                                <select id="flowerItemType" required>
+                                <select id="flowerItemType" aria-describedby="flowerItemTypeHelp" required>
                                     <option value="Stem">Stem</option>
                                     <option value="Bouquet">Bouquet</option>
                                 </select>
-                                <small>Existing item type is locked to preserve its stock unit.</small>
-                            </div>
-                            <div class="flower-form-group">
-                                <label for="flowerBaseUnit">Base Unit</label>
-                                <input type="text" id="flowerBaseUnit" value="Stem" readonly>
+                                <small id="flowerItemTypeHelp">Item type sets the stock unit and is fixed after creation.</small>
                             </div>
                             <div class="flower-form-group">
                                 <label for="flowerName">Item Name <span>*</span></label>
@@ -119,7 +115,7 @@
                             <div class="flower-form-group">
                                 <label for="flowerMinimumStock">Minimum Stock <span>*</span></label>
                                 <input type="number" id="flowerMinimumStock" min="1" max="4294967295" step="1"
-                                    placeholder="Enter minimum stock" required>
+                                    placeholder="Enter minimum stock" aria-describedby="flowerMinimumStockHelp" required>
                                 <small id="flowerMinimumStockHelp">Minimum quantity in stems.</small>
                             </div>
                             <div class="flower-form-group flower-form-full">

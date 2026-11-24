@@ -101,10 +101,12 @@ class DashboardBackendTest extends TestCase
         foreach ([
             'create_clients_table',
             'create_inventory_tables',
+            'remove_harvest_and_expiry_dates_from_inventory_batches_table',
             'create_order_tables',
             'create_delivery_tables',
             'create_finance_tables',
             'create_batch_daily_observations_table',
+            'remove_harvest_date_from_batch_daily_observations_table',
             'create_batch_spoilage_predictions_table',
             'add_spoilage_model_to_flowers_table',
         ] as $name) {
@@ -163,7 +165,7 @@ class DashboardBackendTest extends TestCase
         app(InventoryService::class)->stockIn([
             'request_key' => (string) Str::uuid(), 'flower_id' => $bouquet->id,
             'quantity' => 1, 'unit' => 'Bouquet', 'received' => '2026-11-01',
-            'harvest' => '2026-11-01', 'expiry' => null, 'remarks' => 'Finished bouquet.',
+            'remarks' => 'Finished bouquet.',
         ], $this->admin);
         $inactive = Flower::create([
             'code' => 'INACTIVE-001', 'name' => 'Inactive Product',
@@ -217,7 +219,7 @@ class DashboardBackendTest extends TestCase
     {
         $this->actingAs($this->admin);
         $order = $this->newOrder();
-        foreach (['Confirmed', 'Processing', 'Ready for Pickup', 'Completed'] as $status) {
+        foreach (['Confirmed', 'Processing', 'Ready for Pickup'] as $status) {
             $this->advance($order, $status);
         }
         $payment = $this->pay($order->fresh());
@@ -425,7 +427,7 @@ class DashboardBackendTest extends TestCase
         ]);
         $result = app(InventoryService::class)->stockIn([
             'request_key' => (string) Str::uuid(), 'flower_id' => $flower->id, 'quantity' => 20,
-            'unit' => $unit, 'received' => $received, 'harvest' => $received, 'expiry' => null,
+            'unit' => $unit, 'received' => $received,
             'storage_condition' => 'Ambient', 'remarks' => 'Isolated prediction fixture',
         ], $this->admin);
         $batch = InventoryBatch::findOrFail($result['batch_id']);
@@ -433,7 +435,7 @@ class DashboardBackendTest extends TestCase
             BatchDailyObservation::create([
                 'batch_id' => $batch->id, 'flower_id' => $flower->id,
                 'observation_date' => $today->subDays($days)->toDateString(),
-                'harvest_date' => $received, 'received_date' => $received,
+                'received_date' => $received,
                 'storage_condition' => 'Ambient', 'base_unit' => $unit, 'opening_quantity' => 20,
                 'spoiled_quantity' => 0, 'released_quantity' => 0, 'closing_quantity' => 20, 'is_complete' => true,
             ]);
@@ -517,8 +519,6 @@ class DashboardBackendTest extends TestCase
             'quantity' => 20,
             'unit' => 'Stem',
             'received' => '2026-11-01',
-            'harvest' => '2026-11-01',
-            'expiry' => null,
             'remarks' => 'Isolated audit receipt.',
         ], $this->admin);
 
@@ -540,7 +540,6 @@ class DashboardBackendTest extends TestCase
             'status' => $status,
             'version' => $orders->row($order->fresh(), $this->admin)['version'],
             'reason' => 'Isolated cancellation test.',
-            'collected' => $status === 'Completed',
         ], $this->admin);
     }
 }

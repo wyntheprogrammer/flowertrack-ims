@@ -239,7 +239,11 @@
 
 .inv-table-panel {
     padding: 0 24px 20px;
+}
+
+.inv-table-scroll {
     overflow-x: auto;
+    scroll-margin-top: 16px;
 }
 
 .inv-page table.inv-table {

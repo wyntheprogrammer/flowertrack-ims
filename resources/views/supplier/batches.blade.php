@@ -12,7 +12,7 @@
         <div class="batch-header">
             <div>
                 <h1>Batch Management</h1>
-                <p>Monitor flower batches, freshness, and movement history.</p>
+                <p>Monitor flower batches and movement history.</p>
             </div>
 
             <a href="{{ route('supplier.inventory') }}"
@@ -51,11 +51,6 @@
 
         <div class="batch-notice"
              id="batchNotice"
-             role="status"
-             hidden></div>
-
-        <div class="batch-warning"
-             id="batchFreshnessWarning"
              role="status"
              hidden></div>
 
@@ -98,7 +93,6 @@
                         <th>Received</th>
                         <th>Initial</th>
                         <th>Remaining</th>
-                        <th>Freshness / Expiry</th>
                         <th>Status</th>
                         <th>Actions</th>
                     </tr>
@@ -183,7 +177,7 @@
                     <h2 class="modal-title" id="batchEditTitle">
                         Edit Batch Information
                     </h2>
-                    <p>Update harvest date, freshness date, storage condition, and batch notes.</p>
+                    <p>Update storage condition and batch notes.</p>
                 </div>
 
                 <button type="button"
@@ -219,13 +213,6 @@
                         </div>
 
                         <div class="batch-form-field">
-                            <label for="batchEditHarvest">
-                                Harvest Date <span>*</span>
-                            </label>
-                            <input type="date" id="batchEditHarvest" required>
-                        </div>
-
-                        <div class="batch-form-field">
                             <label for="batchEditInitial">Initial Quantity</label>
                             <input type="number" id="batchEditInitial" readonly>
                         </div>
@@ -233,17 +220,6 @@
                         <div class="batch-form-field">
                             <label for="batchEditRemaining">Remaining Quantity</label>
                             <input type="number" id="batchEditRemaining" readonly>
-                        </div>
-
-                        <div class="batch-form-field batch-form-full">
-                            <label for="batchEditExpiry">
-                                Expected Freshness / Expiry Date
-                            </label>
-                            <input type="date" id="batchEditExpiry">
-                            <small>
-                                Optional. Freshness warnings do not automatically
-                                deduct stock or mark a batch as spoiled.
-                            </small>
                         </div>
 
                         <div class="batch-form-field batch-form-full">

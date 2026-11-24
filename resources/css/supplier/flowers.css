@@ -186,8 +186,14 @@
 
 .flower-table-container {
     width: 100%;
+    min-width: 0;
     padding: 0 24px 20px;
+}
+
+.flower-table-scroll {
+    width: 100%;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
 }
 
 /* TABLE */
@@ -274,6 +280,12 @@
 }
 
 /* FLOWER DETAILS */
+
+.flower-table-items {
+    display: grid;
+    gap: 8px;
+    text-align: left;
+}
 
 .flower-table-details {
     display: flex;
@@ -409,6 +421,7 @@
 }
 
 #flowerTable_wrapper > .row > [class*="col-"] {
+    min-width: 0;
     padding-left: 0;
     padding-right: 0;
 }
@@ -418,6 +431,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 15px;
     width: 100%;
     margin: 16px 0 0;
@@ -448,6 +462,7 @@
 #flowerTable_wrapper .dt-paging ul.pagination {
     display: flex !important;
     align-items: center;
+    flex-wrap: wrap;
     gap: 6px !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -698,7 +713,8 @@
 .flower-secondary-btn:focus-visible,
 .flower-action-btn:focus-visible,
 .flower-remove-image:focus-visible,
-.flower-length-control select:focus-visible {
+.flower-length-control select:focus-visible,
+.flower-table-scroll:focus-visible {
     outline: 2px solid var(--supplier-primary, #196c3d);
     outline-offset: 3px;
 }

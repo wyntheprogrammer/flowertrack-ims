@@ -341,21 +341,16 @@
 
 #predictionTable colgroup col:nth-child(4),
 #predictionTable thead th:nth-child(4) {
-    width: 15% !important;
+    width: 12% !important;
 }
 
 #predictionTable colgroup col:nth-child(5),
 #predictionTable thead th:nth-child(5) {
-    width: 12% !important;
+    width: 23% !important;
 }
 
 #predictionTable colgroup col:nth-child(6),
 #predictionTable thead th:nth-child(6) {
-    width: 23% !important;
-}
-
-#predictionTable colgroup col:nth-child(7),
-#predictionTable thead th:nth-child(7) {
     width: 8% !important;
 }
 
@@ -365,8 +360,8 @@
 #predictionTable tbody td:nth-child(1),
 #predictionTable thead th:nth-child(2),
 #predictionTable tbody td:nth-child(2),
-#predictionTable thead th:nth-child(6),
-#predictionTable tbody td:nth-child(6) {
+#predictionTable thead th:nth-child(5),
+#predictionTable tbody td:nth-child(5) {
     text-align: left !important;
 }
 
@@ -374,14 +369,12 @@
 #predictionTable tbody td:nth-child(3),
 #predictionTable thead th:nth-child(4),
 #predictionTable tbody td:nth-child(4),
-#predictionTable thead th:nth-child(5),
-#predictionTable tbody td:nth-child(5),
-#predictionTable thead th:nth-child(7),
-#predictionTable tbody td:nth-child(7) {
+#predictionTable thead th:nth-child(6),
+#predictionTable tbody td:nth-child(6) {
     text-align: center !important;
 }
 
-#predictionTable thead th:nth-child(7) {
+#predictionTable thead th:nth-child(6) {
     padding-right: 17px !important;
 }
 

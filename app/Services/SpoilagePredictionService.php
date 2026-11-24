@@ -240,7 +240,6 @@ class SpoilagePredictionService
             'batch_id' => (int) $batch->id, 'flower_id' => (int) $batch->flower_id,
             'unit' => $flower->product_type, 'remaining' => (int) $batch->remaining_quantity,
             'spoiled' => (bool) $batch->spoiled,
-            'harvest' => $batch->harvest_date->toDateString(),
             'received' => $batch->received_date->toDateString(),
             'storage' => $batch->storage_condition,
         ];

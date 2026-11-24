@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'batch_id',
     'flower_id',
     'observation_date',
-    'harvest_date',
     'received_date',
     'storage_condition',
     'base_unit',
@@ -33,7 +32,6 @@ class BatchDailyObservation extends Model
     {
         return [
             'observation_date' => 'date',
-            'harvest_date' => 'date',
             'received_date' => 'date',
             'opening_quantity' => 'integer',
             'spoiled_quantity' => 'integer',

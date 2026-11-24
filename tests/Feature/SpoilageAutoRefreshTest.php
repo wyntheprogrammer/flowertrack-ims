@@ -82,9 +82,7 @@ class SpoilageAutoRefreshTest extends TestCase
             $table->id();
             $table->foreignId('flower_id')->constrained('flowers');
             $table->string('code');
-            $table->date('harvest_date');
             $table->date('received_date');
-            $table->date('expiry_date')->nullable();
             $table->integer('received_quantity');
             $table->string('receiving_unit');
             $table->integer('conversion_factor');
@@ -94,7 +92,7 @@ class SpoilageAutoRefreshTest extends TestCase
             $table->timestamps();
         });
         // Exercise the real observation/prediction migration constraints.
-        foreach (['*_create_batch_daily_observations_table.php', '*_create_batch_spoilage_predictions_table.php', '*_add_spoilage_model_to_flowers_table.php'] as $pattern) {
+        foreach (['*_create_batch_daily_observations_table.php', '*_remove_harvest_date_from_batch_daily_observations_table.php', '*_create_batch_spoilage_predictions_table.php', '*_add_spoilage_model_to_flowers_table.php'] as $pattern) {
             $files = glob(database_path('migrations/'.$pattern)) ?: [];
             $this->assertCount(1, $files);
             (require $files[0])->up();
@@ -265,7 +263,7 @@ class SpoilageAutoRefreshTest extends TestCase
         for ($offset = 1; $offset <= 42; $offset++) {
             $observation->replicate()->fill([
                 'observation_date' => CarbonImmutable::parse('2026-11-14')->subDays($offset)->toDateString(),
-                'harvest_date' => '2026-09-29', 'received_date' => '2026-09-30',
+                'received_date' => '2026-09-30',
                 'spoiled_quantity' => $offset % 5, 'closing_quantity' => 95 - $offset % 5,
             ])->save();
         }
@@ -312,14 +310,14 @@ class SpoilageAutoRefreshTest extends TestCase
     {
         $batch = InventoryBatch::forceCreate([
             'flower_id' => $flower->id, 'code' => $code,
-            'harvest_date' => '2026-11-12', 'received_date' => '2026-11-13',
+            'received_date' => '2026-11-13',
             'received_quantity' => 100, 'receiving_unit' => 'Stem',
             'conversion_factor' => 1, 'initial_quantity' => 100,
             'remaining_quantity' => 90, 'spoiled' => false, 'storage_condition' => 'Ambient',
         ]);
         BatchDailyObservation::create([
             'batch_id' => $batch->id, 'flower_id' => $flower->id,
-            'observation_date' => '2026-11-14', 'harvest_date' => '2026-11-12',
+            'observation_date' => '2026-11-14',
             'received_date' => '2026-11-13', 'storage_condition' => 'Ambient',
             'base_unit' => 'Stem', 'opening_quantity' => 100,
             'spoiled_quantity' => 5, 'released_quantity' => 5, 'closing_quantity' => 90,

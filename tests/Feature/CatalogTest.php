@@ -28,7 +28,7 @@ class CatalogTest extends TestCase
         foreach ([false, true] as $spoiled) {
             DB::table('inventory_batches')->insert([
                 'flower_id' => $flower->id, 'code' => 'BAT-'.(int) $spoiled,
-                'received_date' => '2026-11-01', 'harvest_date' => '2026-11-01',
+                'received_date' => '2026-11-01',
                 'received_quantity' => 10, 'receiving_unit' => 'Stem', 'conversion_factor' => 1,
                 'initial_quantity' => 10, 'remaining_quantity' => 10, 'spoiled' => $spoiled,
             ]);
@@ -60,7 +60,7 @@ class CatalogTest extends TestCase
         DB::table('flower_prices')->insert(['flower_id' => $flower->id, 'price_cents' => 3500]);
         DB::table('inventory_batches')->insert([
             'flower_id' => $flower->id, 'code' => 'BAT-1', 'received_date' => '2026-11-01',
-            'harvest_date' => '2026-11-01', 'received_quantity' => 4, 'receiving_unit' => 'Stem',
+            'received_quantity' => 4, 'receiving_unit' => 'Stem',
             'conversion_factor' => 1, 'initial_quantity' => 4, 'remaining_quantity' => 4,
         ]);
         $this->get(route('client.product', $flower))->assertOk()->assertSeeText('Add to cart');
@@ -418,7 +418,7 @@ class CatalogTest extends TestCase
         DB::table('flower_prices')->insert(['flower_id' => $bouquet->id, 'price_cents' => 12500]);
         DB::table('inventory_batches')->insert([
             'flower_id' => $bouquet->id, 'code' => 'BAT-ZINNIA', 'received_date' => '2026-11-01',
-            'harvest_date' => '2026-11-01', 'received_quantity' => 3, 'receiving_unit' => 'Bouquet',
+            'received_quantity' => 3, 'receiving_unit' => 'Bouquet',
             'conversion_factor' => 1, 'initial_quantity' => 3, 'remaining_quantity' => 3,
         ]);
         foreach (['Aster', 'Dahlia', 'Iris', 'Tulip'] as $name) {
@@ -548,7 +548,7 @@ class CatalogTest extends TestCase
     {
         DB::table('inventory_batches')->insert([
             'flower_id' => $flower->id, 'code' => 'BAT-'.$flower->id, 'received_date' => '2026-11-01',
-            'harvest_date' => '2026-11-01', 'received_quantity' => $quantity, 'receiving_unit' => $flower->product_type,
+            'received_quantity' => $quantity, 'receiving_unit' => $flower->product_type,
             'conversion_factor' => 1, 'initial_quantity' => $quantity, 'remaining_quantity' => $quantity,
         ]);
     }

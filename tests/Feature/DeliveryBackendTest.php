@@ -19,7 +19,9 @@ use App\Models\User;
 use App\Services\DeliveryService;
 use App\Services\InventoryService;
 use App\Services\OrderService;
+use App\Services\SalesPaymentService;
 use App\Support\AccountSession;
+use App\Support\Money;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -90,8 +92,8 @@ class DeliveryBackendTest extends TestCase
             $table->enum('status', ['Active', 'Inactive']);
             $table->timestamps();
         });
-        foreach (['create_clients_table', 'create_inventory_tables', 'create_order_tables', 'create_delivery_tables',
-            'create_batch_daily_observations_table', 'add_collection_provenance_to_batch_daily_observations_table'] as $name) {
+        foreach (['create_clients_table', 'create_inventory_tables', 'remove_harvest_and_expiry_dates_from_inventory_batches_table', 'create_order_tables', 'create_delivery_tables', 'create_finance_tables',
+            'create_batch_daily_observations_table', 'remove_harvest_date_from_batch_daily_observations_table', 'add_collection_provenance_to_batch_daily_observations_table'] as $name) {
             $files = glob(database_path('migrations/*_'.$name.'.php')) ?: [];
             $this->assertCount(1, $files, 'Expected one '.$name.' migration.');
             (require $files[0])->up();
@@ -125,8 +127,7 @@ class DeliveryBackendTest extends TestCase
         $this->assertSame(0, SalesRecord::count());
     }
 
-    /** Actual receipt completes both records, consumes mixed stock and replays once. */
-    public function test_actual_delivery_completes_once_with_private_proof_and_no_payment_gate(): void
+    public function test_delivery_issues_stock_once_and_completed_status_waits_for_full_payment(): void
     {
         [$order, $delivery] = $this->dispatched();
         $payload = $this->deliveryInput($delivery, [
@@ -140,7 +141,8 @@ class DeliveryBackendTest extends TestCase
 
         $this->assertSame('Delivered', $result->status);
         $this->assertSame('Actual Recipient', $result->recipient_name);
-        $this->assertSame('Completed', $order->fresh()->status);
+        $this->assertSame('Delivered', $order->fresh()->status);
+        $this->assertNull($order->fresh()->completed_at);
         $this->assertTrue($order->fresh()->stocked_out);
         $this->assertSame(16, $this->remaining($this->stem));
         $this->assertSame(3, $this->remaining($this->bouquet));
@@ -160,7 +162,7 @@ class DeliveryBackendTest extends TestCase
         $customer = $this->client->user;
         $this->actingAs($customer)->withSession([AccountSession::KEY => AccountSession::signature($customer)]);
         $this->get(route('client.tracking', $order))->assertOk()
-            ->assertSeeTextInOrder(['Completed', 'Fulfillment updates', 'Out for Delivery', 'Completed'])
+            ->assertSeeTextInOrder(['Delivered', 'Fulfillment updates', 'Out for Delivery', 'Delivered'])
             ->assertDontSee($result->proof_path)->assertDontSeeText('Actual Recipient');
         Storage::disk('local')->assertExists($result->proof_path);
         $this->assertCount(1, Storage::disk('local')->allFiles('delivery-proofs'));
@@ -169,6 +171,64 @@ class DeliveryBackendTest extends TestCase
         $payload['recipient_name'] = 'Changed Recipient';
         $this->rejected(fn () => $service->action($delivery, $payload, $this->supplier), 'request_key');
         $this->assertSame(1, SalesRecord::count());
+
+        $courier = User::findOrFail($delivery->assigned_to);
+        $this->actingAs($courier)->withSession([AccountSession::KEY => AccountSession::signature($courier)]);
+        $collection = [
+            'action' => 'payment', 'reason' => 'Received full GCash payment.',
+            'request_key' => (string) Str::uuid(), 'version' => $service->row($result, $courier)['version'],
+            'payment_method' => 'GCash', 'payment_amount' => Money::format($order->total_cents),
+            'payment_reference' => 'GCASH-DELIVERY-TEST',
+        ];
+        $url = route('delivery.deliveries.action', $delivery);
+        $this->post($url, $collection, ['Accept' => 'application/json'])
+            ->assertUnprocessable()->assertJsonValidationErrors('proof');
+        $this->post($url, [...$collection, 'payment_amount' => '1.00', 'proof' => $this->photo()], ['Accept' => 'application/json'])
+            ->assertUnprocessable()->assertJsonValidationErrors('payment_amount');
+        $this->post($url, [...$collection, 'proof' => $this->photo()], ['Accept' => 'application/json'])
+            ->assertOk()->assertJsonPath('data.paymentRecorded', true);
+        $this->post($url, [...$collection, 'proof' => $this->photo()], ['Accept' => 'application/json'])->assertOk();
+        $this->assertSame(1, OrderPayment::count());
+        $payment = $order->payment()->firstOrFail();
+        $this->assertSame('Pending', $payment->status);
+        $this->assertSame('GCASH-DELIVERY-TEST', $payment->reference);
+        $this->assertSame('Delivered', $order->fresh()->status);
+        $this->assertCount(1, Storage::disk('local')->allFiles('payment-proofs'));
+        $proofUrl = route('supplier.sales-payments.proof', $payment);
+        $this->getJson($proofUrl)->assertForbidden();
+
+        $this->actingAs($this->supplier)->withSession([AccountSession::KEY => AccountSession::signature($this->supplier)]);
+        $this->get($proofUrl)->assertOk();
+        $data = app(SalesPaymentService::class)->data($this->supplier);
+        $paymentRow = collect($data['payments'])->firstWhere('dbId', $payment->id);
+        $this->assertSame($proofUrl, $paymentRow['proofUrl']);
+        $this->postJson(route('supplier.sales-payments.confirm', $payment), [
+            'request_key' => (string) Str::uuid(), 'version' => $paymentRow['version'], 'reason' => 'Payment photo verified.',
+        ])->assertOk();
+        $this->assertSame('Completed', $order->fresh()->status);
+        $this->assertSame($movements, InventoryMovement::count());
+        $this->assertSame(1, SalesRecord::count());
+    }
+
+    public function test_rider_can_submit_cash_payment_without_a_payment_photo(): void
+    {
+        [$order, $delivery] = $this->dispatched();
+        $delivery = $this->deliveryAction($delivery, [
+            'action' => 'deliver', 'recipient_name' => 'Cash Customer', 'proof' => $this->photo(),
+        ]);
+        $courier = User::findOrFail($delivery->assigned_to);
+        $this->actingAs($courier)->withSession([AccountSession::KEY => AccountSession::signature($courier)]);
+
+        $this->postJson(route('delivery.deliveries.action', $delivery), $this->deliveryInput($delivery, [
+            'action' => 'payment', 'payment_method' => 'Cash', 'payment_amount' => Money::format($order->total_cents),
+        ]))->assertOk()->assertJsonPath('data.paymentStatus', 'Pending');
+
+        $payment = $order->payment()->firstOrFail();
+        $finance = app(SalesPaymentService::class)->data($this->supplier);
+        $paymentRow = collect($finance['payments'])->firstWhere('dbId', $payment->id);
+        $this->assertNull($paymentRow['proofUrl']);
+        $this->assertSame('Delivered', $order->fresh()->status);
+        $this->assertSame([], Storage::disk('local')->allFiles('payment-proofs'));
     }
 
     /** A later bouquet shortage rolls back earlier stem fulfillment and the upload. */
@@ -199,21 +259,17 @@ class DeliveryBackendTest extends TestCase
         $this->assertCount(0, Storage::disk('local')->allFiles('delivery-proofs'));
     }
 
-    /** Failed attempts retain holds; rescheduling is mandatory before another dispatch. */
-    public function test_failed_delivery_requires_rescheduling_and_does_not_issue_stock(): void
+    public function test_assigned_rider_can_restart_a_failed_delivery_without_scheduling_or_issuing_stock(): void
     {
         [$order, $delivery] = $this->dispatched();
         $delivery = $this->deliveryAction($delivery, ['action' => 'fail']);
         $this->assertSame('Failed', $delivery->status);
         $this->assertSame('Out for Delivery', $order->fresh()->status);
-        $this->rejected(fn () => $this->deliveryAction($delivery, ['action' => 'dispatch']));
-        $delivery = $this->deliveryAction($delivery, [
-            'action' => 'schedule', 'scheduled_at' => now()->addDays(2)->toIso8601String(),
-        ]);
-        $this->assertSame('Rescheduled', $delivery->status);
-        $this->assertSame('Ready for Delivery', $order->fresh()->status);
-        $delivery = $this->deliveryAction($delivery, ['action' => 'dispatch']);
-        $this->assertSame('Out for Delivery', $delivery->status);
+        $courier = User::findOrFail($delivery->assigned_to);
+        $this->actingAs($courier)->withSession([AccountSession::KEY => AccountSession::signature($courier)]);
+        $this->postJson(route('delivery.deliveries.action', $delivery), $this->deliveryInput($delivery, ['action' => 'dispatch']))
+            ->assertOk()->assertJsonPath('data.status', 'Out for Delivery');
+        $this->assertNull($delivery->fresh()->scheduled_at);
         $this->assertSame(20, $this->remaining($this->stem));
         $this->assertSame(2, InventoryReservation::where('status', 'Active')->count());
         $this->assertSame(0, SalesRecord::count());
@@ -302,6 +358,35 @@ class DeliveryBackendTest extends TestCase
         $this->assertSame(0, SalesRecord::count());
     }
 
+    public function test_delivery_list_includes_each_order_items_flower_photo(): void
+    {
+        Storage::fake('public');
+        $this->stem->update(['image_path' => 'flowers/stem.webp']);
+        [, $delivery] = $this->dispatched();
+        $courier = User::findOrFail($delivery->assigned_to);
+
+        $this->actingAs($courier)->withSession([AccountSession::KEY => AccountSession::signature($courier)]);
+        $this->withoutVite();
+        $this->get(route('delivery.deliveries'))->assertOk()
+            ->assertSee('supplierMenuToggle')
+            ->assertSee('supplierNotificationToggle')
+            ->assertDontSee(route('supplier.dashboard'));
+        $this->getJson(route('delivery.deliveries.data'))->assertOk()
+            ->assertJsonPath('data.0.id', $delivery->code)
+            ->assertJsonPath('data.0.items', [
+                [
+                    'flowerId' => $this->stem->code,
+                    'flowerName' => $this->stem->name,
+                    'imageUrl' => Storage::disk('public')->url('flowers/stem.webp'),
+                ],
+                [
+                    'flowerId' => $this->bouquet->code,
+                    'flowerName' => $this->bouquet->name,
+                    'imageUrl' => null,
+                ],
+            ]);
+    }
+
     /** Personnel lists, details and mutations are scoped to the locked assignment. */
     public function test_personnel_can_only_read_their_own_assigned_deliveries(): void
     {
@@ -319,7 +404,7 @@ class DeliveryBackendTest extends TestCase
         } catch (HttpException $exception) {
             $this->assertSame(403, $exception->getStatusCode());
         }
-        foreach (['schedule', 'assign', 'dispatch', 'cancel'] as $action) {
+        foreach (['schedule', 'assign', 'cancel'] as $action) {
             try {
                 $service->action($delivery, $this->deliveryInput($delivery, ['action' => $action]), $person);
                 $this->fail('Personnel cannot manage assignment or dispatch.');
@@ -345,6 +430,8 @@ class DeliveryBackendTest extends TestCase
         } catch (HttpException $exception) {
             $this->assertSame(403, $exception->getStatusCode());
         }
+        $this->confirmPayment($order);
+        $this->assertSame('Out for Delivery', $order->fresh()->status);
         $this->assertSame(0, SalesRecord::count());
         $result = $service->action($delivery, $payload, $person);
         $this->assertSame('Delivered', $result->status);
@@ -415,14 +502,31 @@ class DeliveryBackendTest extends TestCase
         $this->assertSame(0, SalesRecord::count());
     }
 
+    private function confirmPayment(Order $order): void
+    {
+        $sales = app(SalesPaymentService::class);
+        $orderRow = collect($sales->data($this->supplier)['orders'])->firstWhere('dbId', $order->id);
+        $data = $sales->recordPayment([
+            'request_key' => (string) Str::uuid(),
+            'order_id' => $order->id,
+            'version' => $orderRow['version'],
+            'method' => 'Cash',
+            'amount' => Money::format($order->total_cents),
+        ], $this->supplier);
+        $payment = $order->payment()->firstOrFail();
+        $paymentRow = collect($data['payments'])->firstWhere('dbId', $payment->id);
+        $sales->confirm($payment, [
+            'request_key' => (string) Str::uuid(),
+            'version' => $paymentRow['version'],
+            'reason' => 'Full cash payment verified.',
+        ], $this->supplier);
+    }
+
     private function dispatched(): array
     {
         [$order, $delivery] = $this->ready();
         $person = User::query()->where('role', User::ROLE_DELIVERY)->first()
             ?? $this->user('delivery', User::ROLE_DELIVERY);
-        $delivery = $this->deliveryAction($delivery, [
-            'action' => 'schedule', 'scheduled_at' => now()->addDay()->toIso8601String(),
-        ]);
         $delivery = $this->deliveryAction($delivery, [
             'action' => 'assign', 'assigned_to' => $person->id,
         ]);
@@ -485,8 +589,8 @@ class DeliveryBackendTest extends TestCase
     {
         $this->inventory->stockIn([
             'request_key' => (string) Str::uuid(), 'flower_id' => $flower->id, 'quantity' => $quantity,
-            'unit' => $flower->product_type, 'received' => '2026-01-02', 'harvest' => '2026-01-01',
-            'expiry' => null, 'remarks' => 'Test receipt.',
+            'unit' => $flower->product_type, 'received' => '2026-01-02',
+            'remarks' => 'Test receipt.',
         ], $this->admin);
     }
 

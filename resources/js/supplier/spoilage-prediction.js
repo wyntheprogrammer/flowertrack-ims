@@ -111,7 +111,7 @@ class SpoilagePredictionUI {
     initializeTable() {
         this.table = new DataTable(this.tableElement, {
             data: [], autoWidth: false, pageLength: 5, lengthMenu: [5, 10, 25, 50],
-            order: [[4, 'desc'], [0, 'asc']],
+            order: [[3, 'desc'], [0, 'asc']],
             layout: { topStart: null, topEnd: null, bottomStart: 'info', bottomEnd: 'paging' },
             language: {
                 emptyTable: 'No batch records loaded.', zeroRecords: 'No matching batches found.',
@@ -132,10 +132,6 @@ class SpoilagePredictionUI {
                 {
                     data: 'remaining', render: (value, type, row) => type === 'display'
                         ? `${number(value)} ${escapeHtml(row.baseUnit)}` : value,
-                },
-                {
-                    data: 'expiryDate', render: (value, type) => type === 'display'
-                        ? escapeHtml(formatDate(value)) : value ?? '',
                 },
                 {
                     data: null, render: (_value, type, row) => {
@@ -257,8 +253,8 @@ class SpoilagePredictionUI {
         const details = [
             ['Current remaining', `${number(item.remaining)} ${item.baseUnit ?? ''}`],
             ['Storage condition', item.storageCondition ?? 'Not recorded'],
-            ['Received date', formatDate(item.receivedDate)], ['Harvest date', formatDate(item.harvestDate)],
-            ['Freshness / expiry', formatDate(item.expiryDate)], ['Prediction status', item.predictionStatus],
+            ['Received date', formatDate(item.receivedDate)],
+            ['Prediction status', item.predictionStatus],
             ['Saved risk', item.risk ?? 'Not available'], ['Forecast start', formatDate(item.asOfDate)],
             ['Forecast end', formatDate(item.forecastEndDate)], ['Opening stock used', number(item.openingQuantity)],
             ['Predicted spoiled quantity', `${number(item.predictedQuantity, 2)} ${item.baseUnit ?? ''}`],

@@ -234,8 +234,7 @@ class BatchObservationService
         if ($balance !== (int) $batch->remaining_quantity || $initial !== (int) $batch->initial_quantity) {
             $error = 'Ledger totals do not match the current batch.';
         }
-        if ($state !== null && (($state['harvest'] ?? null) !== $batch->harvest_date->toDateString()
-            || ($state['received'] ?? null) !== $batch->received_date->toDateString()
+        if ($state !== null && (($state['received'] ?? null) !== $batch->received_date->toDateString()
             || ($state['storage_condition'] ?? null) !== $batch->storage_condition)) {
             $error = 'Batch metadata is not supported by its ledger snapshots.';
         }
@@ -274,7 +273,6 @@ class BatchObservationService
             return ['exclusion_reason' => 'Batch was already depleted before this day.'];
         }
         $metadata = Validator::make($state, [
-            'harvest' => ['required', 'date_format:Y-m-d', 'before_or_equal:received'],
             'received' => ['required', 'date_format:Y-m-d', 'before_or_equal:'.$day],
             'unit' => ['required', 'in:Stem,Bunch,Bundle,Box,Bouquet'],
             'storage_condition' => ['nullable', 'string', 'max:30'],
@@ -291,7 +289,7 @@ class BatchObservationService
         }
 
         return [
-            'harvest_date' => $state['harvest'], 'received_date' => $state['received'],
+            'received_date' => $state['received'],
             'storage_condition' => $state['storage_condition'] ?? null, 'base_unit' => $flower->product_type,
             'opening_quantity' => $opening, 'spoiled_quantity' => $spoiled,
             'released_quantity' => $released, 'closing_quantity' => $closing,

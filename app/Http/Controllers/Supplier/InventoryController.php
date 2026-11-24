@@ -83,8 +83,6 @@ class InventoryController extends Controller
                         'initial' => (int) $batch->initial_quantity,
                         'remaining' => (int) $batch->remaining_quantity,
                         'received' => $batch->received_date->format('Y-m-d'),
-                        'harvest' => $batch->harvest_date->format('Y-m-d'),
-                        'expiry' => $batch->expiry_date?->format('Y-m-d') ?? '',
                         'quantity' => (int) $batch->received_quantity,
                         'unit' => $batch->receiving_unit,
                         'factor' => (int) $batch->conversion_factor,

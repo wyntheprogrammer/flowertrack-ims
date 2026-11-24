@@ -12,6 +12,7 @@ use App\Models\SalesRecord;
 use App\Models\User;
 use App\Support\Money;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -49,6 +50,7 @@ class SalesPaymentService
             'confirmed_at', 'actor_id', 'stocked_out', 'remaining_quantity', 'created_at'] as $field) {
             $rules[$field] = ['prohibited'];
         }
+
         return $rules;
     }
 
@@ -56,12 +58,14 @@ class SalesPaymentService
     public function data(User $actor): array
     {
         $this->authorize($actor);
+
         return DB::transaction(function () use ($actor) {
             $prices = FlowerPrice::all()->keyBy('flower_id');
             $orders = Order::with(['items', 'payment'])->orderByDesc('id')->get();
             $ordersById = $orders->keyBy('id');
             $payments = OrderPayment::orderByDesc('id')->get();
             $paymentsById = $payments->keyBy('id');
+            $deliveryProofs = FinanceOperation::where('kind', 'delivery_payment')->get()->keyBy('payment_id');
             $refunds = PaymentRefund::orderBy('id')->get();
             $sums = [];
             foreach ($refunds as $refund) {
@@ -79,6 +83,7 @@ class SalesPaymentService
             return [
                 'flowers' => Flower::orderBy('id')->get()->map(function (Flower $flower) use ($prices) {
                     $price = $prices->get($flower->id);
+
                     return [
                         'dbId' => (int) $flower->id, 'id' => $flower->code, 'name' => $flower->name,
                         'category' => $flower->category, 'itemType' => $flower->product_type,
@@ -103,12 +108,15 @@ class SalesPaymentService
                         ])->all(),
                     ];
                 })->all(),
-                'payments' => $payments->map(function (OrderPayment $payment) use ($ordersById, $sums) {
+                'payments' => $payments->map(function (OrderPayment $payment) use ($ordersById, $sums, $deliveryProofs) {
                     $order = $ordersById->get($payment->order_id);
+
                     return [
                         'dbId' => (int) $payment->id, 'id' => $payment->code,
                         'orderId' => $order?->code, 'client' => $order?->client_name,
                         'method' => $payment->method, 'reference' => $payment->reference ?? '',
+                        'proofUrl' => filled($deliveryProofs->get($payment->id)?->metadata['proof_path'] ?? null)
+                            ? route('supplier.sales-payments.proof', $payment) : null,
                         'amount' => (int) $payment->amount_cents, 'status' => $payment->status,
                         'date' => $this->time($payment->created_at), 'confirmedAt' => $this->time($payment->confirmed_at),
                         'version' => $this->paymentVersion($payment, $order, $sums[$payment->id] ?? 0),
@@ -116,6 +124,7 @@ class SalesPaymentService
                 })->all(),
                 'refunds' => $refunds->map(function (PaymentRefund $refund) use ($paymentsById, $ordersById) {
                     $payment = $paymentsById->get($refund->payment_id);
+
                     return [
                         'dbId' => (int) $refund->id, 'id' => $refund->code,
                         'paymentId' => $payment?->code,
@@ -143,32 +152,40 @@ class SalesPaymentService
         $values = $this->validate('price', $input);
         $amount = $this->positive($values['amount']);
         $payload = ['flower_id' => (int) $flower->id, 'amount' => $amount];
+
         return $this->write('price', $values, $payload, $actor,
             function () use ($flower) {
                 $locked = Flower::query()->lockForUpdate()->findOrFail($flower->id);
                 $price = FlowerPrice::where('flower_id', $locked->id)->lockForUpdate()->first();
+
                 return ['flower' => $locked, 'price' => $price];
             },
             function (array $context, FinanceOperation $operation) use ($values, $amount) {
-                $flower = $context['flower']; $price = $context['price'];
+                $flower = $context['flower'];
+                $price = $context['price'];
                 $this->assertVersion($this->priceVersion($flower, $price), $values['version']);
-                if ($flower->status !== 'Active') $this->invalid('flower', 'Only active catalog items can be priced.');
+                if ($flower->status !== 'Active') {
+                    $this->invalid('flower', 'Only active catalog items can be priced.');
+                }
                 $before = $price ? (int) $price->price_cents : null;
                 $price ??= new FlowerPrice(['flower_id' => $flower->id]);
                 $price->price_cents = $amount;
                 $price->save();
                 $operation->result_id = $price->id;
+
                 return ['note' => $flower->code.' price changed from '.($before === null ? 'not set' : Money::format($before)).' to '.Money::format($amount).'.'];
             });
     }
 
     /** Record exactly one full Pending payment; never issue stock or create a sale. */
-    public function recordPayment(array $input, User $actor): array
+    public function recordPayment(array $input, User $actor, bool $requireReadyPickup = false): array
     {
         $values = $this->validate('record', $input);
         $amount = $this->positive($values['amount']);
         $reference = trim($values['reference'] ?? '');
-        if ($values['method'] !== 'Cash' && $reference === '') $this->invalid('reference', 'Enter the actual payment reference.');
+        if ($values['method'] !== 'Cash' && $reference === '') {
+            $this->invalid('reference', 'Enter the actual payment reference.');
+        }
         $remarks = trim($values['remarks'] ?? '');
         $payload = ['order_id' => (int) $values['order_id'], 'method' => $values['method'],
             'amount' => $amount, 'reference' => Str::lower($reference), 'remarks' => $remarks];
@@ -181,14 +198,27 @@ class SalesPaymentService
                 $order->load('items');
                 $payment = OrderPayment::where('order_id', $order->id)->lockForUpdate()->first();
                 $order->setRelation('payment', $payment);
+
                 return ['order' => $order, 'payment' => $payment];
             },
-            function (array $context, FinanceOperation $operation) use ($values, $amount, $reference, $remarks) {
+            function (array $context, FinanceOperation $operation) use ($values, $amount, $reference, $remarks, $requireReadyPickup) {
                 $order = $context['order'];
                 $this->assertVersion($this->orderVersion($order), $values['version']);
-                if ($order->status === 'Cancelled') $this->invalid('order', 'Cancelled orders cannot receive a new payment.');
-                if ($context['payment'] !== null) $this->invalid('order', 'This order already has a payment record. Additional payments are not allowed.');
-                if ((int) $order->total_cents !== $amount) $this->invalid('amount', 'Payment must equal the full order total. Partial and excess payments are not allowed.');
+                if ($requireReadyPickup && $order->method !== 'Customer Pickup') {
+                    $this->invalid('order', 'Record delivery payments from Assigned Deliveries.');
+                }
+                if ($requireReadyPickup && $order->status !== 'Ready for Pickup') {
+                    $this->invalid('order', 'Only orders ready for pickup can receive a payment here.');
+                }
+                if ($order->status === 'Cancelled') {
+                    $this->invalid('order', 'Cancelled orders cannot receive a new payment.');
+                }
+                if ($context['payment'] !== null) {
+                    $this->invalid('order', 'This order already has a payment record. Additional payments are not allowed.');
+                }
+                if ((int) $order->total_cents !== $amount) {
+                    $this->invalid('amount', 'Payment must equal the full order total. Partial and excess payments are not allowed.');
+                }
                 if ($values['method'] !== 'Cash' && OrderPayment::query()
                     ->where('method', $values['method'])
                     ->whereRaw('LOWER(TRIM(reference)) = ?', [Str::lower($reference)])
@@ -205,8 +235,46 @@ class SalesPaymentService
                 $payment->save();
                 $operation->payment_id = $payment->id;
                 $operation->result_id = $payment->id;
+
                 return ['note' => $payment->code.': '.Money::format($amount).' recorded as Pending via '.$payment->method.'.'];
             }, $referenceKey);
+    }
+
+    /** Submit a rider's collection for finance verification within the locked delivery transaction. */
+    public function collectDeliveryPayment(Order $order, array $input, User $actor, ?string $proofPath): void
+    {
+        $method = $input['payment_method'];
+        $reference = trim($input['payment_reference'] ?? '');
+        $amount = $this->positive($input['payment_amount']);
+        if ($order->payment()->exists() || $amount !== $order->total_cents || ($method !== 'Cash' && $reference === '')) {
+            $this->invalid('payment_amount', 'Enter the full order total and the transfer reference, when applicable. Only one payment is allowed.');
+        }
+
+        $referenceKey = $method === 'Cash' ? null
+            : hash('sha256', json_encode([$method, Str::lower($reference)], JSON_THROW_ON_ERROR));
+        if ($referenceKey !== null && OrderPayment::query()->where('method', $method)
+            ->whereRaw('LOWER(TRIM(reference)) = ?', [Str::lower($reference)])->exists()) {
+            $this->invalid('payment_reference', 'This payment reference is already recorded for this method.');
+        }
+
+        $payment = $order->payment()->create([
+            'code' => 'TMP-'.Str::ulid(), 'method' => $method, 'amount_cents' => $amount,
+            'status' => 'Pending', 'reference' => $reference === '' ? null : $reference, 'remarks' => $input['reason'],
+        ]);
+        $payment->update(['code' => 'PAY-'.str_pad((string) $payment->id, 3, '0', STR_PAD_LEFT)]);
+        try {
+            FinanceOperation::create([
+                'request_key' => $input['request_key'], 'request_hash' => hash('sha256', $payment->code),
+                'reference_key' => $referenceKey, 'kind' => 'delivery_payment', 'actor_id' => $actor->id,
+                'order_id' => $order->id, 'payment_id' => $payment->id, 'result_id' => $payment->id,
+                'metadata' => ['actor_name' => $actor->name, 'note' => 'Payment submitted by assigned rider for verification.', 'proof_path' => $proofPath],
+            ]);
+        } catch (QueryException $exception) {
+            if ($referenceKey !== null && $exception instanceof UniqueConstraintViolationException) {
+                $this->invalid('payment_reference', 'This payment reference is already recorded for this method.');
+            }
+            throw $exception;
+        }
     }
 
     /** Confirm only after verifying the actual receipt/transfer/cash collection. */
@@ -215,10 +283,12 @@ class SalesPaymentService
         $values = $this->validate('confirm', $input);
         $reason = $this->reason($values['reason']);
         $payload = ['payment_id' => (int) $payment->id, 'reason' => $reason];
+
         return $this->write('confirm', $values, $payload, $actor,
             fn () => $this->lockPayment($payment),
             function (array $context, FinanceOperation $operation) use ($values, $reason, $actor) {
-                $payment = $context['payment']; $order = $context['order'];
+                $payment = $context['payment'];
+                $order = $context['order'];
                 $sum = $this->refundTotal($payment, true);
                 $this->assertVersion($this->paymentVersion($payment, $order, $sum), $values['version']);
                 if ($order->status === 'Cancelled' || $payment->status !== 'Pending' || $sum !== 0) {
@@ -231,7 +301,10 @@ class SalesPaymentService
                 $payment->confirmed_by = $actor->id;
                 $payment->confirmed_at = now();
                 $payment->save();
+                $order->setRelation('payment', $payment);
+                app(OrderService::class)->completePaidOrder($order, $actor);
                 $operation->result_id = $payment->id;
+
                 return ['note' => $payment->code.' confirmed. '.$reason];
             });
     }
@@ -245,13 +318,15 @@ class SalesPaymentService
         $amount = $this->positive($values['amount']);
         $reason = $this->reason($values['reason']);
         $payload = ['payment_id' => (int) $payment->id, 'amount' => $amount, 'reason' => $reason];
+
         return $this->write('refund', $values, $payload, $actor,
             fn () => $this->lockPayment($payment),
             function (array $context, FinanceOperation $operation) use ($values, $amount, $reason, $actor) {
-                $payment = $context['payment']; $order = $context['order'];
+                $payment = $context['payment'];
+                $order = $context['order'];
                 $sum = $this->refundTotal($payment, true);
                 $this->assertVersion($this->paymentVersion($payment, $order, $sum), $values['version']);
-                if (!in_array($payment->status, ['Confirmed', 'Refunded'], true) || !$payment->confirmed_at) {
+                if (! in_array($payment->status, ['Confirmed', 'Refunded'], true) || ! $payment->confirmed_at) {
                     $this->invalid('payment', 'Only a previously confirmed payment can be refunded.');
                 }
                 if ($amount > (int) $payment->amount_cents - $sum) {
@@ -268,6 +343,7 @@ class SalesPaymentService
                 $payment->status = 'Refunded';
                 $payment->save();
                 $operation->result_id = $refund->id;
+
                 return ['note' => $refund->code.': '.Money::format($amount).' refunded against '.$payment->code.'. '.$reason];
             });
     }
@@ -285,7 +361,10 @@ class SalesPaymentService
                 $context = $lock();
                 $previous = FinanceOperation::where('request_key', $input['request_key'])->lockForUpdate()->first();
                 if ($previous) {
-                    if (!hash_equals($previous->request_hash, $hash)) $this->invalid('request_key', 'This request key was already used with different details.');
+                    if (! hash_equals($previous->request_hash, $hash)) {
+                        $this->invalid('request_key', 'This request key was already used with different details.');
+                    }
+
                     return;
                 }
                 $operation = FinanceOperation::create([
@@ -299,16 +378,21 @@ class SalesPaymentService
                 $operation->save();
             }, 3);
         } catch (QueryException $exception) {
-            if (!in_array((int) ($exception->errorInfo[1] ?? 0), [1062, 19], true)) throw $exception;
+            if (! in_array((int) ($exception->errorInfo[1] ?? 0), [1062, 19], true)) {
+                throw $exception;
+            }
             $previous = FinanceOperation::where('request_key', $input['request_key'])->first();
             if ($previous) {
-                if (!hash_equals($previous->request_hash, $hash)) $this->invalid('request_key', 'This request key was already used with different details.');
+                if (! hash_equals($previous->request_hash, $hash)) {
+                    $this->invalid('request_key', 'This request key was already used with different details.');
+                }
             } elseif ($referenceKey !== null && FinanceOperation::where('reference_key', $referenceKey)->exists()) {
                 $this->invalid('reference', 'This payment reference is already recorded for the selected method.');
             } else {
                 throw $exception;
             }
         }
+
         return $this->data($actor);
     }
 
@@ -317,13 +401,17 @@ class SalesPaymentService
         $order = Order::query()->lockForUpdate()->findOrFail($payment->order_id);
         $locked = OrderPayment::query()->lockForUpdate()->findOrFail($payment->id);
         abort_unless((int) $locked->order_id === (int) $order->id, 409);
+
         return ['order' => $order, 'payment' => $locked];
     }
 
     private function refundTotal(OrderPayment $payment, bool $lock = false): int
     {
         $query = PaymentRefund::where('payment_id', $payment->id)->orderBy('id');
-        if ($lock) $query->lockForUpdate();
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+
         return (int) $query->get()->sum('amount_cents');
     }
 
@@ -337,6 +425,7 @@ class SalesPaymentService
     private function orderVersion(Order $order): string
     {
         $order->loadMissing(['items', 'payment']);
+
         return $this->version(['order', (int) $order->id, $order->status, (int) $order->total_cents,
             $order->updated_at?->format('Y-m-d H:i:s'), $order->payment?->id,
             $order->items->sortBy('flower_id')->map(fn ($item) => $this->item($item))->values()->all()]);
@@ -359,7 +448,9 @@ class SalesPaymentService
 
     private function assertVersion(string $current, string $expected): void
     {
-        if (!hash_equals($current, $expected)) $this->invalid('version', 'Financial details changed. Refresh and reopen this action.');
+        if (! hash_equals($current, $expected)) {
+            $this->invalid('version', 'Financial details changed. Refresh and reopen this action.');
+        }
     }
 
     private function item($item): array
@@ -376,7 +467,7 @@ class SalesPaymentService
 
     private function authorize(User $actor): void
     {
-        abort_unless($actor->is_active && !$actor->must_change_password
+        abort_unless($actor->is_active && ! $actor->must_change_password
             && in_array($actor->role, [User::ROLE_ADMIN, User::ROLE_SUPPLIER], true), 403);
     }
 
@@ -385,21 +476,31 @@ class SalesPaymentService
         if (isset($input['request_key']) && is_string($input['request_key'])) {
             $input['request_key'] = Str::lower($input['request_key']);
         }
+
         return Validator::make($input, self::rules($kind))->validate();
     }
 
     private function positive(string $decimal): int
     {
-        try { $amount = Money::parse($decimal); }
-        catch (\InvalidArgumentException $exception) { $this->invalid('amount', 'Enter a valid exact monetary amount with at most two decimal places.'); }
-        if ($amount <= 0) $this->invalid('amount', 'Amount must be greater than zero.');
+        try {
+            $amount = Money::parse($decimal);
+        } catch (\InvalidArgumentException $exception) {
+            $this->invalid('amount', 'Enter a valid exact monetary amount with at most two decimal places.');
+        }
+        if ($amount <= 0) {
+            $this->invalid('amount', 'Amount must be greater than zero.');
+        }
+
         return $amount;
     }
 
     private function reason(string $reason): string
     {
         $reason = trim($reason);
-        if ($reason === '') $this->invalid('reason', 'Enter the verification or refund reason.');
+        if ($reason === '') {
+            $this->invalid('reason', 'Enter the verification or refund reason.');
+        }
+
         return $reason;
     }
 

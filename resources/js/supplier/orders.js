@@ -1,5 +1,6 @@
 import DataTable from 'datatables.net-bs5';
 import { Modal } from 'bootstrap';
+import { renderOrderItemFlowers } from './flower-table';
 
 const escapeHtml = (value) =>
     String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -119,7 +120,7 @@ class OrderManagementUI {
             data: this.orders,
             autoWidth: false,
             pageLength: 5,
-            order: [[1, 'desc'], [0, 'desc']],
+            order: [[2, 'desc'], [0, 'desc']],
             layout: {
                 topStart: null,
                 topEnd: null,
@@ -151,6 +152,12 @@ class OrderManagementUI {
                                 </div>
                             `
                             : `${value} ${row.clientName} ${row.clientId}`,
+                },
+                {
+                    data: 'items',
+                    orderable: false,
+                    searchable: false,
+                    render: (items, type) => type === 'display' ? renderOrderItemFlowers(items, escapeHtml) : '',
                 },
                 {
                     data: 'date',
@@ -215,7 +222,7 @@ class OrderManagementUI {
                 ${this.nextStatus(order)
                     ? button('advance', 'arrow-right-circle', `Move to ${this.nextStatus(order)}`)
                     : ''}
-                ${!['Completed', 'Cancelled'].includes(order.status)
+                ${!['Completed', 'Cancelled', 'Delivered'].includes(order.status)
                     ? button('cancel', 'x-circle', 'Cancel order')
                     : ''}
             </div>
@@ -573,7 +580,7 @@ class OrderManagementUI {
         if (!this.ready || this.saving) return;
         const next = this.nextStatus(order);
         if (action === 'advance' && !next) return;
-        if (action === 'cancel' && ['Completed','Cancelled'].includes(order.status)) return;
+        if (action === 'cancel' && ['Completed', 'Cancelled', 'Delivered'].includes(order.status)) return;
         const cancelling = action === 'cancel';
         const status = cancelling ? 'Cancelled' : next;
         this.pendingAction = {dbId: order.dbId, status, version: order.version};
@@ -581,17 +588,13 @@ class OrderManagementUI {
         this.el('orderCancelField').hidden = !cancelling;
         this.el('orderCancelReason').required = cancelling;
         this.el('orderCancelReason').value = '';
-        this.el('orderCollectedField').hidden = status !== 'Completed';
-        this.el('orderCollected').required = status === 'Completed';
-        this.el('orderCollected').checked = false;
         this.el('orderActionTitle').textContent = cancelling ? `Cancel ${order.id}` : `${order.id} — ${status}`;
         this.el('orderActionConfirm').textContent = cancelling ? 'Cancel Order' : `Mark ${status}`;
         const messages = {
             Confirmed: 'Confirmation checks all items and reserves the complete quantity. Physical stock is not deducted.',
             Processing: 'Begin preparing this order. Its stock remains reserved.',
-            'Ready for Pickup': 'Mark ready while awaiting actual collection. Stock remains reserved.',
+            'Ready for Pickup': 'Mark this order ready for pickup. Confirm full payment in Sales & Payments to complete it.',
             'Ready for Delivery': 'Mark ready for Delivery Management. This does not dispatch or deduct stock.',
-            Completed: 'Confirm actual collection of the complete order. This records FIFO Stock-Out once, consumes its reservation, and creates one Sales Record.',
             Cancelled: 'Cancel this order and release its active stock reservations. Enter the reason. Existing payment records are retained.',
         };
         this.el('orderActionMessage').textContent = messages[status] || '';
@@ -608,7 +611,6 @@ class OrderManagementUI {
         await this.submit(this.endpoint('actionUrl', pending.dbId), {
             status: pending.status, version: pending.version,
             reason: this.el('orderCancelReason').value.trim(),
-            collected: pending.status === 'Completed' && this.el('orderCollected').checked,
         }, 'orderActionError', this.actionModal);
     }
 
@@ -878,7 +880,7 @@ class OrderManagementUI {
                     <tbody>
                         ${order.items.map((item) => `
                             <tr>
-                                <td>${escapeHtml(item.flowerName)}</td>
+                                <td>${renderOrderItemFlowers([item], escapeHtml)}</td>
                                 <td>${item.quantity} ${escapeHtml(item.baseUnit)}</td>
                                 <td>${money(item.unitPrice)}</td>
                                 <td>${money(item.quantity * item.unitPrice)}</td>

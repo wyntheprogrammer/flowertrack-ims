@@ -8,7 +8,6 @@ use App\Models\Flower;
 use App\Models\InventoryBatch;
 use App\Models\InventoryMovement;
 use App\Services\InventoryService;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
@@ -60,8 +59,6 @@ class BatchController extends Controller
                         'id' => $batch->code,
                         'flower' => $batch->flower->code,
                         'received' => $batch->received_date->format('Y-m-d'),
-                        'harvest' => $batch->harvest_date->format('Y-m-d'),
-                        'expiry' => $batch->expiry_date?->format('Y-m-d') ?? '',
                         'initial' => (int) $batch->initial_quantity,
                         'remaining' => (int) $batch->remaining_quantity,
                         'remarks' => $batch->remarks ?? '',
@@ -77,8 +74,6 @@ class BatchController extends Controller
 
         return response()->json([
             'data' => $data,
-            'today' => CarbonImmutable::now('Asia/Manila')->toDateString(),
-            'warning_days' => 3,
         ]);
     }
 

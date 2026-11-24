@@ -43,8 +43,6 @@ class InventoryService
                     'flower_id' => $flower->id,
                     'code' => 'TMP-'.Str::ulid(),
                     'received_date' => $payload['received'],
-                    'harvest_date' => $payload['harvest'],
-                    'expiry_date' => $payload['expiry'],
                     'received_quantity' => $payload['quantity'],
                     'receiving_unit' => $payload['unit'],
                     'conversion_factor' => $factor,
@@ -101,8 +99,6 @@ class InventoryService
                 }
                 $locked->fill([
                     'received_date' => $payload['received'],
-                    'harvest_date' => $payload['harvest'],
-                    'expiry_date' => $payload['expiry'],
                     'received_quantity' => $payload['quantity'],
                     'receiving_unit' => $payload['unit'],
                     'conversion_factor' => $factor,
@@ -206,14 +202,12 @@ class InventoryService
     }
 
     /**
-     * Update descriptive dates and notes without changing any physical stock state.
+     * Update storage conditions and notes without changing any physical stock state.
      */
     public function updateBatchMetadata(InventoryBatch $batch, array $input, User $actor): array
     {
         $payload = [
             'batch_id' => (int) $batch->id,
-            'harvest' => $input['harvest'],
-            'expiry' => $this->text($input['expiry'] ?? null),
             'remarks' => $this->text($input['remarks'] ?? null),
             'version' => strtolower($input['version']),
         ];
@@ -230,15 +224,7 @@ class InventoryService
                 if (! hash_equals($this->batchVersion($locked), $payload['version'])) {
                     $this->invalid('version', 'This batch changed after you opened it. Refresh and review the latest details before saving.');
                 }
-                if ($payload['harvest'] > $locked->received_date->format('Y-m-d')) {
-                    $this->invalid('harvest', 'Harvest date cannot be after the recorded received date.');
-                }
-                if ($payload['expiry'] !== null && $payload['expiry'] < $payload['harvest']) {
-                    $this->invalid('expiry', 'Freshness date cannot be before the harvest date.');
-                }
                 $before = $this->receiptSnapshot($locked);
-                $locked->harvest_date = $payload['harvest'];
-                $locked->expiry_date = $payload['expiry'];
                 $locked->remarks = $payload['remarks'];
                 if (array_key_exists('storage_condition', $payload)) {
                     $locked->storage_condition = $payload['storage_condition'];
@@ -408,8 +394,6 @@ class InventoryService
             'quantity' => (int) $input['quantity'],
             'unit' => $input['unit'],
             'received' => $input['received'],
-            'harvest' => $input['harvest'],
-            'expiry' => $this->text($input['expiry'] ?? null),
             'remarks' => $this->text($input['remarks'] ?? null),
         ];
     }
@@ -478,7 +462,7 @@ class InventoryService
     }
 
     /**
-     * Total usable physical stock; expiry alone never causes an automatic deduction.
+     * Total usable physical stock.
      */
     private function onHand(int $flowerId): int
     {
@@ -518,8 +502,6 @@ class InventoryService
     {
         return [
             'received' => $batch->received_date->format('Y-m-d'),
-            'harvest' => $batch->harvest_date->format('Y-m-d'),
-            'expiry' => $batch->expiry_date?->format('Y-m-d'),
             'quantity' => (int) $batch->received_quantity,
             'unit' => $batch->receiving_unit,
             'factor' => (int) $batch->conversion_factor,

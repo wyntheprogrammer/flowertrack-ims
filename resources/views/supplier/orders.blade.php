@@ -58,6 +58,7 @@
                     <thead>
                         <tr>
                             <th scope="col">Order / Client</th>
+                            <th scope="col">Flowers</th>
                             <th scope="col">Order Date</th>
                             <th scope="col">Fulfillment</th>
                             <th scope="col">Total</th>
@@ -249,11 +250,6 @@
                     <div class="modal-body">
                         <div id="orderActionError" class="order-error" role="alert" hidden></div>
                         <p id="orderActionMessage" class="order-action-message"></p>
-                        <div class="form-check mb-3" id="orderCollectedField" hidden>
-                            <input class="form-check-input" type="checkbox" id="orderCollected">
-                            <label class="form-check-label" for="orderCollected">I confirm the customer has actually collected the complete order.</label>
-                        </div>
-
                         <div class="order-field" id="orderCancelField" hidden>
                             <label for="orderCancelReason">
                                 Cancellation Reason <span>*</span>

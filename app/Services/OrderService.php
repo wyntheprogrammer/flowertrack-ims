@@ -13,6 +13,7 @@ use App\Models\OrderItem;
 use App\Models\SalesRecord;
 use App\Models\User;
 use App\Support\Money;
+use Carbon\CarbonInterface;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -149,7 +150,7 @@ class OrderService
         });
     }
 
-    /** Coordinate explicit transitions, reservations, and once-only pickup completion. */
+    /** Coordinate staff transitions and stock reservations. */
     public function action(Order $order, array $input, User $actor): Order
     {
         return DB::transaction(function () use ($order, $input, $actor): Order {
@@ -167,8 +168,8 @@ class OrderService
 
             $this->assertVersion($locked, $input['version']);
 
-            if (in_array($locked->status, ['Completed', 'Cancelled'], true)) {
-                $this->invalid('status', 'Completed and cancelled orders cannot change status.');
+            if (in_array($locked->status, ['Completed', 'Cancelled', 'Delivered'], true)) {
+                $this->invalid('status', 'This order can no longer be changed from Order Management.');
             }
 
             $next = $this->nextStatus($locked);
@@ -177,14 +178,10 @@ class OrderService
                 $this->invalid('status', 'This transition is not available from the current order state.');
             }
 
-            $flowers = $this->lockFlowers($locked->items->pluck('flower_id')->all());
-            $quantities = $locked->items->mapWithKeys(
-                fn (OrderItem $item) => [(int) $item->flower_id => (int) $item->quantity]
-            )->all();
-
             $note = 'Order marked '.$desired.'.';
 
             if ($desired === 'Cancelled') {
+                $this->lockFlowers($locked->items->pluck('flower_id')->all());
                 $reason = trim($input['reason'] ?? '');
 
                 if ($reason === '') {
@@ -206,71 +203,22 @@ class OrderService
 
                 $note = $reason;
             } elseif ($desired === 'Confirmed') {
+                $flowers = $this->lockFlowers($locked->items->pluck('flower_id')->all());
+                $quantities = $locked->items->mapWithKeys(
+                    fn (OrderItem $item) => [(int) $item->flower_id => (int) $item->quantity]
+                )->all();
                 $this->assertAvailability($flowers, $quantities, $locked->code);
                 $this->syncHolds($locked, $quantities);
-            } elseif ($desired === 'Completed') {
-                if (
-                    $locked->method !== 'Customer Pickup'
-                    || ! filter_var($input['collected'] ?? false, FILTER_VALIDATE_BOOLEAN)
-                ) {
-                    $this->invalid('collected', 'Confirm actual pickup collection before completing this order.');
-                }
-
-                if ($locked->stocked_out) {
-                    $this->invalid('order', 'This order has already issued stock. Refresh its current state.');
-                }
-
-                foreach ($locked->items->sortBy('flower_id') as $item) {
-                    $reservation = InventoryReservation::query()
-                        ->where('flower_id', $item->flower_id)
-                        ->where('reference', $locked->code)
-                        ->lockForUpdate()
-                        ->first();
-
-                    if (
-                        $reservation === null
-                        || $reservation->status !== 'Active'
-                        || (int) $reservation->quantity !== (int) $item->quantity
-                    ) {
-                        $this->invalid('order', 'The order reservation is missing or inconsistent.');
-                    }
-
-                    app(InventoryService::class)->fulfillOrderReservation(
-                        $reservation,
-                        $item->fulfillment_key,
-                        $actor,
-                        $locked->code
-                    );
-                }
-
-                $locked->stocked_out = true;
-                $locked->completed_at = now();
-
-                $sale = SalesRecord::create([
-                    'order_id' => $locked->id,
-                    'client_id' => $locked->client_id,
-                    'code' => 'TMP-'.Str::ulid(),
-                    'client_name' => $locked->client_name,
-                    'client_code' => $locked->client_code,
-                    'items' => $locked->items->map(
-                        fn (OrderItem $item) => $this->itemRow($item)
-                    )->values()->all(),
-                    'subtotal_cents' => $locked->subtotal_cents,
-                    'fee_cents' => $locked->fee_cents,
-                    'total_cents' => $locked->total_cents,
-                    'completed_at' => $locked->completed_at,
-                ]);
-
-                $sale->code = 'SALE-'.str_pad((string) $sale->id, 3, '0', STR_PAD_LEFT);
-                $sale->save();
-
-                $note = 'Pickup collected; reserved stock issued and sale recorded.';
             }
 
             $locked->status = $desired;
             $locked->save();
 
             $this->history($locked, $actor, $note);
+
+            if ($locked->method === 'Customer Pickup') {
+                $this->completePaidOrder($locked, $actor);
+            }
 
             if ($desired === 'Ready for Delivery') {
                 app(DeliveryService::class)->createForOrder($locked, $actor);
@@ -282,10 +230,90 @@ class OrderService
         });
     }
 
+    /** Complete an eligible paid order within the caller's transaction and order lock. */
+    public function completePaidOrder(Order $order, User $actor): void
+    {
+        $pickup = $order->method === 'Customer Pickup' && in_array($order->status, ['Confirmed', 'Processing', 'Ready for Pickup'], true);
+        $delivered = $order->method === 'Delivery' && $order->status === 'Delivered' && $order->stocked_out;
+        if (! $pickup && ! $delivered) {
+            return;
+        }
+
+        $order->loadMissing('payment');
+        if ($order->payment?->status !== 'Confirmed' || $order->payment->amount_cents !== $order->total_cents) {
+            return;
+        }
+
+        $completedAt = now();
+        if ($pickup) {
+            $this->fulfillPaidPickup($order, $actor, $completedAt);
+        }
+
+        $order->status = 'Completed';
+        $order->completed_at = $completedAt;
+        $order->save();
+        $this->history($order, $actor, $pickup
+            ? 'Full payment confirmed; reserved pickup stock issued and sale recorded.'
+            : 'Full payment and delivery confirmed.');
+    }
+
+    /** Fulfill all reserved items and record one sale for the paid pickup. */
+    private function fulfillPaidPickup(Order $order, User $actor, CarbonInterface $completedAt): void
+    {
+        $order->loadMissing('items');
+        if ($order->stocked_out || $order->items->isEmpty()) {
+            $this->invalid('order', 'Only an outstanding pickup with items can be completed.');
+        }
+
+        $this->lockFlowers($order->items->pluck('flower_id')->all());
+        foreach ($order->items->sortBy('flower_id') as $item) {
+            $reservation = InventoryReservation::query()
+                ->where('flower_id', $item->flower_id)
+                ->where('reference', $order->code)
+                ->lockForUpdate()
+                ->first();
+
+            if (
+                $reservation === null
+                || $reservation->status !== 'Active'
+                || (int) $reservation->quantity !== (int) $item->quantity
+            ) {
+                $this->invalid('order', 'The order reservation is missing or inconsistent.');
+            }
+
+            app(InventoryService::class)->fulfillOrderReservation(
+                $reservation,
+                $item->fulfillment_key,
+                $actor,
+                $order->code
+            );
+        }
+
+        $order->stocked_out = true;
+
+        $sale = SalesRecord::create([
+            'order_id' => $order->id,
+            'client_id' => $order->client_id,
+            'code' => 'TMP-'.Str::ulid(),
+            'client_name' => $order->client_name,
+            'client_code' => $order->client_code,
+            'items' => $order->items->map(
+                fn (OrderItem $item) => $this->itemRow($item)
+            )->values()->all(),
+            'subtotal_cents' => $order->subtotal_cents,
+            'fee_cents' => $order->fee_cents,
+            'total_cents' => $order->total_cents,
+            'completed_at' => $completedAt,
+        ]);
+
+        $sale->code = 'SALE-'.str_pad((string) $sale->id, 3, '0', STR_PAD_LEFT);
+        $sale->save();
+    }
+
     /** Expose a credential-free order DTO with immutable item snapshots and exact cents. */
     public function row(Order $order, User $actor): array
     {
-        $order->loadMissing(['items', 'histories', 'payment']);
+        $order->loadMissing(['items.flower:id,image_path', 'histories', 'payment']);
         $payment = $order->payment;
 
         return [
@@ -311,7 +339,10 @@ class OrderService
             'stockedOut' => (bool) $order->stocked_out,
             'version' => $this->version($order),
             'items' => $order->items->sortBy('flower_id')->map(
-                fn (OrderItem $item) => $this->itemRow($item)
+                fn (OrderItem $item) => [
+                    ...$this->itemRow($item),
+                    'imageUrl' => $item->catalogImageUrl(),
+                ]
             )->values()->all(),
             'history' => $order->histories->sortBy('id')->map(
                 fn (OrderHistory $entry) => [
@@ -625,9 +656,6 @@ class OrderService
             'Processing' => $order->method === 'Customer Pickup'
                 ? 'Ready for Pickup'
                 : 'Ready for Delivery',
-            'Ready for Pickup' => $order->method === 'Customer Pickup'
-                ? 'Completed'
-                : null,
             default => null,
         };
     }

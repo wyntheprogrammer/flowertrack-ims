@@ -101,7 +101,6 @@
                             <th scope="col">Batch</th>
                             <th scope="col">Flower Details</th>
                             <th scope="col">Remaining</th>
-                            <th scope="col">Freshness / Expiry</th>
                             <th scope="col">Risk Level</th>
                             <th scope="col">Recommendation</th>
                             <th scope="col">Actions</th>

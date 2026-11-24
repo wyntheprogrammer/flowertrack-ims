@@ -46,7 +46,7 @@ class OrderTrackingController extends Controller
                 'schedule' => $entry->status === 'Rescheduled' ? 'Delivery rescheduled' : 'Delivery scheduled',
                 'dispatch' => 'Out for Delivery',
                 'fail' => 'Delivery attempt failed',
-                'deliver' => 'Completed',
+                'deliver' => 'Delivered',
                 'cancel' => 'Delivery cancelled',
                 default => null,
             };

@@ -14,6 +14,7 @@ class SpoilagePredictionController extends Controller
     public function index(Request $request): View
     {
         $this->checkAccess($request);
+
         return view('supplier.spoilage-prediction');
     }
 
@@ -33,8 +34,6 @@ class SpoilagePredictionController extends Controller
                 'baseUnit' => $batch->flower->product_type,
                 'remaining' => (int) $batch->remaining_quantity,
                 'receivedDate' => $batch->received_date->toDateString(),
-                'harvestDate' => $batch->harvest_date->toDateString(),
-                'expiryDate' => $batch->expiry_date?->toDateString(),
                 'storageCondition' => $batch->storage_condition,
                 'predictionStatus' => $prediction?->status ?? 'NotGenerated',
                 'risk' => $prediction?->risk_level,
@@ -51,6 +50,7 @@ class SpoilagePredictionController extends Controller
                 'needsRefresh' => $plan['cached'] === null,
             ];
         }
+
         return response()->json(['data' => $rows])->header('Cache-Control', 'no-store');
     }
 
@@ -58,6 +58,7 @@ class SpoilagePredictionController extends Controller
     public function refresh(Request $request, SpoilagePredictionService $service): JsonResponse
     {
         $this->checkAccess($request);
+
         return response()->json($service->refresh($request->user()))
             ->header('Cache-Control', 'no-store');
     }
@@ -67,6 +68,7 @@ class SpoilagePredictionController extends Controller
     {
         $this->checkAccess($request);
         $prediction = $service->generate($batch, $request->user());
+
         return response()->json([
             'message' => $prediction->status === 'Predicted' ? 'Prediction saved.' : 'Insufficient supporting history.',
             'data' => $prediction->only(['batch_id', 'status', 'risk_level', 'predicted_quantity', 'method', 'history_days', 'message']),

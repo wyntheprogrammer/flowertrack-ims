@@ -164,7 +164,7 @@
             <div class="modal-header">
                 <div>
                     <h2 class="modal-title" id="stockInTitle">Stock-In</h2>
-                    <p>Receive stock and create its batch record. Receipt corrections are recorded in history.</p>
+                    <p id="stockInDescription">Receive stock and create a batch record.</p>
                 </div>
                 <button type="button"
                         class="btn-close"
@@ -209,17 +209,6 @@
                         <div class="inv-field">
                             <label for="inReceived">Date Received <span>*</span></label>
                             <input type="date" id="inReceived" required>
-                        </div>
-
-                        <div class="inv-field">
-                            <label for="inHarvest">Harvest Date <span>*</span></label>
-                            <input type="date" id="inHarvest" required>
-                        </div>
-
-                        <div class="inv-field">
-                            <label for="inExpiry">Expected Freshness / Expiry</label>
-                            <input type="date" id="inExpiry">
-                            <small>Optional. This does not automatically deduct stock.</small>
                         </div>
 
                         <div class="inv-field">

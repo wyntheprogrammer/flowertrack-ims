@@ -164,7 +164,6 @@
 /* FEEDBACK */
 
 .batch-notice,
-.batch-warning,
 .batch-error {
     padding: 12px 15px;
     border: 1px solid transparent;
@@ -179,12 +178,6 @@
     color: #27623a;
 }
 
-.batch-warning {
-    border-color: #f1dfb6;
-    background: #fff8e9;
-    color: #8b651d;
-}
-
 .batch-error {
     border-color: #efd4d7;
     background: #fff0f0;
@@ -192,12 +185,10 @@
 }
 
 .batch-card > .batch-notice,
-.batch-card > .batch-warning,
 .batch-card > .batch-error {
     margin: 0 24px 18px;
 }
 
-.batch-modal .batch-warning,
 .batch-modal .batch-error {
     margin-bottom: 18px;
 }
@@ -390,16 +381,11 @@
 
 #batchTable col:nth-child(6),
 #batchTable th:nth-child(6) {
-    width: 15% !important;
+    width: 13% !important;
 }
 
 #batchTable col:nth-child(7),
 #batchTable th:nth-child(7) {
-    width: 13% !important;
-}
-
-#batchTable col:nth-child(8),
-#batchTable th:nth-child(8) {
     width: 12% !important;
 }
 
@@ -490,10 +476,9 @@
     font-size: 18px;
 }
 
-/* STATUS AND FRESHNESS BADGES */
+/* STATUS BADGES */
 
-.batch-status-badge,
-.batch-freshness-badge {
+.batch-status-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -522,31 +507,6 @@
 .batch-status-badge.spoiled {
     background: #f9e9ec;
     color: #ad5966;
-}
-
-.batch-freshness-badge {
-    margin-top: 5px;
-    padding: 3px 8px;
-}
-
-.batch-freshness-badge.fresh {
-    background: #eaf5ed;
-    color: #39734d;
-}
-
-.batch-freshness-badge.soon {
-    background: #fff5df;
-    color: #94691b;
-}
-
-.batch-freshness-badge.expired {
-    background: #f9e9ec;
-    color: #ad5966;
-}
-
-.batch-freshness-badge.unset {
-    background: #f0edf4;
-    color: #81728f;
 }
 
 /* ACTIONS */
@@ -954,7 +914,6 @@
     }
 
     .batch-card > .batch-notice,
-    .batch-card > .batch-warning,
     .batch-card > .batch-error {
         margin-left: 16px;
         margin-right: 16px;

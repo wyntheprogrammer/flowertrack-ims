@@ -18,7 +18,6 @@ class OrderActionRequest extends OrderRequest
                 'Processing',
                 'Ready for Pickup',
                 'Ready for Delivery',
-                'Completed',
                 'Cancelled',
             ]),
         ];
@@ -36,11 +35,6 @@ class OrderActionRequest extends OrderRequest
                 'string',
                 'max:500',
                 'required_if:status,Cancelled',
-            ],
-            'collected' => [
-                'required_if:status,Completed',
-                'boolean',
-                'accepted_if:status,Completed',
             ],
             'items' => ['prohibited'],
             'client_id' => ['prohibited'],
