@@ -53,7 +53,11 @@
                     data-store-url="{{ route('supplier.clients.store') }}"
                     data-show-url="{{ route('supplier.clients.show', ['client' => '__CLIENT__']) }}"
                     data-update-url="{{ route('supplier.clients.update', ['client' => '__CLIENT__']) }}"
-                    data-status-url="{{ route('supplier.clients.status', ['client' => '__CLIENT__']) }}">
+                    data-status-url="{{ route('supplier.clients.status', ['client' => '__CLIENT__']) }}"
+                    @if (auth()->user()->isAdmin())
+                        data-reset-password-url="{{ route('supplier.clients.reset-password', ['client' => '__CLIENT__']) }}"
+                    @endif
+                >
                     <thead>
                         <tr>
                             <th scope="col">Client Details</th>
@@ -281,4 +285,33 @@
             </div>
         </div>
     </div>
+    @if (auth()->user()->isAdmin())
+        <div class="modal fade" id="clientPasswordResetModal" tabindex="-1" aria-labelledby="clientPasswordResetTitle"
+             aria-describedby="clientPasswordResetMessage" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content client-modal">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="clientPasswordResetTitle">Reset Password</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="client-status-message" id="clientPasswordResetMessage"></p>
+                        <div id="clientPasswordResetError" class="client-form-error" role="alert" hidden></div>
+                        <div id="clientPasswordResetResult" hidden>
+                            <div class="client-field">
+                                <label for="clientTemporaryPassword">Temporary password</label>
+                                <input id="clientTemporaryPassword" type="text" autocomplete="off" spellcheck="false" readonly>
+                            </div>
+                            <button type="button" class="client-secondary-btn mt-2" id="copyClientPassword">Copy Password</button>
+                            <p class="mb-0 mt-2" id="clientPasswordCopyStatus" role="status"></p>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="client-secondary-btn" id="dismissClientPasswordReset" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="client-primary-btn" id="confirmClientPasswordReset">Reset Password</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 @endsection

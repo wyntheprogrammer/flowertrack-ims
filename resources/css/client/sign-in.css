@@ -1,12 +1,6 @@
 .shop-auth {
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-    min-height: 100dvh;
     background: #faf2e8;
 }
-
-.shop-auth main { flex: 1 0 auto; }
 
 .shop-auth-page {
     width: min(92%, 32rem);

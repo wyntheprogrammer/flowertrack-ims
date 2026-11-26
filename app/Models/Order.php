@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 /**
  * Persisted order domain data; mutations are coordinated by the order service.
  */
-#[Fillable(['code', 'request_key', 'request_hash', 'client_id', 'client_code', 'client_name', 'client_email', 'method', 'address', 'notes', 'status', 'subtotal_cents', 'fee_cents', 'total_cents', 'stocked_out', 'completed_at'])]
+#[Fillable(['code', 'request_key', 'request_hash', 'client_id', 'client_code', 'client_name', 'client_email', 'method', 'address', 'notes', 'status', 'subtotal_cents', 'fee_cents', 'delivery_fee_snapshot_cents', 'total_cents', 'stocked_out', 'completed_at'])]
 class Order extends Model
 {
     protected function casts(): array
@@ -20,6 +20,7 @@ class Order extends Model
             'client_id' => 'integer',
             'subtotal_cents' => 'integer',
             'fee_cents' => 'integer',
+            'delivery_fee_snapshot_cents' => 'integer',
             'total_cents' => 'integer',
             'stocked_out' => 'boolean',
             'completed_at' => 'datetime',

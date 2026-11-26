@@ -497,9 +497,7 @@ class OrderManagementUI {
             (order) => order.id === this.el('orderEditingId').value,
         );
 
-        return existing?.method === 'Delivery'
-            ? existing.deliveryFee
-            : this.deliveryFeeCents;
+        return existing ? existing.deliveryFeeSnapshotCents : this.deliveryFeeCents;
     }
 
     /* ==================================================

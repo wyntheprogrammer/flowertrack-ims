@@ -2,6 +2,12 @@
 @section('title', 'My Orders')
 @section('body-class', 'shop-orders')
 @section('account-content')
+    @include('client.partials.history-filters', [
+        'action' => route('client.orders'),
+        'searchLabel' => 'My orders',
+        'searchPlaceholder' => 'Product name or order number',
+    ])
+
     @forelse ($orders as $order)
         <article class="order-entry">
             <div>
@@ -13,10 +19,17 @@
                 <span>{{ $order->status }}</span>
                 <a href="{{ route('client.orders.show', $order) }}">View order<span class="visually-hidden"> {{ $order->code }}</span></a>
             </div>
+            @include('client.partials.history-items', ['items' => $order->items])
         </article>
     @empty
-        <p>You haven’t placed an order yet</p>
-        <a class="shop-action" href="{{ route('client.catalog') }}">Browse flowers</a>
+        @if ($orders->total() > 0)
+            <p>There are no orders on this page.</p>
+        @elseif ($filters->parameters())
+            <p>No orders match your filters.</p>
+        @else
+            <p>You haven’t placed an order yet</p>
+            <a class="shop-action" href="{{ route('client.catalog') }}">Browse flowers</a>
+        @endif
     @endforelse
     {{ $orders->links('pagination::simple-bootstrap-5') }}
 @endsection

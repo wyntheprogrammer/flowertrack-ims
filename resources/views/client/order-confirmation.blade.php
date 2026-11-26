@@ -30,9 +30,16 @@
                 @foreach ($order->items as $item)
                     <article class="checkout-item checkout-confirmation-item" aria-labelledby="order-item-{{ $item->id }}">
                         <div class="checkout-item-info">
-                            <h3 id="order-item-{{ $item->id }}">{{ $item->name }}</h3>
-                            <p>₱{{ number_format($item->unit_price_cents / 100, 2) }} per {{ strtolower($item->base_unit) }}</p>
-                            <p>Quantity {{ number_format($item->quantity) }}</p>
+                            <div @class(['history-item' => $history ?? false])>
+                                @if ($history ?? false)
+                                    @include('client.partials.history-item-photo', ['item' => $item])
+                                @endif
+                                <div>
+                                    <h3 id="order-item-{{ $item->id }}">{{ $item->name }}</h3>
+                                    <p>₱{{ number_format($item->unit_price_cents / 100, 2) }} per {{ strtolower($item->base_unit) }}</p>
+                                    <p>Quantity {{ number_format($item->quantity) }}</p>
+                                </div>
+                            </div>
                         </div>
                         <div class="checkout-line-total">
                             <span class="visually-hidden">Line total</span>

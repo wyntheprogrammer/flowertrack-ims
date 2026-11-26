@@ -1,15 +1,9 @@
 .shop-cart {
     --cart-forest: #153827;
     --cart-hover: #17613b;
-    display: flex;
-    min-height: 100vh;
-    min-height: 100dvh;
-    flex-direction: column;
     background: #faf2e8;
     color: #142e21;
 }
-
-.shop-cart main { flex: 1 0 auto; }
 
 .shopping-cart {
     width: min(92%, 1240px);

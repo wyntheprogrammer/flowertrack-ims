@@ -89,6 +89,20 @@ class ClientService
         });
     }
 
+    public function resetPassword(Client $client): string
+    {
+        return DB::transaction(function () use ($client): string {
+            [, $user] = $this->lockProfile($client);
+            $temporaryPassword = Str::random(24);
+            $user->password = $temporaryPassword;
+            $user->must_change_password = true;
+            $user->remember_token = null;
+            $user->save();
+
+            return $temporaryPassword;
+        });
+    }
+
     /**
      * Serialize an explicit public allowlist; no credentials or privilege internals leave here.
      */

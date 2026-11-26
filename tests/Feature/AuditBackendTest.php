@@ -96,6 +96,7 @@ class AuditBackendTest extends TestCase
             'create_inventory_tables',
             'remove_harvest_and_expiry_dates_from_inventory_batches_table',
             'create_order_tables',
+            'create_delivery_fee_settings',
             'create_delivery_tables',
             'create_finance_tables',
         ] as $name) {
@@ -142,6 +143,44 @@ class AuditBackendTest extends TestCase
         $this->assertSame(11, (int) $events[2]->before_values['minimum_stock']);
         $this->assertSame(12, (int) $events[2]->after_values['minimum_stock']);
         $this->assertSame($this->admin->id, $events[2]->actor_id);
+    }
+
+    public function test_only_administrators_can_manage_delivery_fees_and_each_change_is_audited(): void
+    {
+        $this->withoutVite();
+        $page = route('supplier.deliveries');
+        $update = route('supplier.deliveries.fee-settings.update');
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 7525]);
+
+        $this->signIn($this->supplier);
+        $this->get($page)->assertOk()->assertDontSeeText('Delivery Fee Settings');
+        $this->put($update, ['delivery_fee' => '0'])->assertForbidden();
+
+        $personnel = $this->user('delivery', User::ROLE_DELIVERY);
+        $this->signIn($personnel);
+        $this->get(route('delivery.deliveries'))->assertOk()->assertDontSeeText('Delivery Fee Settings');
+        $this->put($update, ['delivery_fee' => '0'])->assertForbidden();
+
+        $this->signIn($this->admin);
+        $this->get($page)->assertOk()->assertSeeText('Delivery Fee Settings')->assertSee('value="75.25"', false);
+        $this->withCookie(session()->getName(), session()->getId());
+        foreach (['-1', '1.001', '1e2', '10000000000', ''] as $amount) {
+            $this->from($page)->put($update, ['delivery_fee' => $amount])->assertRedirect($page)
+                ->assertSessionHasErrorsIn('deliveryFeeSettings', 'delivery_fee');
+        }
+        $this->get($page)->assertOk()->assertSee('data-reopen', false);
+        $this->assertDatabaseHas('delivery_fee_settings', ['id' => 1, 'fee_cents' => 7525]);
+
+        $this->put($update, ['delivery_fee' => '0'])->assertRedirect($page);
+        $this->get($page)->assertOk()->assertSeeText('Delivery fee saved.')->assertSee('value="0.00"', false);
+        $this->put($update, ['delivery_fee' => '0.00'])->assertRedirect($page);
+        $this->assertDatabaseHas('delivery_fee_settings', ['id' => 1, 'fee_cents' => 0]);
+
+        $event = AuditEvent::where('action', 'Delivery Fee Updated')->sole();
+        $this->assertSame('Delivery Management', $event->module);
+        $this->assertSame($this->admin->id, $event->actor_id);
+        $this->assertSame(['fee_cents' => 7525], $event->before_values);
+        $this->assertSame(['fee_cents' => 0], $event->after_values);
     }
 
     public function test_secrets_are_excluded_and_password_changes_use_a_flag(): void

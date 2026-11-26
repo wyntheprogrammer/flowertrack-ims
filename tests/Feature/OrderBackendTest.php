@@ -66,7 +66,6 @@ class OrderBackendTest extends TestCase
                 'foreign_key_constraints' => true,
             ],
             'database.default' => 'order_backend_test',
-            'orders.delivery_fee' => null,
         ]);
         $this->testConnectionConfigured = true;
         DB::purge('order_backend_test');
@@ -101,6 +100,7 @@ class OrderBackendTest extends TestCase
             'create_inventory_tables',
             'remove_harvest_and_expiry_dates_from_inventory_batches_table',
             'create_order_tables',
+            'create_delivery_fee_settings',
             'create_delivery_tables',
             'create_finance_tables',
             'create_batch_daily_observations_table',
@@ -138,7 +138,7 @@ class OrderBackendTest extends TestCase
     }
 
     /** Duplicate requested lines aggregate before snapshots and creation UUID replay is safe. */
-    public function test_creation_aggregates_lines_without_reserving_and_replays_matching_uuid(): void
+    public function test_creation_aggregates_lines_and_reserves_stock_once_on_pending_orders(): void
     {
         $input = $this->input([
             'items' => [['flower_id' => $this->stem->id, 'quantity' => 2], ['flower_id' => $this->stem->id, 'quantity' => 3]],
@@ -151,7 +151,10 @@ class OrderBackendTest extends TestCase
         $this->assertSame(1, $first->items()->count());
         $this->assertSame(5, $first->items()->first()->quantity);
         $this->assertSame(6250, $first->total_cents);
-        $this->assertSame(0, InventoryReservation::count());
+        $this->assertDatabaseCount('inventory_reservations', 1);
+        $this->assertDatabaseHas('inventory_reservations', [
+            'flower_id' => $this->stem->id, 'reference' => $first->code, 'quantity' => 5, 'status' => 'Active',
+        ]);
         $this->assertSame(20, $this->remaining($this->stem));
         $input['items'][0]['quantity'] = 4;
         $this->rejected(fn () => $this->orders->store($input, $this->supplier), 'request_key');
@@ -167,7 +170,7 @@ class OrderBackendTest extends TestCase
         $this->assertSame(1, Order::count());
     }
 
-    /** Admin review alone can confirm and place a hold; cancelling releases it without stock-out. */
+    /** Only Admin can confirm the order, and confirmation preserves the original hold. */
     public function test_admin_confirmation_and_cancellation_manage_holds_without_deduction(): void
     {
         $order = $this->orders->store($this->input(), $this->supplier);
@@ -180,7 +183,9 @@ class OrderBackendTest extends TestCase
             }
         }
         $this->assertSame('Pending', $order->fresh()->status);
+        $reservationId = InventoryReservation::sole()->id;
         $this->action($order, 'Confirmed', $this->admin);
+        $this->assertSame($reservationId, InventoryReservation::sole()->id);
         $this->assertSame(4, (int) InventoryReservation::where('status', 'Active')->sum('quantity'));
         $this->assertSame(20, $this->remaining($this->stem));
         $this->action($order, 'Cancelled', $this->supplier, ['reason' => 'Client requested cancellation.']);
@@ -190,36 +195,50 @@ class OrderBackendTest extends TestCase
         $this->assertSame(0, InventoryMovement::where('type', 'Stock-Out')->count());
     }
 
-    /** Confirmation rechecks availability and rolls back a mixed order's partial holds. */
-    public function test_insufficient_confirmed_stock_rolls_back_all_new_reservations(): void
+    public function test_pending_orders_prevent_a_second_order_from_overbooking_any_line(): void
     {
         $first = $this->orders->store($this->input(['items' => [['flower_id' => $this->stem->id, 'quantity' => 18]]]), $this->supplier);
-        $second = $this->orders->store($this->input([
+        $second = $this->input([
             'items' => [
                 ['flower_id' => $this->bouquet->id, 'quantity' => 1],
                 ['flower_id' => $this->stem->id, 'quantity' => 5],
             ],
-        ]), $this->supplier);
-        $this->action($first, 'Confirmed', $this->admin);
-        $this->rejected(fn () => $this->action($second, 'Confirmed', $this->admin));
-        $this->assertSame('Pending', $second->fresh()->status);
+        ]);
+        $this->rejected(fn () => $this->orders->store($second, $this->supplier), 'items');
+        $this->assertSame('Pending', $first->fresh()->status);
+        $this->assertDatabaseCount('orders', 1);
+        $this->assertDatabaseCount('inventory_reservations', 1);
         $this->assertSame(18, (int) InventoryReservation::where('status', 'Active')->sum('quantity'));
-        $this->assertSame(0, InventoryReservation::where('reference', $second->code)->count());
         $this->assertSame(20, $this->remaining($this->stem));
         $this->assertSame(5, $this->remaining($this->bouquet));
         $this->assertSame(0, (int) BatchDailyObservation::sum('released_quantity'));
+
+        $this->action($first, 'Cancelled', $this->supplier, ['reason' => 'Client cancelled.']);
+        $this->action($first, 'Cancelled', $this->supplier);
+        $this->assertSame(2, $first->histories()->count());
+        $order = $this->orders->store($second, $this->supplier);
+        $this->assertSame(2, InventoryReservation::where('reference', $order->code)->where('status', 'Active')->count());
     }
 
     /** Existing item prices remain immutable and any payment row blocks profile edits. */
     public function test_edits_preserve_line_price_snapshots_and_block_recorded_payments(): void
     {
-        $order = $this->orders->store($this->input(), $this->supplier);
+        $order = $this->orders->store($this->input(['items' => [
+            ['flower_id' => $this->stem->id, 'quantity' => 4],
+            ['flower_id' => $this->bouquet->id, 'quantity' => 1],
+        ]]), $this->supplier);
         FlowerPrice::where('flower_id', $this->stem->id)->update(['price_cents' => 9900]);
         $updated = $this->orders->update($order, $this->edit($order, [
             'items' => [['flower_id' => $this->stem->id, 'quantity' => 3]],
         ]), $this->supplier);
         $this->assertSame(1250, $updated->items()->first()->unit_price_cents);
         $this->assertSame(3750, $updated->total_cents);
+        $this->assertDatabaseHas('inventory_reservations', [
+            'reference' => $order->code, 'flower_id' => $this->stem->id, 'quantity' => 3, 'status' => 'Active',
+        ]);
+        $this->assertDatabaseHas('inventory_reservations', [
+            'reference' => $order->code, 'flower_id' => $this->bouquet->id, 'status' => 'Released',
+        ]);
         OrderPayment::create([
             'order_id' => $order->id,
             'code' => 'PAY-001',
@@ -317,10 +336,13 @@ class OrderBackendTest extends TestCase
         $input = $this->input(['method' => 'Delivery', 'address' => 'Test delivery address']);
         $this->rejected(fn () => $this->orders->store($input, $this->supplier));
         $this->assertSame(0, Order::count());
-        config(['orders.delivery_fee' => '75.25']);
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 7525]);
         $order = $this->orders->store($input, $this->supplier);
         $this->assertSame(7525, $order->fee_cents);
-        config(['orders.delivery_fee' => null]);
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 0]);
+        $this->assertSame(7525, $order->fresh()->fee_cents);
+        $freeDelivery = $this->orders->store($this->input(['method' => 'Delivery', 'address' => 'Test delivery address']), $this->supplier);
+        $this->assertSame(0, $freeDelivery->fee_cents);
         $edited = $this->orders->update($order, $this->edit($order, ['method' => 'Delivery', 'address' => 'Updated address']), $this->supplier);
         $this->assertSame(7525, $edited->fee_cents);
         $this->action($order, 'Confirmed', $this->admin);
@@ -329,6 +351,36 @@ class OrderBackendTest extends TestCase
         $this->rejected(fn () => $this->action($order, 'Completed', $this->supplier), 'status');
         $this->assertSame(20, $this->remaining($this->stem));
         $this->assertSame(0, SalesRecord::count());
+    }
+
+    public function test_delivery_fee_migration_imports_the_legacy_fee_and_keeps_existing_order_pricing(): void
+    {
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 7525]);
+        $delivery = $this->orders->store($this->input(['method' => 'Delivery', 'address' => 'Delivery address']), $this->supplier);
+        $pickup = $this->orders->store($this->input(), $this->supplier);
+        $migration = require glob(database_path('migrations/*_create_delivery_fee_settings.php'))[0];
+        $migration->down();
+
+        $previousFee = $_SERVER['ORDER_DELIVERY_FEE'] ?? null;
+        try {
+            $_SERVER['ORDER_DELIVERY_FEE'] = '100.00';
+            $migration->up();
+        } finally {
+            if ($previousFee === null) {
+                unset($_SERVER['ORDER_DELIVERY_FEE']);
+            } else {
+                $_SERVER['ORDER_DELIVERY_FEE'] = $previousFee;
+            }
+        }
+
+        $this->assertSame(10000, $this->orders->configuredDeliveryFee());
+        $this->assertSame(7525, $delivery->fresh()->fee_cents);
+        $this->assertSame($delivery->total_cents, $delivery->fresh()->total_cents);
+        $this->assertSame(0, $pickup->fresh()->fee_cents);
+
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 0]);
+        $converted = $this->orders->update($pickup, $this->edit($pickup, ['method' => 'Delivery', 'address' => 'Delivery address']), $this->supplier);
+        $this->assertSame(10000, $converted->fee_cents);
     }
 
     /** Stale edits and increasing inactive existing catalog lines cannot overwrite valid state. */
@@ -422,6 +474,19 @@ class OrderBackendTest extends TestCase
 
         $this->assertSame('Completed', $order->fresh()->status);
         $this->assertSame(1, SalesRecord::where('order_id', $order->id)->count());
+    }
+
+    public function test_confirmation_can_reserve_stock_for_an_order_created_before_pending_holds(): void
+    {
+        $order = $this->orders->store($this->input(), $this->supplier);
+        InventoryReservation::where('reference', $order->code)->delete();
+
+        $this->action($order, 'Confirmed', $this->admin);
+
+        $this->assertSame('Confirmed', $order->fresh()->status);
+        $this->assertDatabaseHas('inventory_reservations', [
+            'reference' => $order->code, 'flower_id' => $this->stem->id, 'quantity' => 4, 'status' => 'Active',
+        ]);
     }
 
     /** @return array{OrderPayment, array{request_key: string, version: string, reason: string}} */

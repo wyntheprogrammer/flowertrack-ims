@@ -5,24 +5,47 @@ namespace App\Http\Controllers\Supplier;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DeliveryActionRequest;
 use App\Models\Delivery;
+use App\Services\DeliveryFeeService;
 use App\Services\DeliveryService;
+use App\Support\Money;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DeliveryController extends Controller
 {
     public function __construct(
         private readonly DeliveryService $deliveries
-    ) {
-    }
+    ) {}
 
     /** Display the approved Delivery Management layout. */
-    public function index(): View
+    public function index(Request $request, DeliveryFeeService $fees): View
     {
-        return view('supplier.deliveries');
+        $fee = $request->user()->isAdmin() ? $fees->currentFee() : null;
+
+        return view('supplier.deliveries', [
+            'deliveryFee' => $fee === null ? null : Money::format($fee),
+        ]);
+    }
+
+    public function updateFee(Request $request, DeliveryFeeService $fees): RedirectResponse
+    {
+        $amount = $request->validateWithBag('deliveryFeeSettings', ['delivery_fee' => ['required', 'string']])['delivery_fee'];
+        try {
+            $fee = Money::parse($amount);
+        } catch (InvalidArgumentException $exception) {
+            throw ValidationException::withMessages(['delivery_fee' => $exception->getMessage()])
+                ->errorBag('deliveryFeeSettings');
+        }
+
+        $fees->update($fee, $request->user());
+
+        return to_route('supplier.deliveries')->with('deliveryFeeStatus', 'Delivery fee saved.');
     }
 
     /** Return real deliveries and active assignment options. */

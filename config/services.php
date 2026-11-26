@@ -23,7 +23,7 @@ return [
     ],
 
     'facebook' => [
-        'shop_url' => 'https://www.facebook.com/profile.php?id=100063693678426',
+        'shop_url' => 'https://www.facebook.com/p/Gemmas-flower-shop-100063693678426/',
     ],
 
     'ses' => [

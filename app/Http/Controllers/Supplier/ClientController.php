@@ -106,4 +106,11 @@ class ClientController extends Controller
             'data' => $clients->row($clients->updateStatus($client, $request->validated())),
         ]);
     }
+
+    public function resetPassword(Client $client, ClientService $clients): JsonResponse
+    {
+        return response()->json([
+            'temporary_password' => $clients->resetPassword($client),
+        ])->header('Cache-Control', 'no-store, private');
+    }
 }

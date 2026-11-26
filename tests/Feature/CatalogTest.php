@@ -51,7 +51,24 @@ class CatalogTest extends TestCase
             ->assertOk()->assertSeeText('Spring bunch')->assertDontSeeText('Spring stem')
             ->assertDontSeeText('Rose bunch')->assertSeeText('Price unavailable')->assertSeeText('Out of stock');
         $this->get(route('client.catalog', ['type' => 'Stem', 'category' => 'Roses']))
-            ->assertOk()->assertSeeTextInOrder(['No flowers match these filters.', 'Clear filters']);
+            ->assertOk()->assertSeeTextInOrder(['No flowers match these filters.', 'Clear filters'])
+            ->assertSeeInOrder([
+                '</main>',
+                '<footer class="shop-footer shop-footer-featured">',
+                'Laon Laan – Juaning Consolidation Area',
+                'Barangay 471, Sampaloc, Manila 1008',
+                'Always open',
+                'href="'.route('client.catalog').'"',
+                'aria-current="page"',
+                '>Catalog</a>',
+                'href="tel:+639273574751"',
+                '0927 357 4751</span>',
+                'href="mailto:gemmasflowershop7@gmail.com"',
+                'gemmasflowershop7@gmail.com</span>',
+                'href="https://www.facebook.com/p/Gemmas-flower-shop-100063693678426/" target="_blank" rel="noopener noreferrer" aria-label="Gemma’s Flower Shop on Facebook (opens in a new tab)">',
+                '<i class="bi bi-facebook" aria-hidden="true"></i>',
+                '</footer>',
+            ], false);
     }
 
     public function test_cart_reviews_current_stock_and_price_without_reserving_or_submitting(): void
@@ -70,7 +87,7 @@ class CatalogTest extends TestCase
         $this->put(route('client.cart.update', $flower), ['quantity' => 2])->assertRedirect(route('client.cart'));
         DB::table('flower_prices')->where('flower_id', $flower->id)->update(['price_cents' => 4000]);
         $this->get(route('client.checkout'))->assertOk()->assertSeeText('₱80.00');
-        config(['orders.delivery_fee' => '15.50']);
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 1550]);
         $this->get(route('client.checkout', ['method' => 'delivery']))->assertOk()
             ->assertSeeText('Delivery total')->assertSeeText('₱95.50');
         DB::table('inventory_batches')->where('flower_id', $flower->id)->update(['remaining_quantity' => 1]);
@@ -181,13 +198,13 @@ class CatalogTest extends TestCase
             ->assertSee('shop-footer-featured', false)
             ->assertDontSeeText('Garden Bouquet');
 
-        config(['orders.delivery_fee' => '15.50']);
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 1550]);
         $this->get(route('client.checkout', ['method' => 'delivery']))->assertOk()
             ->assertSeeTextInOrder(['Red Rose', 'Quantity 3', 'Item subtotal', '₱150.00', 'Delivery fee', '₱15.50', 'Delivery total', '₱165.50'])
             ->assertDontSeeText('Pickup address')
             ->assertDontSeeText('Garden Bouquet');
         $this->get(route('client.checkout'))->assertOk()->assertSeeTextInOrder(['Pickup total', '₱150.00']);
-        config(['orders.delivery_fee' => 'invalid']);
+        DB::table('delivery_fee_settings')->update(['fee_cents' => null]);
         $this->get(route('client.checkout', ['method' => 'delivery']))->assertOk()
             ->assertSeeText('Delivery is unavailable for this selection.')
             ->assertSeeTextInOrder(['Pickup total', '₱150.00'])
@@ -299,8 +316,9 @@ class CatalogTest extends TestCase
     {
         $flower = $this->flower('Red Rose', 'Stem', 'Roses');
         $this->withSession(['shop.cart' => [$flower->id => 1]])
-            ->delete(route('client.cart.remove', $flower))
-            ->assertRedirect(route('client.cart'));
+            ->post(route('client.cart.remove', $flower), ['_method' => 'DELETE'])
+            ->assertRedirect(route('client.cart'))
+            ->assertSessionHas('shop.cart', []);
 
         $this->get(route('client.cart'))->assertOk()
             ->assertSeeText('Your cart is empty')
@@ -317,6 +335,12 @@ class CatalogTest extends TestCase
 
         $this->get(route('client.product', $flower))
             ->assertOk()
+            ->assertSeeInOrder([
+                '<header data-shop-back-top-threshold>',
+                '<h1 id="product-title" tabindex="-1">Garden Bouquet</h1>',
+                '<footer class="shop-footer shop-footer-featured">',
+                '<button class="shop-back-top" type="button" aria-label="Back to top" hidden>',
+            ], false)
             ->assertSeeText('Photo unavailable')
             ->assertSeeText('₱125.75 / bouquet')
             ->assertSeeText('5 bouquets available')
@@ -479,7 +503,7 @@ class CatalogTest extends TestCase
             ])
             ->assertSee('href="'.route('client.catalog').'">Browse flowers', false)
             ->assertSee('href="https://www.google.com/maps/dir/?api=1&amp;destination=14.6114375%2C120.9863871"', false)
-            ->assertSee('href="https://www.facebook.com/profile.php?id=100063693678426"', false)
+            ->assertSee('href="https://www.facebook.com/p/Gemmas-flower-shop-100063693678426/">Visit Gemma’s on Facebook', false)
             ->assertSee('src="https://maps.google.com/maps?q=14.6114375,120.9863871&amp;z=18&amp;output=embed"', false)
             ->assertDontSee('/shop/collections');
     }

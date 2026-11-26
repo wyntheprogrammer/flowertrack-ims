@@ -58,7 +58,7 @@ class CheckoutOrderController extends Controller
                 'method' => $review['method'],
                 'address' => $address,
                 'items' => $items,
-            ], $user, reviewedTotal: $review['total']);
+            ], $user, reviewedTotal: $review['total'], reviewedDeliveryFee: $review['deliveryFee'] ?? null);
         } catch (ValidationException $exception) {
             if (isset($exception->errors()['review_total'])) {
                 $session->forget(CheckoutSession::REVIEW);
@@ -80,6 +80,6 @@ class CheckoutOrderController extends Controller
 
         CheckoutSession::complete($request->session(), $order);
 
-        return view('client.order-confirmation', ['order' => $order->load('items')]);
+        return view('client.order-confirmation', ['order' => $order->load('items.flower:id,image_path')]);
     }
 }

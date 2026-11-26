@@ -3,14 +3,30 @@
 @section('body-class', 'shop-orders shop-tracking')
 @section('account-content')
     @isset($orders)
+        @include('client.partials.history-filters', [
+            'action' => route('client.tracking'),
+            'searchLabel' => 'Order tracking',
+            'searchPlaceholder' => 'Product name or order number',
+        ])
+
         @forelse ($orders as $choice)
             <article class="order-entry">
                 <div><h2>{{ $choice->code }}</h2>{{ $choice->method }}</div>
-                <a href="{{ route('client.tracking', $choice) }}">Track order<span class="visually-hidden"> {{ $choice->code }}</span></a>
+                <div class="order-entry-actions">
+                    <span>{{ $choice->tracking_status }}</span>
+                    <a href="{{ route('client.tracking', $choice) }}">Track order<span class="visually-hidden"> {{ $choice->code }}</span></a>
+                </div>
+                @include('client.partials.history-items', ['items' => $choice->items])
             </article>
         @empty
-            <p>You haven’t placed an order yet</p>
-            <a class="shop-action" href="{{ route('client.catalog') }}">Browse flowers</a>
+            @if ($orders->total() > 0)
+                <p>There are no orders on this page.</p>
+            @elseif ($filters->parameters())
+                <p>No orders match your filters.</p>
+            @else
+                <p>You haven’t placed an order yet</p>
+                <a class="shop-action" href="{{ route('client.catalog') }}">Browse flowers</a>
+            @endif
         @endforelse
         {{ $orders->links('pagination::simple-bootstrap-5') }}
     @else
@@ -37,6 +53,9 @@
                     @break
             @endswitch
         </header>
+        <h3 class="mt-4">Ordered products</h3>
+        @include('client.partials.history-items', ['items' => $order->items])
+
         @if ($events->isNotEmpty())
             <h3 class="mt-4">Fulfillment updates</h3>
             <ol class="tracking-events">
@@ -53,6 +72,6 @@
                 @endforeach
             </ol>
         @endif
-        <a href="{{ route('client.orders.show', $order) }}">View order details</a>
+        <a class="account-text-link" href="{{ route('client.orders.show', $order) }}">View order details</a>
     @endisset
 @endsection

@@ -27,8 +27,10 @@
             </div>
 
             <div class="product-detail-copy">
-                <p class="product-category">{{ $flower->category }}</p>
-                <h1 id="product-title">{{ $flower->name }}</h1>
+                <header data-shop-back-top-threshold>
+                    <p class="product-category">{{ $flower->category }}</p>
+                    <h1 id="product-title" tabindex="-1">{{ $flower->name }}</h1>
+                </header>
                 <p class="product-detail-price">
                     {{ $priceAvailable ? '₱'.\App\Support\Money::format($price).' / '.$unit : 'Price unavailable' }}
                 </p>

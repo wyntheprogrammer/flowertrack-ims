@@ -9,6 +9,7 @@
 .shop-home main {
     display: grid;
     gap: var(--home-section-gap);
+    padding-bottom: var(--home-section-gap);
 }
 
 .shop-home main .shop-width {
@@ -187,8 +188,6 @@
 .home-about > img { width: 100%; height: 100%; min-height: 0; object-fit: cover; object-position: center 30%; aspect-ratio: 2.15; }
 .home-about-copy { align-self: center; padding: clamp(1.25rem, 4vw, 4rem); }
 .home-about-copy p { max-width: 43ch; margin: 1rem 0 .35rem; }
-
-.shop-home .shop-footer { margin-top: var(--home-section-gap); }
 
 @media (max-width: 980px) {
     .home-hero-actions { max-width: 49%; }

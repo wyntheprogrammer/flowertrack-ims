@@ -189,11 +189,7 @@ class CartController extends Controller
 
         $lines = $selectedLines;
         $valid = ! $overLimit;
-        try {
-            $fee = $orders->configuredDeliveryFee();
-        } catch (ValidationException) {
-            $fee = null;
-        }
+        $fee = $orders->configuredDeliveryFee();
         $deliveryAvailable = $valid && $fee !== null && $subtotal <= Money::MAX_CENTS - $fee;
         $deliveryRequested = $request->query('method') === 'delivery';
         $delivery = $deliveryAvailable && $deliveryRequested;
@@ -203,7 +199,8 @@ class CartController extends Controller
         $user = $request->user();
         if ($user?->isClient() && $valid && $lines && ! $unavailableLines && (! $deliveryRequested || $deliveryAvailable)) {
             $client = $user->clientProfile;
-            $reviewKey = CheckoutSession::issue($session, $client->id, $method, $selection, $subtotal + ($delivery ? $fee : 0));
+            $reviewedDeliveryFee = $delivery ? $fee : null;
+            $reviewKey = CheckoutSession::issue($session, $client->id, $method, $selection, $subtotal + ($reviewedDeliveryFee ?? 0), $reviewedDeliveryFee);
             $deliveryAddress = $client->address;
         } else {
             $session->forget(CheckoutSession::REVIEW);

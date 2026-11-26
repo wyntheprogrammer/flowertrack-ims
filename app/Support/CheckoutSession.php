@@ -26,9 +26,12 @@ class CheckoutSession
     }
 
     /** @param array<int, int> $items */
-    public static function issue(Session $session, int $clientId, string $method, array $items, int $total): string
+    public static function issue(Session $session, int $clientId, string $method, array $items, int $total, ?int $deliveryFee): string
     {
         $review = compact('clientId', 'method', 'items', 'total');
+        if ($deliveryFee !== null) {
+            $review['deliveryFee'] = $deliveryFee;
+        }
         $previous = $session->get(self::REVIEW);
 
         if ($previous && array_diff_key($previous, ['key' => true]) === $review) {

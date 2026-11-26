@@ -19,7 +19,6 @@ if (form) {
     let selectionNeedsSave = form.dataset.selectionNeedsSave === 'true';
     let pendingSelectionSaves = 0;
     let waitingForSubmit = false;
-    let submitting = false;
 
     function formatMoney(amount) {
         const cents = BigInt(amount);
@@ -290,7 +289,7 @@ if (form) {
 
     document.querySelector('.shopping-cart').addEventListener('submit', async event => {
         const { target, submitter } = event;
-        if (submitting || event.defaultPrevented) {
+        if (event.defaultPrevented) {
             return;
         }
 
@@ -341,9 +340,8 @@ if (form) {
             return;
         }
 
-        submitting = true;
-        target.requestSubmit(submitter);
-        submitting = false;
+        // The original submit event may still be dispatching when the save queue is idle.
+        target.submit();
         waitingForSubmit = false;
     });
 

@@ -344,7 +344,12 @@ class SalesPaymentService
                 $payment->save();
                 $operation->result_id = $refund->id;
 
-                return ['note' => $refund->code.': '.Money::format($amount).' refunded against '.$payment->code.'. '.$reason];
+                $note = $refund->code.': '.Money::format($amount).' refunded against '.$payment->code.'. '.$reason;
+                if ($sum + $amount === $payment->amount_cents) {
+                    app(OrderService::class)->cancelAfterFullRefund($order, $actor, $note);
+                }
+
+                return ['note' => $note];
             });
     }
 

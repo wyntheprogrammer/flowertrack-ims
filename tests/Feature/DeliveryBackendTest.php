@@ -62,7 +62,6 @@ class DeliveryBackendTest extends TestCase
                 'foreign_key_constraints' => true,
             ],
             'database.default' => 'order_backend_test',
-            'orders.delivery_fee' => null,
         ]);
         $this->testConnectionConfigured = true;
         DB::purge('order_backend_test');
@@ -92,7 +91,7 @@ class DeliveryBackendTest extends TestCase
             $table->enum('status', ['Active', 'Inactive']);
             $table->timestamps();
         });
-        foreach (['create_clients_table', 'create_inventory_tables', 'remove_harvest_and_expiry_dates_from_inventory_batches_table', 'create_order_tables', 'create_delivery_tables', 'create_finance_tables',
+        foreach (['create_clients_table', 'create_inventory_tables', 'remove_harvest_and_expiry_dates_from_inventory_batches_table', 'create_order_tables', 'create_delivery_fee_settings', 'create_delivery_tables', 'create_finance_tables',
             'create_batch_daily_observations_table', 'remove_harvest_date_from_batch_daily_observations_table', 'add_collection_provenance_to_batch_daily_observations_table'] as $name) {
             $files = glob(database_path('migrations/*_'.$name.'.php')) ?: [];
             $this->assertCount(1, $files, 'Expected one '.$name.' migration.');
@@ -112,7 +111,7 @@ class DeliveryBackendTest extends TestCase
         $this->receive($this->stem, 20);
         $this->receive($this->bouquet, 5);
         Storage::fake('local');
-        config(['orders.delivery_fee' => '150.00']);
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 15000]);
     }
 
     /** Dispatch changes workflow only; physical stock and holds remain unchanged. */
@@ -493,6 +492,10 @@ class DeliveryBackendTest extends TestCase
         $this->get($url)->assertOk()->assertSeeText('Out for Delivery');
         $delivery = $this->deliveryAction($delivery, ['action' => 'fail']);
         $this->get($url)->assertSeeTextInOrder(['Delivery attempt failed', 'Check back for a new delivery schedule']);
+        $this->get(route('client.tracking', ['status' => 'Delivery attempt failed']))->assertOk()
+            ->assertSeeText($order->code)->assertSeeText('Quantity 4')->assertSeeText('Quantity 2');
+        $this->get(route('client.tracking', ['status' => 'Ready for Delivery']))->assertOk()
+            ->assertSeeText('No orders match your filters.')->assertDontSeeText($order->code);
         $delivery = $this->deliveryAction($delivery, ['action' => 'schedule', 'scheduled_at' => $slot->copy()->addDay()->toIso8601String()]);
         $this->get($url)->assertOk()->assertSeeTextInOrder(['Fulfillment updates', 'Delivery scheduled', 'Out for Delivery', 'Delivery attempt failed', 'Delivery rescheduled'])
             ->assertDontSeeText('Actual delivery operation test.')->assertDontSeeText('Test courier');

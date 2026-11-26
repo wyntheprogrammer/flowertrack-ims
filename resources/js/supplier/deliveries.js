@@ -677,6 +677,8 @@ class DeliveryManagementUI {
 function initializeDeliveryManagement() {
     const table = document.getElementById('deliveryTable');
     if (!table || DataTable.isDataTable(table)) return;
+    const feeSettings = document.querySelector('#deliveryFeeSettingsModal[data-reopen]');
+    if (feeSettings) Modal.getOrCreateInstance(feeSettings).show();
     new DeliveryManagementUI(table);
 }
 if (document.readyState === 'loading') {

@@ -11,7 +11,20 @@
                     <p>{{ auth()->user()->isDeliveryPersonnel() ? 'View your assigned deliveries and record actual delivery results.' : 'Manage delivery assignments and fulfillment updates.' }}</p>
                 </div>
 
+                @if (auth()->user()->isAdmin())
+                    <button type="button" class="delivery-primary-btn" data-bs-toggle="modal" data-bs-target="#deliveryFeeSettingsModal">
+                        <i class="bi bi-gear" aria-hidden="true"></i>
+                        Delivery Fee Settings
+                    </button>
+                @endif
             </div>
+
+            @if (session('deliveryFeeStatus'))
+                <div class="delivery-notice" role="status">
+                    <i class="bi bi-check-circle" aria-hidden="true"></i>
+                    {{ session('deliveryFeeStatus') }}
+                </div>
+            @endif
 
             <div class="delivery-notice">
                 <i class="bi bi-info-circle" aria-hidden="true"></i>
@@ -69,6 +82,46 @@
             <p id="deliveryAnnouncement" class="delivery-announcement" role="status"></p>
         </div>
     </div>
+
+    @if (auth()->user()->isAdmin())
+        <div class="modal fade" id="deliveryFeeSettingsModal" tabindex="-1"
+            aria-labelledby="deliveryFeeSettingsTitle" aria-hidden="true"
+            @if ($errors->deliveryFeeSettings->any()) data-reopen @endif>
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content delivery-modal">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="deliveryFeeSettingsTitle">Delivery Fee Settings</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form method="POST" action="{{ route('supplier.deliveries.fee-settings.update') }}">
+                        @csrf
+                        @method('PUT')
+                        <div class="modal-body">
+                            <div class="delivery-field">
+                                <label for="deliveryFeeAmount">Delivery fee (₱)</label>
+                                <input type="text" inputmode="decimal" name="delivery_fee" id="deliveryFeeAmount"
+                                    value="{{ is_string(old('delivery_fee')) ? old('delivery_fee') : $deliveryFee }}"
+                                    aria-describedby="deliveryFeeHelp @error('delivery_fee', 'deliveryFeeSettings') deliveryFeeError @enderror"
+                                    @error('delivery_fee', 'deliveryFeeSettings') aria-invalid="true" @enderror
+                                    required>
+                                <p class="delivery-help" id="deliveryFeeHelp">Applies to new orders. Enter 0 for free delivery.</p>
+                                @error('delivery_fee', 'deliveryFeeSettings')
+                                    <div class="delivery-error" id="deliveryFeeError" role="alert">{{ $message }}</div>
+                                @enderror
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="delivery-secondary-btn" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="delivery-primary-btn">
+                                <i class="bi bi-check-lg" aria-hidden="true"></i>
+                                Save Delivery Fee
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    @endif
 
     {{-- Manage Delivery --}}
     <div

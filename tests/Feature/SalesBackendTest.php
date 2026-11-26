@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Requests\StorePaymentRequest;
 use App\Models\Client;
+use App\Models\Delivery;
 use App\Models\FinanceOperation;
 use App\Models\Flower;
 use App\Models\FlowerPrice;
@@ -63,7 +64,6 @@ class SalesBackendTest extends TestCase
                 'foreign_key_constraints' => true,
             ],
             'database.default' => 'sales_backend_test',
-            'orders.delivery_fee' => null,
             'session.driver' => 'array',
             'cache.default' => 'array',
         ]);
@@ -95,7 +95,7 @@ class SalesBackendTest extends TestCase
             $table->enum('status', ['Active', 'Inactive']);
             $table->timestamps();
         });
-        foreach (['create_clients_table', 'create_inventory_tables', 'remove_harvest_and_expiry_dates_from_inventory_batches_table', 'create_order_tables', 'create_delivery_tables', 'create_finance_tables'] as $name) {
+        foreach (['create_clients_table', 'create_inventory_tables', 'remove_harvest_and_expiry_dates_from_inventory_batches_table', 'create_order_tables', 'create_delivery_fee_settings', 'create_delivery_tables', 'create_finance_tables'] as $name) {
             $files = glob(database_path('migrations/*_'.$name.'.php')) ?: [];
             $this->assertCount(1, $files, 'Expected one '.$name.' migration.');
             (require $files[0])->up();
@@ -140,7 +140,9 @@ class SalesBackendTest extends TestCase
         $this->assertNull($payment->confirmed_at);
         $this->assertSame('Pending', $order->fresh()->status);
         $this->assertSame(20, $this->remaining($this->stem));
-        $this->assertSame(0, InventoryReservation::count());
+        $this->assertDatabaseHas('inventory_reservations', [
+            'reference' => $order->code, 'quantity' => 2, 'status' => 'Active',
+        ]);
         $this->assertSame($movements, InventoryMovement::count());
         $this->assertSame(0, SalesRecord::count());
         $mixed = $this->orders->store($this->input(['items' => [
@@ -215,10 +217,18 @@ class SalesBackendTest extends TestCase
         $this->assertSame('Refunded', $payment->fresh()->status);
         $this->assertSame('Refunded', $this->orders->row($order->fresh(), $this->supplier)['payment']);
         $this->assertSame(2500, $this->orders->row($order->fresh(), $this->supplier)['paidCents']);
+        $this->assertSame('Pending', $order->fresh()->status);
+        $this->assertSame('Active', InventoryReservation::sole()->status);
         $this->rejected(fn () => $this->sales->refund($payment, $this->refundInput($payment, '15.01'), $this->admin));
         $this->assertSame(1, PaymentRefund::count());
-        $this->sales->refund($payment, $this->refundInput($payment, '15.00'), $this->admin);
+        $finalRefund = $this->refundInput($payment, '15.00');
+        $this->sales->refund($payment, $finalRefund, $this->admin);
+        $this->sales->refund($payment, $finalRefund, $this->admin);
         $this->assertSame('Refunded', $payment->fresh()->status);
+        $this->assertSame('Cancelled', $order->fresh()->status);
+        $this->assertSame('Released', InventoryReservation::sole()->status);
+        $this->assertSame(1, $order->histories()->where('status', 'Cancelled')->count());
+        $this->assertSame(0, InventoryMovement::where('type', 'Stock-Out')->count());
         $this->assertSame(2500, (int) PaymentRefund::sum('amount_cents'));
         $this->assertSame(2500, $payment->fresh()->amount_cents);
         $this->assertSame(2, PaymentRefund::count());
@@ -243,6 +253,46 @@ class SalesBackendTest extends TestCase
         $this->sales->refund($payment, $this->refundInput($payment, '25.00'), $this->admin);
         $this->assertSame('Cancelled', $order->fresh()->status);
         $this->assertSame('Refunded', $payment->fresh()->status);
+        $this->assertSame(1, $order->histories()->where('status', 'Cancelled')->count());
+        $this->assertSame(2, InventoryReservation::where('status', 'Released')->count());
+        $this->assertSame(20, $this->remaining($this->stem));
+    }
+
+    public function test_full_refund_of_a_completed_pickup_preserves_consumed_stock_and_ledger(): void
+    {
+        $order = $this->orders->store($this->input(), $this->supplier);
+        $this->action($order, 'Confirmed', $this->admin);
+        $payment = $this->record($order);
+        $this->sales->confirm($payment, $this->confirmInput($payment), $this->supplier);
+        $movement = InventoryMovement::where('type', 'Stock-Out')->sole();
+
+        $this->sales->refund($payment, $this->refundInput($payment, '25.00'), $this->admin);
+
+        $this->assertSame('Completed', $order->fresh()->status);
+        $this->assertSame('Consumed', InventoryReservation::sole()->status);
+        $this->assertSame(18, $this->remaining($this->stem));
+        $this->assertSame($movement->id, InventoryMovement::where('type', 'Stock-Out')->sole()->id);
+        $this->assertDatabaseCount('inventory_movements', 3);
+        $this->assertDatabaseCount('sales_records', 1);
+    }
+
+    public function test_full_refund_keeps_stock_reserved_after_a_delivery_has_been_dispatched(): void
+    {
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 0]);
+        $order = $this->orders->store($this->input(['method' => 'Delivery', 'address' => 'Test address']), $this->supplier);
+        $this->action($order, 'Confirmed', $this->admin);
+        $this->action($order, 'Processing', $this->supplier);
+        $this->action($order, 'Ready for Delivery', $this->supplier);
+        $delivery = Delivery::query()->where('order_id', $order->id)->sole();
+        $delivery->update(['status' => 'Rescheduled', 'dispatched_at' => now()->subDay()]);
+        $payment = $this->record($order);
+        $this->sales->confirm($payment, $this->confirmInput($payment), $this->supplier);
+
+        $this->sales->refund($payment, $this->refundInput($payment, '25.00'), $this->admin);
+
+        $this->assertSame('Ready for Delivery', $order->fresh()->status);
+        $this->assertSame('Refunded', $payment->fresh()->status);
+        $this->assertSame('Active', InventoryReservation::sole()->status);
         $this->assertSame(20, $this->remaining($this->stem));
     }
 

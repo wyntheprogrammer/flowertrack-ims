@@ -9,6 +9,7 @@ use App\Services\ClientService;
 use App\Support\AccountSession;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class ClientAuthenticationTest extends TestCase
@@ -50,7 +51,8 @@ class ClientAuthenticationTest extends TestCase
         ])->assertRedirect(route('client.home'));
         $this->assertAuthenticatedAs($user);
         $this->assertSame(AccountSession::signature($user->fresh()), session(AccountSession::KEY));
-        $this->get(route('client.profile'))->assertOk()->assertSeeText($user->email)->assertSeeText('Sign out');
+        $this->get(route('client.profile'))->assertOk()->assertSeeText($user->email)->assertSeeText('Sign out')
+            ->assertSee('<footer class="shop-footer shop-footer-featured">', false);
         $this->get(route('supplier.dashboard'))->assertForbidden();
 
         $this->post(route('logout'))->assertRedirect(route('client.home'))->assertSessionMissing(AccountSession::KEY);
@@ -70,12 +72,98 @@ class ClientAuthenticationTest extends TestCase
         ]);
     }
 
+    public function test_customer_sign_in_links_to_shop_contact_for_password_reset_assistance(): void
+    {
+        $this->get(route('client.login'))->assertOk()
+            ->assertSee('<a href="#shop-footer-contact">Forgot Password?</a>', false)
+            ->assertSee('id="shop-footer-contact"', false)
+            ->assertSeeText('Contact the shop for password reset assistance.');
+    }
+
+    public function test_admin_reset_revokes_the_customer_session_and_requires_a_password_change(): void
+    {
+        $customer = $this->clientAccount('Active', false);
+        $customer->forceFill(['remember_token' => 'previous-customer-token'])->save();
+        $previousSignature = AccountSession::signature($customer);
+        $admin = User::factory()->create(['role' => User::ROLE_ADMIN, 'is_active' => true, 'must_change_password' => false]);
+        $client = $customer->clientProfile;
+        $resetUrl = route('supplier.clients.reset-password', $client);
+
+        $this->actingAs($admin)->withSession([AccountSession::KEY => AccountSession::signature($admin)]);
+        $this->get(route('supplier.clients'))->assertOk()->assertSee('data-reset-password-url', false);
+        $response = $this->postJson($resetUrl, ['password' => self::NEW_PASSWORD])
+            ->assertOk()->assertHeaderContains('Cache-Control', 'no-store');
+        $temporaryPassword = $response->json('temporary_password');
+
+        $updated = $customer->fresh();
+        $this->assertIsString($temporaryPassword);
+        $this->assertGreaterThanOrEqual(12, strlen($temporaryPassword));
+        $this->assertNotSame(self::NEW_PASSWORD, $temporaryPassword);
+        $this->assertTrue(Hash::check($temporaryPassword, $updated->password));
+        $this->assertFalse(Hash::check(self::TEMPORARY_PASSWORD, $updated->password));
+        $this->assertTrue($updated->must_change_password);
+        $this->assertNull($updated->remember_token);
+
+        $event = AuditEvent::where('route_name', 'supplier.clients.reset-password')->sole();
+        $this->assertSame('Client Management', $event->module);
+        $this->assertSame('Credentials Changed', $event->action);
+        $this->assertEquals($admin->id, $event->actor_id);
+        $this->assertSame((string) $customer->id, (string) $event->record_id);
+        $this->assertTrue($event->after_values['credential_changed']);
+        $this->assertStringNotContainsString($temporaryPassword, $event->toJson());
+        $this->assertStringNotContainsString($updated->password, $event->toJson());
+        $this->getJson(route('supplier.clients.data'))->assertOk()->assertDontSee($temporaryPassword);
+
+        $this->actingAs($updated)->withSession([AccountSession::KEY => $previousSignature]);
+        $this->getJson(route('client.profile'))->assertUnauthorized()->assertSessionMissing(AccountSession::KEY);
+        $this->assertGuest();
+
+        $this->post(route('client.login.store'), ['email' => $updated->email, 'password' => $temporaryPassword])
+            ->assertRedirect(route('password.change'));
+        $this->get(route('client.profile'))->assertRedirect(route('password.change'));
+    }
+
+    public function test_customer_password_reset_returns_401_to_a_guest(): void
+    {
+        $customer = $this->clientAccount();
+
+        $this->postJson(route('supplier.clients.reset-password', $customer->clientProfile))->assertUnauthorized();
+    }
+
+    #[TestWith([User::ROLE_SUPPLIER])]
+    #[TestWith([User::ROLE_DELIVERY])]
+    #[TestWith([User::ROLE_CLIENT])]
+    public function test_customer_password_reset_returns_403_to_non_administrators(string $role): void
+    {
+        $customer = $this->clientAccount('Active', false);
+        $actor = User::factory()->create(['role' => $role, 'is_active' => true, 'must_change_password' => false]);
+        $this->actingAs($actor)->withSession([AccountSession::KEY => AccountSession::signature($actor)]);
+
+        if ($role === User::ROLE_SUPPLIER) {
+            $this->get(route('supplier.clients'))->assertOk()->assertDontSee('data-reset-password-url', false);
+        }
+        $this->postJson(route('supplier.clients.reset-password', $customer->clientProfile))->assertForbidden();
+        $this->assertSame($customer->password, $customer->fresh()->password);
+    }
+
+    public function test_customer_password_reset_returns_404_for_a_profile_linked_to_an_operational_account(): void
+    {
+        $customer = $this->clientAccount();
+        $profile = $customer->clientProfile;
+        $customer->forceFill(['role' => User::ROLE_SUPPLIER])->save();
+        $admin = User::factory()->create(['role' => User::ROLE_ADMIN, 'is_active' => true, 'must_change_password' => false]);
+        $this->actingAs($admin)->withSession([AccountSession::KEY => AccountSession::signature($admin)]);
+
+        $this->postJson(route('supplier.clients.reset-password', $profile))->assertNotFound();
+        $this->assertSame($customer->password, $customer->fresh()->password);
+    }
+
     public function test_checkout_sign_in_with_a_temporary_password_preserves_the_guest_cart_and_reprices_checkout(): void
     {
         $user = $this->clientAccount();
         $rose = $this->stockProduct('Red Rose', 'Stem', 5000);
         $bouquet = $this->stockProduct('Garden Bouquet', 'Bouquet', 80000);
-        config(['orders.delivery_fee' => '15.50']);
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 1550]);
 
         $this->post(route('client.cart.add', $rose), ['quantity' => 3])->assertRedirect(route('client.cart'));
         $this->post(route('client.cart.add', $bouquet), ['quantity' => 1])->assertRedirect(route('client.cart'));

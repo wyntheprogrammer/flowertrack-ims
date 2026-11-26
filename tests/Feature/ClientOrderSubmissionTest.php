@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Flower;
+use App\Models\InventoryReservation;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\ClientService;
@@ -11,6 +12,7 @@ use App\Support\AccountSession;
 use App\Support\CheckoutSession;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -32,7 +34,6 @@ class ClientOrderSubmissionTest extends TestCase
             'session.driver' => 'array',
             'cache.default' => 'array',
             'hashing.bcrypt.rounds' => 4,
-            'orders.delivery_fee' => null,
         ]);
 
         $this->artisan('migrate', ['--database' => 'client_order_test'])->assertSuccessful();
@@ -44,6 +45,30 @@ class ClientOrderSubmissionTest extends TestCase
             CheckoutSession::CART => [$this->rose->id => 3, $this->bouquet->id => 1],
             CheckoutSession::SELECTION => [$this->rose->id],
         ]);
+    }
+
+    public function test_removing_a_selected_flower_updates_the_signed_in_customers_cart_and_checkout(): void
+    {
+        $this->signIn($this->customer);
+        $this->postJson(route('client.cart.selection'), ['selected' => [$this->rose->id, $this->bouquet->id]])
+            ->assertNoContent();
+        $this->review();
+
+        $this->post(route('client.cart.remove', $this->rose), ['_method' => 'DELETE'])
+            ->assertRedirect(route('client.cart'))
+            ->assertSessionHas(CheckoutSession::CART, [$this->bouquet->id => 1])
+            ->assertSessionHas(CheckoutSession::SELECTION, [$this->bouquet->id]);
+
+        $this->get(route('client.cart'))->assertOk()
+            ->assertSeeTextInOrder(['Item removed.', 'Garden Bouquet', 'Selected subtotal', '₱800.00', 'Review checkout (1 item)'])
+            ->assertDontSeeText('Red Rose');
+        $this->get(route('client.cart'))->assertOk()->assertDontSeeText('Red Rose');
+        $this->get(route('client.checkout'))->assertOk()
+            ->assertSeeTextInOrder(['Garden Bouquet', 'Item subtotal', '₱800.00'])
+            ->assertDontSeeText('Red Rose');
+
+        $this->assertDatabaseHas('inventory_batches', ['flower_id' => $this->rose->id, 'remaining_quantity' => 5]);
+        $this->assertDatabaseCount('inventory_reservations', 0);
     }
 
     public function test_customer_submits_only_checked_items_and_replays_the_same_order_after_cart_clear(): void
@@ -82,7 +107,14 @@ class ClientOrderSubmissionTest extends TestCase
         $this->assertDatabaseCount('order_histories', 1);
         $this->assertDatabaseHas('order_histories', ['order_id' => $order->id, 'actor_id' => $this->customer->id]);
         $this->assertDatabaseCount('order_payments', 0);
-        $this->assertDatabaseCount('inventory_reservations', 0);
+        $this->assertDatabaseCount('inventory_reservations', 1);
+        $this->assertDatabaseHas('inventory_reservations', [
+            'flower_id' => $this->rose->id, 'reference' => $order->code, 'quantity' => 3, 'status' => 'Active',
+        ]);
+        $this->assertDatabaseHas('audit_events', [
+            'record_type' => InventoryReservation::class, 'record_id' => InventoryReservation::sole()->id,
+            'action' => 'Created', 'actor_id' => $this->customer->id,
+        ]);
         $this->assertDatabaseCount('inventory_movements', 0);
         $this->assertDatabaseHas('inventory_batches', ['flower_id' => $this->rose->id, 'remaining_quantity' => 5]);
 
@@ -94,6 +126,10 @@ class ClientOrderSubmissionTest extends TestCase
         $this->getJson(route('supplier.orders.data'))->assertOk()
             ->assertJsonPath('data.0.id', $order->code)
             ->assertJsonPath('data.0.status', 'Pending');
+        $this->getJson(route('supplier.inventory.data'))->assertOk()
+            ->assertJsonPath('data.flowers.0.onHand', 5)
+            ->assertJsonPath('data.flowers.0.reserved', 3)
+            ->assertJsonPath('data.flowers.0.available', 2);
     }
 
     public function test_retry_recovers_when_the_order_was_committed_before_the_session_was_saved(): void
@@ -143,42 +179,55 @@ class ClientOrderSubmissionTest extends TestCase
     {
         $this->signIn($this->customer);
         $key = $this->review();
-        DB::table('inventory_batches')->where('flower_id', $this->rose->id)->update(['remaining_quantity' => 2]);
+        $otherCustomer = $this->customer();
+        app(OrderService::class)->store([
+            'request_key' => (string) Str::uuid(), 'client_id' => $otherCustomer->clientProfile->id,
+            'method' => 'Customer Pickup', 'items' => [['flower_id' => $this->rose->id, 'quantity' => 3]],
+        ], $otherCustomer, reviewedTotal: 15000);
 
         $this->post(route('client.checkout.store'), ['request_key' => $key])
             ->assertRedirect(route('client.checkout'))
             ->assertSessionHasErrors(['items' => 'Red Rose has 2 stems available. Update your cart and try again.'])
             ->assertSessionHas(CheckoutSession::CART, [$this->rose->id => 3, $this->bouquet->id => 1])
             ->assertSessionHas(CheckoutSession::SELECTION, [$this->rose->id]);
-        $this->get(route('client.checkout'))->assertOk()->assertSeeText('Red Rose')->assertDontSeeText('Place order');
-        $this->assertDatabaseCount('orders', 0);
+        $this->get(route('client.catalog', ['q' => 'Red Rose']))->assertOk()->assertSeeText('2 stems available');
+        $this->get(route('client.product', $this->rose))->assertOk()->assertSeeText('2 stems available');
+        $this->get(route('client.cart'))->assertOk()->assertSeeText('Only 2 stems are available');
+        $this->get(route('client.checkout'))->assertOk()->assertSeeText('Only 2 stems are available')->assertDontSeeText('Place order');
+        $this->assertDatabaseCount('orders', 1);
+        $this->assertDatabaseCount('inventory_reservations', 1);
 
         $this->postJson(route('client.cart.selection'), ['selected' => [$this->bouquet->id]])->assertNoContent();
         $bouquetKey = $this->review();
         $this->putJson(route('client.cart.update', $this->bouquet), ['quantity' => 2])->assertOk();
         $this->post(route('client.checkout.store'), ['request_key' => $bouquetKey])
             ->assertRedirect(route('client.checkout'))->assertSessionHasErrors('checkout');
-        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('orders', 1);
 
         $this->post(route('client.checkout.store'), ['request_key' => $this->review()])->assertRedirect()
             ->assertSessionHas(CheckoutSession::CART, [$this->rose->id => 3]);
-        $this->assertSame(160000, Order::sole()->total_cents);
+        $this->assertSame(160000, Order::where('client_id', $this->customer->clientProfile->id)->sole()->total_cents);
     }
 
     public function test_delivery_requires_address_and_reconfirmation_when_the_fee_changes(): void
     {
         $this->signIn($this->customer);
-        config(['orders.delivery_fee' => '30.00']);
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 3000]);
         $checkout = route('client.checkout', ['method' => 'delivery']);
         $key = $this->review('delivery');
         $this->post(route('client.checkout.store'), ['request_key' => $key, 'address' => ' '])
             ->assertRedirect($checkout)->assertSessionHasErrors('address');
 
-        config(['orders.delivery_fee' => null]);
+        DB::table('delivery_fee_settings')->update(['fee_cents' => null]);
         $this->post(route('client.checkout.store'), ['request_key' => $key, 'address' => 'Sampaloc, Manila'])
             ->assertRedirect($checkout)->assertSessionHasErrors('method');
 
-        config(['orders.delivery_fee' => '45.50']);
+        $admin = User::factory()->create(['role' => User::ROLE_ADMIN, 'is_active' => true, 'must_change_password' => false]);
+        $this->signIn($admin);
+        $this->put(route('supplier.deliveries.fee-settings.update'), ['delivery_fee' => '45.50'])
+            ->assertRedirect(route('supplier.deliveries'));
+        $this->getJson(route('supplier.orders.data'))->assertOk()->assertJsonPath('deliveryFeeCents', 4550);
+        $this->signIn($this->customer);
         $this->post(route('client.checkout.store'), ['request_key' => $key, 'address' => 'Sampaloc, Manila'])
             ->assertRedirect($checkout)
             ->assertSessionHasErrors(['review_total' => 'Your order total changed to ₱195.50. Review it and confirm again.'])
@@ -201,6 +250,21 @@ class ClientOrderSubmissionTest extends TestCase
         $this->get(route('client.profile'))->assertOk()->assertSeeText('Corrected account address, Manila');
         $this->get(route('client.orders.confirmation', $order))->assertOk()
             ->assertSeeTextInOrder(['Delivery', 'New address, Manila', 'Delivery fee', '₱45.50', 'Order total', '₱195.50']);
+    }
+
+    public function test_delivery_fee_change_requires_review_even_when_the_total_stays_the_same(): void
+    {
+        $this->signIn($this->customer);
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 3000]);
+        $key = $this->review('delivery');
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 4500]);
+        DB::table('flower_prices')->where('flower_id', $this->rose->id)->update(['price_cents' => 4500]);
+
+        $this->post(route('client.checkout.store'), ['request_key' => $key, 'address' => 'Sampaloc, Manila'])
+            ->assertRedirect(route('client.checkout', ['method' => 'delivery']))
+            ->assertSessionHasErrors(['review_total' => 'Your delivery fee changed. Review your order and confirm again.']);
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertNotSame($key, $this->review('delivery'));
     }
 
     public function test_only_an_eligible_customer_can_submit_checkout(): void
@@ -251,6 +315,7 @@ class ClientOrderSubmissionTest extends TestCase
 
     public function test_staff_orders_are_paginated_by_purchase_date_and_id_with_philippine_dates(): void
     {
+        $flower = $this->stockProduct('White Rose', 'Stem', 5000, 11);
         $staff = User::factory()->create(['role' => User::ROLE_ADMIN]);
         $service = app(OrderService::class);
         $ids = [];
@@ -258,17 +323,25 @@ class ClientOrderSubmissionTest extends TestCase
             $order = $service->store([
                 'request_key' => (string) Str::uuid(),
                 'client_id' => $this->customer->clientProfile->id, 'method' => 'Customer Pickup',
-                'items' => [['flower_id' => $this->rose->id, 'quantity' => 1]],
+                'items' => [['flower_id' => $flower->id, 'quantity' => 1]],
             ], $staff);
             $order->created_at = Carbon::parse($i === 0 ? '2026-11-21 18:00 UTC' : '2026-11-20 18:00 UTC')->setTimezone(config('app.timezone'));
             $order->save();
             $ids[] = $order->id;
         }
         $this->signIn($this->customer);
-        $page = $this->get(route('client.orders'))->assertOk()->assertSeeText('Nov 22, 2026 · 2:00 AM PHT')->viewData('orders');
+        $page = $this->get(route('client.orders', ['q' => 'White Rose', 'status' => 'Pending']))
+            ->assertOk()->assertSeeText('Nov 22, 2026 · 2:00 AM PHT')->viewData('orders');
         $this->assertSame([$ids[0], ...array_reverse(array_slice($ids, 2))], $page->pluck('id')->all());
-        $next = $this->get($page->nextPageUrl())->assertOk()->viewData('orders');
+        $next = $this->get($page->nextPageUrl())->assertOk()->assertSee('value="White Rose"', false)
+            ->assertSee('value="Pending" selected', false)->viewData('orders');
         $this->assertSame([$ids[1]], $next->pluck('id')->all());
+
+        $tracking = $this->get(route('client.tracking', ['q' => 'White Rose', 'status' => 'Pending']))->assertOk()->viewData('orders');
+        $this->assertSame([$ids[0], ...array_reverse(array_slice($ids, 2))], $tracking->pluck('id')->all());
+        $trackingNext = $this->get($tracking->nextPageUrl())->assertOk()->assertSee('value="White Rose"', false)
+            ->assertSee('value="Pending" selected', false)->viewData('orders');
+        $this->assertSame([$ids[1]], $trackingNext->pluck('id')->all());
     }
 
     public function test_customer_payment_history_keeps_original_payment_and_scopes_receipt_access(): void
@@ -299,21 +372,71 @@ class ClientOrderSubmissionTest extends TestCase
 
     public function test_payments_for_staff_orders_paginate_by_payment_date_then_id(): void
     {
+        $flower = $this->stockProduct('White Rose', 'Stem', 5000, 11);
         $staff = User::factory()->create(['role' => User::ROLE_ADMIN]);
         $ids = [];
         for ($i = 0; $i < 11; $i++) {
             $order = app(OrderService::class)->store(['request_key' => (string) Str::uuid(),
                 'client_id' => $this->customer->clientProfile->id, 'method' => 'Customer Pickup',
-                'items' => [['flower_id' => $this->rose->id, 'quantity' => 1]]], $staff);
+                'items' => [['flower_id' => $flower->id, 'quantity' => 1]]], $staff);
             $payment = $order->payment()->create(['code' => 'PAY-'.$i, 'amount_cents' => 5000, 'method' => 'Cash', 'status' => 'Pending']);
             $payment->created_at = $i === 0 ? today() : today()->subDay();
             $payment->save();
             $ids[] = $payment->id;
         }
         $this->signIn($this->customer);
-        $page = $this->get(route('client.payments'))->assertOk()->viewData('payments');
+        $page = $this->get(route('client.payments', ['q' => 'PAY-', 'status' => 'Pending']))->assertOk()->viewData('payments');
         $this->assertSame([$ids[0], ...array_reverse(array_slice($ids, 2))], $page->pluck('id')->all());
-        $this->assertSame([$ids[1]], $this->get($page->nextPageUrl())->assertOk()->viewData('payments')->pluck('id')->all());
+        $next = $this->get($page->nextPageUrl())->assertOk()->assertSee('value="PAY-"', false)
+            ->assertSee('value="Pending" selected', false)->viewData('payments');
+        $this->assertSame([$ids[1]], $next->pluck('id')->all());
+    }
+
+    public function test_history_search_shows_all_ordered_products_and_only_owned_records(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('flowers/red-rose.webp', 'flower photo');
+        $this->rose->update(['image_path' => 'flowers/red-rose.webp']);
+        $this->bouquet->update(['image_path' => 'flowers/missing.webp']);
+        $staff = User::factory()->create(['role' => User::ROLE_ADMIN]);
+        $service = app(OrderService::class);
+        $order = $service->store([
+            'request_key' => (string) Str::uuid(),
+            'client_id' => $this->customer->clientProfile->id,
+            'method' => 'Customer Pickup',
+            'items' => [
+                ['flower_id' => $this->rose->id, 'quantity' => 3],
+                ['flower_id' => $this->bouquet->id, 'quantity' => 1],
+            ],
+        ], $staff);
+        $order->payment()->create(['code' => 'PAY-OWN', 'reference' => 'GCASH_123', 'method' => 'GCash', 'amount_cents' => 95000, 'status' => 'Confirmed']);
+        $otherOrder = $service->store([
+            'request_key' => (string) Str::uuid(),
+            'client_id' => $this->customer()->clientProfile->id,
+            'method' => 'Customer Pickup',
+            'items' => [['flower_id' => $this->rose->id, 'quantity' => 1]],
+        ], $staff);
+        $otherOrder->payment()->create(['code' => 'PAY-OTHER', 'reference' => 'GCASH_123', 'method' => 'GCash', 'amount_cents' => 5000, 'status' => 'Confirmed']);
+        $this->rose->update(['name' => 'Renamed Rose']);
+        $this->signIn($this->customer);
+
+        foreach (['client.orders' => 'Pending', 'client.tracking' => 'Pending', 'client.payments' => 'Confirmed'] as $route => $status) {
+            $this->get(route($route, ['q' => 'red rose', 'status' => $status]))->assertOk()
+                ->assertSeeText($order->code)->assertDontSeeText($otherOrder->code)
+                ->assertSeeTextInOrder(['Red Rose', 'Quantity 3', 'Garden Bouquet', 'Quantity 1'])
+                ->assertSee(Storage::disk('public')->url('flowers/red-rose.webp'))
+                ->assertSeeText('Photo unavailable')->assertDontSee('flowers/missing.webp')
+                ->assertSee('href="'.route($route).'">Clear filters', false);
+            $this->get(route($route, ['q' => $order->code]))->assertOk()->assertSeeText('Garden Bouquet');
+        }
+
+        $this->get(route('client.payments', ['q' => 'gcash_123', 'status' => 'Confirmed']))->assertOk()
+            ->assertSeeText('PAY-OWN')->assertDontSeeText('PAY-OTHER');
+        $this->get(route('client.payments', ['q' => 'gcash%123']))->assertOk()->assertSeeText('No payments match your filters.');
+        $this->get(route('client.payments', ['q' => 'PAY-OWN', 'status' => 'Refunded']))->assertOk()
+            ->assertSeeText('No payments match your filters.')->assertDontSeeText($order->code);
+        $this->get(route('client.orders', ['q' => 'red rose', 'status' => 'Completed']))->assertOk()
+            ->assertSeeText('No orders match your filters.')->assertDontSeeText($order->code);
     }
 
     private function review(?string $method = null): string
@@ -362,7 +485,7 @@ class ClientOrderSubmissionTest extends TestCase
         return $client->user;
     }
 
-    private function stockProduct(string $name, string $type, int $price): Flower
+    private function stockProduct(string $name, string $type, int $price, int $quantity = 5): Flower
     {
         $flower = Flower::create([
             'code' => str_replace(' ', '-', $name), 'name' => $name, 'product_type' => $type,
@@ -371,8 +494,8 @@ class ClientOrderSubmissionTest extends TestCase
         DB::table('flower_prices')->insert(['flower_id' => $flower->id, 'price_cents' => $price]);
         DB::table('inventory_batches')->insert([
             'flower_id' => $flower->id, 'code' => 'BAT-'.$flower->id,
-            'received_date' => '2026-11-01', 'received_quantity' => 5,
-            'receiving_unit' => $type, 'conversion_factor' => 1, 'initial_quantity' => 5, 'remaining_quantity' => 5,
+            'received_date' => '2026-11-01', 'received_quantity' => $quantity,
+            'receiving_unit' => $type, 'conversion_factor' => 1, 'initial_quantity' => $quantity, 'remaining_quantity' => $quantity,
         ]);
 
         return $flower;

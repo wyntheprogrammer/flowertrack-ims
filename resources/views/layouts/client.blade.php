@@ -7,7 +7,7 @@
     @vite(['resources/css/storefront.css', 'resources/js/client/navigation.js'])
     @stack('page-assets')
 </head>
-<body id="top" class="@yield('body-class')">
+<body id="top" class="shop-layout @yield('body-class')">
     <a class="visually-hidden-focusable shop-skip" href="#main">Skip to content</a>
     @include('client.partials.navbar')
     <main id="main" tabindex="-1">

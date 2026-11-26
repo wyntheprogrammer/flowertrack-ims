@@ -38,6 +38,7 @@ abstract class OrderRequest extends FormRequest
         $rules = [];
         foreach (['id', 'code', 'status', 'payment', 'paidCents', 'paid_cents', 'payment_status',
             'subtotal_cents', 'fee_cents', 'total_cents', 'subtotalCents', 'deliveryFeeCents', 'totalCents',
+            'delivery_fee_snapshot_cents', 'deliveryFeeSnapshotCents',
             'price', 'price_cents', 'unit_price_cents', 'unitPrice', 'unitPriceCents', 'subtotal', 'total',
             'fee', 'deliveryFee', 'paid', 'amount', 'amount_cents', 'delivery_fee', 'stocked_out', 'stockedOut',
             'remaining', 'remaining_quantity', 'onHand', 'reserved', 'available', 'created_at', 'updated_at',

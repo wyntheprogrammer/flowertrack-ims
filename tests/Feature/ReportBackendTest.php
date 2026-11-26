@@ -58,7 +58,6 @@ class ReportBackendTest extends TestCase
                 'foreign_key_constraints' => true,
             ],
             'database.default' => 'report_backend_test',
-            'orders.delivery_fee' => null,
             'session.driver' => 'array',
             'cache.default' => 'array',
         ]);
@@ -93,7 +92,7 @@ class ReportBackendTest extends TestCase
             $table->enum('status', ['Active', 'Inactive']);
             $table->timestamps();
         });
-        foreach (['create_clients_table', 'create_inventory_tables', 'remove_harvest_and_expiry_dates_from_inventory_batches_table', 'create_order_tables', 'create_delivery_tables', 'create_finance_tables'] as $name) {
+        foreach (['create_clients_table', 'create_inventory_tables', 'remove_harvest_and_expiry_dates_from_inventory_batches_table', 'create_order_tables', 'create_delivery_fee_settings', 'create_delivery_tables', 'create_finance_tables'] as $name) {
             $files = glob(database_path('migrations/*_'.$name.'.php')) ?: [];
             $this->assertCount(1, $files, 'Expected one '.$name.' migration.');
             (require $files[0])->up();
@@ -242,11 +241,13 @@ class ReportBackendTest extends TestCase
         $this->assertSame(2500, $full['payments'][0]['verified']);
         $this->assertSame(2500, $full['payments'][0]['refund']);
         $this->assertSame(0, $full['payments'][0]['net']);
+        $this->assertSame(18, $this->find($partial['inventory'], 'code', $stem->code)['available']);
+        $this->assertSame(20, $this->find($full['inventory'], 'code', $stem->code)['available']);
         foreach ([$pending, $verified, $partial, $full] as $data) {
             $this->assertSame(20, $this->find($data['inventory'], 'code', $stem->code)['onHand']);
             $this->assertSame([], $data['sales']);
         }
-        $this->assertSame('Pending', $order->fresh()->status);
+        $this->assertSame('Cancelled', $order->fresh()->status);
     }
 
     /** Only actual negative spoilage issues count. */
@@ -387,7 +388,7 @@ class ReportBackendTest extends TestCase
 
     private function newOrder(Client $client, Flower $item, int $quantity, string $method = 'Customer Pickup'): Order
     {
-        config(['orders.delivery_fee' => '150.00']);
+        DB::table('delivery_fee_settings')->update(['fee_cents' => 15000]);
 
         return $this->orders->store(['request_key' => (string) Str::uuid(),
             'client_id' => $client->id, 'method' => $method,

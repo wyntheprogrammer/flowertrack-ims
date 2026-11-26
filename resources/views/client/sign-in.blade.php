@@ -35,6 +35,7 @@
                 <button class="shop-button primary" type="submit">Sign in</button>
             </form>
             <p class="shop-auth-note">Contact Gemma’s Flower Shop for account access.</p>
+            <p class="shop-auth-note"><a href="#shop-footer-contact">Forgot Password?</a> Contact the shop for password reset assistance.</p>
         @endauth
     </section>
 @endsection

@@ -103,6 +103,7 @@ class DashboardBackendTest extends TestCase
             'create_inventory_tables',
             'remove_harvest_and_expiry_dates_from_inventory_batches_table',
             'create_order_tables',
+            'create_delivery_fee_settings',
             'create_delivery_tables',
             'create_finance_tables',
             'create_batch_daily_observations_table',
@@ -178,8 +179,8 @@ class DashboardBackendTest extends TestCase
         $this->assertSame(2, $data['summary']['lowStockItems']);
         $row = collect($data['chart']['items'])->firstWhere('code', $stem->code);
         $this->assertSame(20, $row['onHand']);
-        $this->assertSame(15, $row['reserved']);
-        $this->assertSame(5, $row['available']);
+        $this->assertSame(17, $row['reserved']);
+        $this->assertSame(3, $row['available']);
         $data = app(DashboardService::class)->data($this->admin, 'Bouquet');
         $this->assertCount(1, $data['chart']['items']);
         $this->assertSame($bouquet->code, $data['chart']['items'][0]['code']);
@@ -194,12 +195,12 @@ class DashboardBackendTest extends TestCase
             'quantity' => 25, 'status' => 'Active',
         ]);
         $data = app(DashboardService::class)->data($this->admin);
-        $this->assertSame(-5, $data['chart']['items'][0]['available']);
+        $this->assertSame(-7, $data['chart']['items'][0]['available']);
         InventoryBatch::where('flower_id', $flowerId)->firstOrFail()
             ->forceFill(['spoiled' => true])->save();
         $data = app(DashboardService::class)->data($this->admin);
         $this->assertSame(0, $data['summary']['stems']);
-        $this->assertSame(-25, $data['chart']['items'][0]['available']);
+        $this->assertSame(-27, $data['chart']['items'][0]['available']);
     }
 
     public function test_pending_card_counts_only_orders_awaiting_confirmation(): void

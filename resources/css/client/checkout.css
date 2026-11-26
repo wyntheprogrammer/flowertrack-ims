@@ -1,12 +1,6 @@
 .shop-checkout {
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-    min-height: 100dvh;
     background: #faf2e8;
 }
-
-.shop-checkout main { flex: 1 0 auto; }
 
 .checkout-page {
     width: min(92%, 1240px);

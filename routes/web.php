@@ -247,6 +247,10 @@ Route::middleware('auth')->group(function () {
                 Route::get('/deliveries', [DeliveryController::class, 'index'])
                     ->name('deliveries');
 
+                Route::put('/deliveries/fee-settings', [DeliveryController::class, 'updateFee'])
+                    ->middleware('role:admin')
+                    ->name('deliveries.fee-settings.update');
+
                 Route::get('/deliveries/data', [DeliveryController::class, 'data'])
                     ->name('deliveries.data');
 
@@ -288,6 +292,10 @@ Route::middleware('auth')->group(function () {
                 // ========================================
 
                 Route::middleware('role:admin')->group(function () {
+                    Route::post('/clients/{client}/reset-password', [ClientController::class, 'resetPassword'])
+                        ->whereNumber('client')
+                        ->name('clients.reset-password');
+
                     // Reports
                     Route::get('/reports', [ReportController::class, 'index'])
                         ->name('reports');

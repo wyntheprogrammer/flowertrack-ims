@@ -50,6 +50,9 @@ class ClientManagementUI {
         this.formModal = Modal.getOrCreateInstance(this.el('clientFormModal'));
         this.viewModal = Modal.getOrCreateInstance(this.el('clientViewModal'));
         this.statusModal = Modal.getOrCreateInstance(this.el('clientStatusModal'));
+        const passwordResetDialog = this.el('clientPasswordResetModal');
+        this.passwordResetModal = passwordResetDialog && Modal.getOrCreateInstance(passwordResetDialog);
+        this.pendingPasswordResetId = null;
         this.initializeTable();
         this.mountScroller();
         this.bindEvents();
@@ -190,6 +193,13 @@ class ClientManagementUI {
                                 >
                                     <i class="bi bi-${icon}" aria-hidden="true"></i>
                                 </button>
+                                ${this.passwordResetModal ? `
+                                    <button type="button" class="client-action-btn edit"
+                                        data-client-action="reset-password" data-client-id="${escapeHtml(row.id)}"
+                                        aria-label="Reset Password for ${escapeHtml(row.name)}" title="Reset Password">
+                                        <i class="bi bi-key" aria-hidden="true"></i>
+                                    </button>
+                                ` : ''}
                             </div>
                         `;
                     },
@@ -241,6 +251,7 @@ class ClientManagementUI {
             if (button.dataset.clientAction === 'view') this.showProfile(client);
             if (button.dataset.clientAction === 'edit') this.openForm(client);
             if (button.dataset.clientAction === 'status') this.openStatusConfirmation(client);
+            if (button.dataset.clientAction === 'reset-password') this.openPasswordReset(client);
         });
         this.form.addEventListener('submit', event => {
             event.preventDefault();
@@ -264,6 +275,21 @@ class ClientManagementUI {
             this.pendingStatusVersion = null;
             this.pendingDesiredStatus = null;
         });
+        if (this.passwordResetModal) {
+            this.el('confirmClientPasswordReset').addEventListener('click', () => this.confirmPasswordReset());
+            this.el('copyClientPassword').addEventListener('click', () => this.copyTemporaryPassword());
+            this.el('clientPasswordResetModal').addEventListener('hide.bs.modal', event => {
+                if (this.saving) {
+                    event.preventDefault();
+                    return;
+                }
+                this.pendingPasswordResetId = null;
+                this.el('clientTemporaryPassword').value = '';
+            });
+            window.addEventListener('pagehide', () => {
+                this.el('clientTemporaryPassword').value = '';
+            });
+        }
     }
 
     /* ==================================================
@@ -424,6 +450,9 @@ class ClientManagementUI {
         this.el('clientPassword').disabled = this.saving || this.editingId !== null;
         this.form.querySelector('[type="submit"]').disabled = unavailable;
         this.el('confirmClientStatus').disabled = unavailable;
+        if (this.passwordResetModal) {
+            this.el('confirmClientPasswordReset').disabled = unavailable;
+        }
         this.form.setAttribute('aria-busy', String(this.saving));
     }
 
@@ -543,6 +572,57 @@ class ClientManagementUI {
             this.saving = false;
             this.committed = false;
             this.updateControls();
+        }
+    }
+
+    openPasswordReset(client) {
+        this.pendingPasswordResetId = client.dbId;
+        this.el('clientPasswordResetTitle').textContent = 'Reset Password';
+        this.el('clientPasswordResetMessage').textContent = `Reset the password for ${client.name}? This signs the customer out and requires a password change at their next sign-in.`;
+        this.el('clientPasswordResetError').hidden = true;
+        this.el('clientPasswordResetResult').hidden = true;
+        this.el('clientPasswordCopyStatus').textContent = '';
+        this.el('confirmClientPasswordReset').hidden = false;
+        this.el('dismissClientPasswordReset').textContent = 'Cancel';
+        this.passwordResetModal.show();
+    }
+
+    async confirmPasswordReset() {
+        if (this.saving || this.pendingPasswordResetId === null) return;
+        this.el('clientPasswordResetError').hidden = true;
+        this.saving = true;
+        this.updateControls();
+        try {
+            const result = await this.request(this.endpoint('resetPasswordUrl', this.pendingPasswordResetId), {});
+            this.pendingPasswordResetId = null;
+            this.el('clientPasswordResetTitle').textContent = 'Password Reset';
+            this.el('clientPasswordResetMessage').textContent = 'Copy and share this temporary password privately. It is only shown here until you close this dialog.';
+            this.el('clientTemporaryPassword').value = result.temporary_password;
+            this.el('clientPasswordResetResult').hidden = false;
+            this.el('confirmClientPasswordReset').hidden = true;
+            this.el('dismissClientPasswordReset').textContent = 'Done';
+            this.el('copyClientPassword').focus();
+        } catch (error) {
+            this.el('clientPasswordResetError').textContent = this.errorText(error);
+            this.el('clientPasswordResetError').hidden = false;
+        } finally {
+            this.saving = false;
+            this.updateControls();
+        }
+    }
+
+    async copyTemporaryPassword() {
+        const password = this.el('clientTemporaryPassword');
+        const status = this.el('clientPasswordCopyStatus');
+        if (!password.value) return;
+        try {
+            await navigator.clipboard.writeText(password.value);
+            status.textContent = 'Password copied.';
+        } catch {
+            if (!password.value) return;
+            password.focus();
+            password.select();
+            status.textContent = 'Copy the selected password using your device’s copy command.';
         }
     }
 

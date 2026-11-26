@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Client;
+use App\Models\Delivery;
 use App\Models\Flower;
 use App\Models\FlowerPrice;
 use App\Models\InventoryBatch;
@@ -19,19 +20,20 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use InvalidArgumentException;
 
 class OrderService
 {
-    /** Create a pending order without reserving or deducting stock. */
-    public function store(array $input, User $actor, ?int $reviewedTotal = null): Order
+    public function __construct(private readonly DeliveryFeeService $deliveryFees) {}
+
+    /** Create a pending order and reserve its stock in the same transaction. */
+    public function store(array $input, User $actor, ?int $reviewedTotal = null, ?int $reviewedDeliveryFee = null): Order
     {
         $payload = $this->normalize($input);
         $key = strtolower($input['request_key']);
         $hash = hash('sha256', json_encode(['actor' => (int) $actor->id, ...$payload], JSON_THROW_ON_ERROR));
 
         try {
-            return DB::transaction(function () use ($payload, $key, $hash, $actor, $reviewedTotal): Order {
+            return DB::transaction(function () use ($payload, $key, $hash, $actor, $reviewedTotal, $reviewedDeliveryFee): Order {
                 $existing = Order::query()->where('request_key', $key)->first();
 
                 if ($existing !== null) {
@@ -54,9 +56,13 @@ class OrderService
                 $flowers = $this->lockFlowers(array_keys($payload['items']));
                 $lines = $this->lines($flowers, $payload['items'], collect());
                 $this->assertAvailability($flowers, $payload['items'], identifyFlower: $reviewedTotal !== null);
-                [$subtotal, $fee, $total] = $this->totals($lines, $payload['method']);
+                $deliveryFee = $this->deliveryFees->currentFee(lockForOrder: true);
+                [$subtotal, $fee, $total] = $this->totals($lines, $payload['method'], $deliveryFee);
                 if ($reviewedTotal !== null && $total !== $reviewedTotal) {
                     $this->invalid('review_total', 'Your order total changed to ₱'.Money::format($total).'. Review it and confirm again.');
+                }
+                if ($reviewedTotal !== null && $payload['method'] === 'Delivery' && $fee !== $reviewedDeliveryFee) {
+                    $this->invalid('review_total', 'Your delivery fee changed. Review your order and confirm again.');
                 }
 
                 $order = Order::create([
@@ -73,6 +79,7 @@ class OrderService
                     'status' => 'Pending',
                     'subtotal_cents' => $subtotal,
                     'fee_cents' => $fee,
+                    'delivery_fee_snapshot_cents' => $deliveryFee,
                     'total_cents' => $total,
                     'stocked_out' => false,
                 ]);
@@ -81,6 +88,7 @@ class OrderService
                 $order->save();
 
                 $this->replaceItems($order, $lines);
+                $this->syncHolds($order, $flowers, $payload['items']);
                 $this->history($order, $actor, 'Order created.');
 
                 return $order;
@@ -98,7 +106,7 @@ class OrderService
         }
     }
 
-    /** Edit pending/confirmed orders and atomically rebalance confirmed reservations. */
+    /** Edit pending or confirmed orders and atomically rebalance reservations. */
     public function update(Order $order, array $input, User $actor): Order
     {
         $payload = $this->normalize($input);
@@ -119,7 +127,7 @@ class OrderService
             $lines = $this->lines($flowers, $payload['items'], $old);
 
             $this->assertAvailability($flowers, $payload['items'], $locked->code);
-            [$subtotal, $fee, $total] = $this->totals($lines, $payload['method'], $locked);
+            [$subtotal, $fee, $total] = $this->totals($lines, $payload['method'], $locked->delivery_fee_snapshot_cents);
 
             if ($changedClient) {
                 $locked->client_id = $client->id;
@@ -139,15 +147,13 @@ class OrderService
 
             $this->replaceItems($locked, $lines);
 
-            if ($locked->status === 'Confirmed') {
-                $this->syncHolds($locked, $payload['items']);
-            }
+            $this->syncHolds($locked, $flowers, $payload['items']);
 
             $this->history($locked, $actor, 'Order details updated.');
             $locked->unsetRelations();
 
             return $locked;
-        });
+        }, 3);
     }
 
     /** Coordinate staff transitions and stock reservations. */
@@ -178,43 +184,32 @@ class OrderService
                 $this->invalid('status', 'This transition is not available from the current order state.');
             }
 
-            $note = 'Order marked '.$desired.'.';
-
             if ($desired === 'Cancelled') {
-                $this->lockFlowers($locked->items->pluck('flower_id')->all());
                 $reason = trim($input['reason'] ?? '');
 
                 if ($reason === '') {
                     $this->invalid('reason', 'Explain why this order is cancelled.');
                 }
 
-                // Save each reservation so its audit observer records the release.
-                $holds = InventoryReservation::query()
-                    ->where('reference', $locked->code)
-                    ->where('status', 'Active')
-                    ->orderBy('id')
-                    ->lockForUpdate()
-                    ->get();
+                $this->cancelOrder($locked, $actor, $reason);
+                $locked->unsetRelations();
 
-                foreach ($holds as $hold) {
-                    $hold->status = 'Released';
-                    $hold->save();
-                }
+                return $locked;
+            }
 
-                $note = $reason;
-            } elseif ($desired === 'Confirmed') {
+            if ($desired === 'Confirmed') {
                 $flowers = $this->lockFlowers($locked->items->pluck('flower_id')->all());
                 $quantities = $locked->items->mapWithKeys(
                     fn (OrderItem $item) => [(int) $item->flower_id => (int) $item->quantity]
                 )->all();
                 $this->assertAvailability($flowers, $quantities, $locked->code);
-                $this->syncHolds($locked, $quantities);
+                $this->syncHolds($locked, $flowers, $quantities);
             }
 
             $locked->status = $desired;
             $locked->save();
 
-            $this->history($locked, $actor, $note);
+            $this->history($locked, $actor, 'Order marked '.$desired.'.');
 
             if ($locked->method === 'Customer Pickup') {
                 $this->completePaidOrder($locked, $actor);
@@ -227,7 +222,33 @@ class OrderService
             $locked->unsetRelations();
 
             return $locked;
-        });
+        }, 3);
+    }
+
+    /** Close a fully refunded order whose stock is still available for resale. Caller holds the order lock. */
+    public function cancelAfterFullRefund(Order $order, User $actor, string $note): void
+    {
+        if ($order->stocked_out || in_array($order->status, ['Cancelled', 'Completed', 'Delivered', 'Out for Delivery'], true)) {
+            return;
+        }
+
+        if ($order->method === 'Delivery' && Delivery::query()->where('order_id', $order->id)->whereNotNull('dispatched_at')->exists()) {
+            return;
+        }
+
+        $this->cancelOrder($order, $actor, $note);
+    }
+
+    /** Release unissued stock and append the cancellation to order history. */
+    private function cancelOrder(Order $order, User $actor, string $note): void
+    {
+        $order->loadMissing('items');
+        $flowers = $this->lockFlowers($order->items->pluck('flower_id')->all());
+        $this->syncHolds($order, $flowers, []);
+
+        $order->status = 'Cancelled';
+        $order->save();
+        $this->history($order, $actor, $note);
     }
 
     /** Complete an eligible paid order within the caller's transaction and order lock. */
@@ -335,6 +356,7 @@ class OrderService
                 : 0,
             'subtotalCents' => (int) $order->subtotal_cents,
             'deliveryFeeCents' => (int) $order->fee_cents,
+            'deliveryFeeSnapshotCents' => $order->delivery_fee_snapshot_cents,
             'totalCents' => (int) $order->total_cents,
             'stockedOut' => (bool) $order->stocked_out,
             'version' => $this->version($order),
@@ -363,24 +385,7 @@ class OrderService
     /** Read the explicitly configured fee; null means new Delivery orders are unavailable. */
     public function configuredDeliveryFee(): ?int
     {
-        $value = config('orders.delivery_fee');
-
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        try {
-            if (! is_string($value) && ! is_int($value)) {
-                throw new InvalidArgumentException('Fee must be an exact decimal string.');
-            }
-
-            return Money::parse((string) $value);
-        } catch (InvalidArgumentException $exception) {
-            $this->invalid(
-                'method',
-                'The delivery fee configuration is invalid. Ask an administrator to configure an approved decimal amount.'
-            );
-        }
+        return $this->deliveryFees->currentFee();
     }
 
     /** Normalize duplicate lines before hashing, pricing, and availability checks. */
@@ -528,7 +533,7 @@ class OrderService
     }
 
     /** Compute bounded integer monetary totals while preserving existing Delivery fee snapshots. */
-    private function totals(array $lines, string $method, ?Order $old = null): array
+    private function totals(array $lines, string $method, ?int $deliveryFee): array
     {
         $subtotal = 0;
 
@@ -540,11 +545,7 @@ class OrderService
             $subtotal += $line['subtotal_cents'];
         }
 
-        $fee = $method === 'Customer Pickup'
-            ? 0
-            : ($old?->method === 'Delivery'
-                ? (int) $old->fee_cents
-                : $this->configuredDeliveryFee());
+        $fee = $method === 'Customer Pickup' ? 0 : $deliveryFee;
 
         if ($fee === null) {
             $this->invalid('method', 'Delivery orders are unavailable until the delivery fee is configured.');
@@ -618,32 +619,21 @@ class OrderService
         $order->unsetRelation('items');
     }
 
-    /** Rebalance one active reservation per order/item, releasing removed lines. */
-    private function syncHolds(Order $order, array $quantities): void
+    /** Synchronize one reservation per order and locked flower, using model writes for the audit trail. */
+    private function syncHolds(Order $order, Collection $flowers, array $quantities): void
     {
-        $existing = InventoryReservation::query()
-            ->where('reference', $order->code)
-            ->lockForUpdate()
-            ->get();
+        foreach ($flowers as $flower) {
+            $hold = InventoryReservation::query()->lockForUpdate()->firstOrNew([
+                'flower_id' => $flower->id,
+                'reference' => $order->code,
+            ]);
 
-        foreach ($existing as $hold) {
-            if (! isset($quantities[$hold->flower_id])) {
+            if (isset($quantities[$flower->id])) {
+                $hold->fill(['quantity' => $quantities[$flower->id], 'status' => 'Active'])->save();
+            } elseif ($hold->status === 'Active') {
                 $hold->status = 'Released';
                 $hold->save();
             }
-        }
-
-        foreach ($quantities as $id => $quantity) {
-            InventoryReservation::updateOrCreate(
-                [
-                    'flower_id' => $id,
-                    'reference' => $order->code,
-                ],
-                [
-                    'quantity' => $quantity,
-                    'status' => 'Active',
-                ]
-            );
         }
     }
 
