@@ -167,6 +167,72 @@ class SpoilageAutoRefreshTest extends TestCase
         $this->assertSame($observations, BatchDailyObservation::orderBy('id')->get()->toArray());
     }
 
+    public function test_four_periods_share_the_saved_flower_path_and_weekly_risk(): void
+    {
+        $this->second->update(['remaining_quantity' => 40]);
+        $this->service->refresh($this->actor);
+        $rows = $this->service->forecasts($this->service->plan());
+        $this->assertCount(1, $rows);
+        $periods = $rows[0]['periods'];
+        foreach (['daily' => 1, 'weekly' => 7, 'monthly' => 5, 'yearly' => 12] as $name => $count) {
+            $this->assertCount($count, $periods[$name]['buckets']);
+            $this->assertSame('Medium', $periods[$name]['risk']);
+            $this->assertSame(7, $periods[$name]['riskBasisDays']);
+        }
+        $this->assertEqualsWithDelta(0.1, $periods['weekly']['cumulativeFraction'], 1e-9);
+        $this->assertGreaterThan($periods['weekly']['cumulativeFraction'], $periods['monthly']['cumulativeFraction']);
+        $this->assertSame(130, $rows[0]['remaining']);
+        foreach (['daily', 'weekly', 'monthly'] as $period) {
+            $this->assertEqualsWithDelta(130 * $periods[$period]['cumulativeFraction'], $periods[$period]['predictedQuantity'], 1e-9);
+        }
+        $this->assertEqualsWithDelta(13, $periods['weekly']['predictedQuantity'], 1e-9);
+        $this->assertNull($periods['yearly']['predictedQuantity']);
+        $this->assertSame($periods['yearly']['endDate'], $periods['yearly']['buckets'][11]['endDate']);
+        $this->assertSame(1, $this->calls);
+    }
+
+    public function test_all_periods_start_tomorrow_in_manila_even_when_history_lags(): void
+    {
+        CarbonImmutable::setTestNow('2026-11-27 16:30:00 UTC');
+        $this->service->refresh($this->actor);
+        $forecastWithOlderHistory = $this->service->forecasts($this->service->plan())[0];
+        $this->assertSame('2026-11-14', $forecastWithOlderHistory['historyEndDate']);
+        $this->assertSame(array_fill(0, 4, '2026-11-29'), array_column($forecastWithOlderHistory['periods'], 'startDate'));
+
+        $observation = BatchDailyObservation::where('batch_id', $this->first->id)->firstOrFail();
+        $observation->replicate()->fill(['observation_date' => '2026-11-27'])->save();
+        $currentObservation = $observation->replicate()->fill([
+            'observation_date' => '2026-11-28', 'is_complete' => false,
+        ]);
+        $currentObservation->save();
+        $observation->replicate()->fill(['observation_date' => '2026-11-29'])->save();
+        $observations = BatchDailyObservation::orderBy('id')->get()->toArray();
+
+        $this->service->refresh($this->actor);
+        $plans = $this->service->plan();
+        $forecast = $this->service->forecasts($plans)[0];
+        $periods = $forecast['periods'];
+
+        $this->assertSame('2026-11-27', $forecast['historyEndDate']);
+        $this->assertSame(['2026-11-14', '2026-11-27'], array_column($plans[$this->first->id]['payload']['history'], 'observation_date'));
+        $this->assertSame('2026-11-29', $plans[$this->first->id]['cached']->as_of_date->toDateString());
+        foreach (['daily' => '2026-11-29', 'weekly' => '2026-12-05', 'monthly' => '2026-12-28', 'yearly' => '2027-11-28'] as $name => $end) {
+            $this->assertSame('2026-11-29', $periods[$name]['startDate']);
+            $this->assertSame('2026-11-29', $periods[$name]['buckets'][0]['startDate']);
+            $this->assertSame($end, $periods[$name]['endDate']);
+            foreach ($periods[$name]['buckets'] as $bucket) {
+                $this->assertGreaterThan('2026-11-28', $bucket['startDate']);
+            }
+        }
+        $this->assertSame($observations, BatchDailyObservation::orderBy('id')->get()->toArray());
+
+        $currentObservation->update(['is_complete' => true]);
+        $this->service->refresh($this->actor);
+        $forecastWithTodayCompleted = $this->service->forecasts($this->service->plan())[0];
+        $this->assertSame('2026-11-28', $forecastWithTodayCompleted['historyEndDate']);
+        $this->assertSame(array_fill(0, 4, '2026-11-29'), array_column($forecastWithTodayCompleted['periods'], 'startDate'));
+    }
+
     public function test_stock_change_invalidates_only_the_changed_batch(): void
     {
         $this->service->refresh($this->actor);
@@ -193,9 +259,9 @@ class SpoilageAutoRefreshTest extends TestCase
     public function test_new_day_and_settings_changes_invalidate_predictions(): void
     {
         $this->service->refresh($this->actor);
-        config(['spoilage.horizon_days' => 5]);
+        config(['spoilage.forecast_format_version' => 'changed-period-format']);
         $this->assertNull($this->service->plan()[$this->first->id]['cached']);
-        config(['spoilage.horizon_days' => 7]);
+        config(['spoilage.forecast_format_version' => 'daily-periods-v1']);
         CarbonImmutable::setTestNow('2026-11-16 04:00:00 UTC');
         $this->assertNull($this->service->plan()[$this->first->id]['cached']);
     }
@@ -335,7 +401,9 @@ class SpoilageAutoRefreshTest extends TestCase
             $results[$item['key']] = $p['history'] === []
                 ? ['status' => 'InsufficientData', 'message' => 'No completed spoilage history.']
                 : [
-                    'status' => 'Predicted', 'predicted_fraction' => .1,
+                    'status' => 'Predicted',
+                    'predicted_fraction' => 1 - pow(.9, $p['horizon_days'] / 7),
+                    'daily_rate_forecasts' => array_fill(0, $p['horizon_days'], 1 - pow(.9, 1 / 7)),
                     'method' => $p['order'] === null ? SpoilagePythonService::FALLBACK : SpoilagePythonService::ARIMA,
                     'message' => null,
                 ];

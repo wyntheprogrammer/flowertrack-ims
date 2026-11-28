@@ -122,6 +122,21 @@ PYTHON;
                     || $item['payload']['history'] === []) {
                     throw new RuntimeException('The flower forecast does not match its inputs.');
                 }
+                $rates = $result['daily_rate_forecasts'] ?? null;
+                if (! is_array($rates) || ! array_is_list($rates)
+                    || count($rates) !== $item['payload']['horizon_days']) {
+                    throw new RuntimeException('Python returned an incomplete daily forecast path.');
+                }
+                $survival = 1.0;
+                foreach ($rates as $rate) {
+                    if (! $this->isFiniteNumber($rate) || $rate < 0 || $rate > 1) {
+                        throw new RuntimeException('Python returned an invalid daily spoilage rate.');
+                    }
+                    $survival *= 1 - $rate;
+                }
+                if (abs((1 - $survival) - $fraction) > 0.00000001) {
+                    throw new RuntimeException('Python cumulative output does not match its daily rate path.');
+                }
             } elseif ($fraction !== null || $method !== null) {
                 throw new RuntimeException('Unavailable forecasts must not contain invented results.');
             }

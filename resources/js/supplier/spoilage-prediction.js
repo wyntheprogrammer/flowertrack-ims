@@ -20,10 +20,42 @@ function formatDate(value) {
     }).format(new Date(year, month - 1, day));
 }
 
+function formatDateWindow(start, end) {
+    return start === end ? formatDate(start) : `${formatDate(start)} – ${formatDate(end)}`;
+}
+
 function number(value, digits = 0) {
     return value == null ? 'Not available' : Number(value).toLocaleString('en-PH', {
         maximumFractionDigits: digits,
     });
+}
+
+function calculationPercent(stock, fraction, quantity) {
+    const percent = fraction * 100;
+    const [whole, decimal = ''] = quantity.replaceAll(',', '').split('.');
+    const cents = BigInt(whole + decimal.padEnd(2, '0'));
+    const twiceStock = 2n * BigInt(stock);
+    for (let digits = 2; ; digits++) {
+        const scale = 10n ** BigInt(digits);
+        let rate = BigInt(percent.toFixed(digits).replace('.', ''));
+        // Stock times percent gives hundredths of a stock unit. Check the displayed decimal exactly.
+        if (digits === 20) {
+            // At a rounding boundary, use the closest decimal that rounds to the displayed quantity.
+            const minimum = ((2n * cents - 1n) * scale + twiceStock - 1n) / twiceStock;
+            const maximum = ((2n * cents + 1n) * scale - 1n) / twiceStock;
+            if (rate < minimum) rate = minimum;
+            if (rate > maximum) rate = maximum;
+        } else if ((rate === 0n && percent > 0) || (twiceStock * rate + scale) / (2n * scale) !== cents) {
+            continue;
+        }
+        const decimals = String(rate % scale).padStart(digits, '0').replace(/0+$/, '');
+        return `${rate / scale}${decimals ? `.${decimals}` : ''}%`;
+    }
+}
+
+// Null and non-finite values are unavailable; a zero forecast remains valid.
+function validFraction(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
 function usablePrediction(item) {
@@ -86,12 +118,16 @@ class SpoilagePredictionUI {
     constructor(tableElement) {
         this.tableElement = tableElement;
         this.assessments = [];
+        this.forecasts = [];
+        this.forecastFlowerId = '';
+        this.forecastPeriod = 'weekly';
         this.running = false;
         this.modal = Modal.getOrCreateInstance(document.getElementById('predictionViewModal'));
         this.preparePage();
         this.initializeTable();
         this.mountTableScroller();
         this.bindEvents();
+        this.bindForecastEvents();
         this.start();
     }
 
@@ -175,6 +211,80 @@ class SpoilagePredictionUI {
         });
     }
 
+    // Period switches reuse the same flower snapshot and never fit another model.
+    bindForecastEvents() {
+        document.getElementById('forecastFlower').addEventListener('change', (event) => {
+            this.forecastFlowerId = event.target.value;
+            this.renderForecastPeriod();
+        });
+        document.querySelectorAll('[data-forecast-period]').forEach((button) => {
+            button.addEventListener('click', () => {
+                this.forecastPeriod = button.dataset.forecastPeriod;
+                this.renderForecastPeriod();
+            });
+        });
+    }
+
+    // Keep a user's selected flower when automatic refresh updates the snapshot.
+    updateForecastFlowers(forecasts) {
+        this.forecasts = Array.isArray(forecasts) ? forecasts : [];
+        const select = document.getElementById('forecastFlower');
+        if (!this.forecasts.some((flower) => String(flower.flowerId) === this.forecastFlowerId)) {
+            this.forecastFlowerId = this.forecasts.length ? String(this.forecasts[0].flowerId) : '';
+        }
+        select.innerHTML = this.forecasts.length ? this.forecasts.map((flower) => `<option value="${escapeHtml(flower.flowerId)}">${escapeHtml(flower.flowerName)} · ${escapeHtml(flower.flowerCode)}</option>`).join('') : '<option value="">No flowers available</option>';
+        select.value = this.forecastFlowerId;
+        select.disabled = this.forecasts.length === 0;
+        this.renderForecastPeriod();
+    }
+
+    // Render true zero values, distinguish unavailable forecasts, and name the risk basis.
+    renderForecastPeriod() {
+        const key = this.forecastPeriod;
+        document.querySelectorAll('[data-forecast-period]').forEach((button) => {
+            button.setAttribute('aria-pressed', String(button.dataset.forecastPeriod === key));
+        });
+        const flower = this.forecasts.find((item) => String(item.flowerId) === this.forecastFlowerId);
+        const host = document.getElementById('forecastPeriodContent');
+        if (!flower) {
+            host.innerHTML = '<p class="forecast-unavailable">No flower forecasts are available. Eligible completed observations are required before a forecast can be generated.</p>';
+            return;
+        }
+        const period = flower.periods?.[key];
+        const title = {daily:'Daily',weekly:'Weekly',monthly:'Monthly',yearly:'Yearly'}[key];
+        const dates = period?.startDate && period?.endDate
+            ? `${key === 'daily' ? 'Forecast for ' : ''}${formatDateWindow(period.startDate, period.endDate)}`
+            : 'Forecast dates unavailable';
+        const heading = `<div class="forecast-period-heading"><div><h3>${escapeHtml(flower.flowerName)} · ${title} forecast</h3><p class="forecast-window">${escapeHtml(dates)} · Asia/Manila</p></div></div>`;
+        if (flower.needsRefresh || period?.status !== 'Predicted' || !validFraction(period.meanDailyFraction) || !validFraction(period.cumulativeFraction)) {
+            host.innerHTML = `${heading}<div class="forecast-unavailable"><strong>${flower.needsRefresh ? 'Forecast update required' : period?.status === 'InsufficientData' ? 'Insufficient history' : 'Forecast unavailable'}</strong><p class="forecast-method-note">${escapeHtml(flower.needsRefresh ? 'Inputs changed. The current forecast is being prepared; outdated rates are withheld.' : period?.message || 'A current forecast is required. Saved batch advisories remain available below.')}</p></div>`;
+            return;
+        }
+        const percent = (value) => validFraction(value) ? `${number(value * 100, 2)}%` : 'Not available';
+        const quantity = number(period.predictedQuantity, 2);
+        const unit = flower.baseUnit === 'Stem' ? 'stems' : 'bouquets';
+        const stock = number(flower.remaining);
+        const calculationBasis = key === 'daily' ? 'daily rate' : 'cumulative exposure';
+        const metrics = [
+            ['Average daily spoilage rate', percent(period.meanDailyFraction), 'Average of the future daily forecast rates.'],
+            ['Period cumulative exposure', percent(period.cumulativeFraction), 'Compounded exposure across this forecast window; not a risk classification.'],
+            key === 'yearly'
+                ? ['Planning horizon', '12 months', 'Long-range rate outlook; affected stock quantities are not projected.']
+                : ['Expected spoiled quantity', `${quantity} ${unit}`, `Stock basis: ${stock} ${unit}`,
+                    `Calculation (higher-precision ${calculationBasis}): ${stock} × ${calculationPercent(flower.remaining, period.cumulativeFraction, quantity)} = ${quantity} ${unit}`],
+        ];
+        const risk = Object.hasOwn(riskPriority, period.risk) ? `<span class="prediction-risk prediction-risk-${period.risk.toLowerCase()}">${escapeHtml(period.risk)} · 7-day reference risk</span>` : '<span class="text-muted">Reference risk unavailable</span>';
+        const buckets = Array.isArray(period.buckets) ? period.buckets : [];
+        const maximum = Math.max(0, ...buckets.map((bucket) => validFraction(bucket.meanDailyFraction) ? bucket.meanDailyFraction : 0));
+        const breakdown = buckets.length ? `<div class="forecast-breakdown" tabindex="0" role="region" aria-label="${title} forecast breakdown; scroll for all columns"><table><caption>${key === 'yearly' ? 'Month-by-month outlook' : key === 'monthly' ? 'Weekly progression' : 'Daily progression'} · future predictions</caption><thead><tr><th scope="col">Period</th><th scope="col" class="forecast-value">Avg. daily rate</th><th scope="col">Relative trend</th><th scope="col" class="forecast-value">Cumulative exposure</th></tr></thead><tbody>${buckets.map((bucket) => {
+            const value = validFraction(bucket.meanDailyFraction) ? bucket.meanDailyFraction : 0;
+            const date = escapeHtml(formatDateWindow(bucket.startDate, bucket.endDate));
+            const label = bucket.startDate === bucket.endDate ? date : `${escapeHtml(bucket.label)}<small class="forecast-window d-block">${date}</small>`;
+            return `<tr><th scope="row">${label}</th><td class="forecast-value">${percent(bucket.meanDailyFraction)}</td><td><span class="forecast-trend" aria-hidden="true"><span style="width:${maximum > 0 ? Math.max(0, Math.min(100, value / maximum * 100)) : 0}%"></span></span></td><td class="forecast-value">${percent(bucket.cumulativeFraction)}</td></tr>`;
+        }).join('')}</tbody></table></div>` : '';
+        host.innerHTML = `${heading}${risk}<div class="forecast-metrics mt-3">${metrics.map(([label, value, ...notes]) => `<div class="forecast-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${notes.map((note) => `<small>${escapeHtml(note)}</small>`).join('')}</div>`).join('')}</div>${breakdown}<p class="forecast-method-note">Method: ${escapeHtml(period.method || 'Unavailable')} · ${number(period.historyDays)} completed history days through ${escapeHtml(formatDate(flower.historyEndDate))}. Risk always uses the same 7-day reference window. Bars compare average daily rates within this view; each row’s exposure applies only to that row’s dates. ${escapeHtml(period.message || '')}</p>`;
+    }
+
     // GET reads saved results; only the automatic POST may write predictions.
     async loadData() {
         const response = await fetch(DATA_URL, {
@@ -183,6 +293,7 @@ class SpoilagePredictionUI {
         const result = await readResponse(response);
         if (!Array.isArray(result.data)) throw new Error('Invalid batch dataset.');
         this.assessments = result.data;
+        this.updateForecastFlowers(result.forecasts);
         this.table.clear().rows.add(this.assessments).draw(false);
         this.renderSummary();
         return this.assessments.filter((item) => item.needsRefresh).length;
@@ -226,6 +337,7 @@ class SpoilagePredictionUI {
             }
             this.status.textContent = `${pending} batches changed during processing or remain pending. Refresh the browser to retry. Saved risks marked outdated are not counted.`;
         } catch (error) {
+            this.renderForecastPeriod();
             this.status.textContent = `${error.message} Saved records remain visible. Refresh the browser to retry.`;
         } finally {
             this.running = false;

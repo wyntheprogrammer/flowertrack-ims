@@ -53,20 +53,28 @@
                     <p>Review batch risk indicators and recommended actions.</p>
                 </div>
 
-                <span class="prediction-demo-label">
-                    <i class="bi bi-info-circle" aria-hidden="true"></i>
-                    Sample Data
-                </span>
             </div>
 
             <div class="prediction-notice">
                 <i class="bi bi-info-circle" aria-hidden="true"></i>
                 <p>
-                    These are sample advisory results for UI review.
-                    Inspect actual flower condition before taking action.
-                    Record confirmed spoilage through Inventory Management.
+                    Forecasts support planning. Inspect actual flower condition and record confirmed spoilage through Inventory Management. Predictions do not deduct stock.
                 </p>
             </div>
+
+            <section class="forecast-planner" aria-labelledby="forecastPlannerTitle">
+                <div class="forecast-planner-heading">
+                    <div><h2 id="forecastPlannerTitle">Flower forecast</h2><p>Compare future spoilage behavior over your planning period.</p></div>
+                    <div class="forecast-flower-control"><label for="forecastFlower">Flower</label><select id="forecastFlower" disabled><option value="">Loading flowers…</option></select></div>
+                </div>
+                <div class="forecast-periods" role="group" aria-label="Forecast period">
+                    <button type="button" data-forecast-period="daily" aria-pressed="false">Daily</button>
+                    <button type="button" data-forecast-period="weekly" aria-pressed="true">Weekly</button>
+                    <button type="button" data-forecast-period="monthly" aria-pressed="false">Monthly</button>
+                    <button type="button" data-forecast-period="yearly" aria-pressed="false">Yearly</button>
+                </div>
+                <div id="forecastPeriodContent" class="forecast-period-content" aria-live="polite"><p class="prediction-detail-note">Loading forecast periods…</p></div>
+            </section>
 
             <div class="prediction-toolbar">
                 <div class="prediction-length">

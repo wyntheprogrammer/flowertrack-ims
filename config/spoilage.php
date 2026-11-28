@@ -9,8 +9,11 @@ return [
             : base_path('.venv/bin/python')
     ),
 
-    // Predict today through six days later.
+    // Existing batch advisories and risk thresholds retain a seven-day reference.
     'horizon_days' => 7,
+
+    // One rolling-year daily forecast supports all four presentation periods.
+    'forecast_format_version' => 'daily-periods-v1',
 
     // Boundaries expressed as fractions, not whole percentages.
     'risk_thresholds' => [
