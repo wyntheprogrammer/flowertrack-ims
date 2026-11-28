@@ -20,10 +20,37 @@ function formatDate(value) {
     }).format(new Date(year, month - 1, day));
 }
 
+function formatDateWindow(start, end) {
+    return start === end ? formatDate(start) : `${formatDate(start)} – ${formatDate(end)}`;
+}
+
 function number(value, digits = 0) {
     return value == null ? 'Not available' : Number(value).toLocaleString('en-PH', {
         maximumFractionDigits: digits,
     });
+}
+
+function calculationPercent(stock, fraction, quantity) {
+    const percent = fraction * 100;
+    const [whole, decimal = ''] = quantity.replaceAll(',', '').split('.');
+    const cents = BigInt(whole + decimal.padEnd(2, '0'));
+    const twiceStock = 2n * BigInt(stock);
+    for (let digits = 2; ; digits++) {
+        const scale = 10n ** BigInt(digits);
+        let rate = BigInt(percent.toFixed(digits).replace('.', ''));
+        // Stock times percent gives hundredths of a stock unit. Check the displayed decimal exactly.
+        if (digits === 20) {
+            // At a rounding boundary, use the closest decimal that rounds to the displayed quantity.
+            const minimum = ((2n * cents - 1n) * scale + twiceStock - 1n) / twiceStock;
+            const maximum = ((2n * cents + 1n) * scale - 1n) / twiceStock;
+            if (rate < minimum) rate = minimum;
+            if (rate > maximum) rate = maximum;
+        } else if ((rate === 0n && percent > 0) || (twiceStock * rate + scale) / (2n * scale) !== cents) {
+            continue;
+        }
+        const decimals = String(rate % scale).padStart(digits, '0').replace(/0+$/, '');
+        return `${rate / scale}${decimals ? `.${decimals}` : ''}%`;
+    }
 }
 
 // Null and non-finite values are unavailable; a zero forecast remains valid.
@@ -225,28 +252,37 @@ class SpoilagePredictionUI {
         }
         const period = flower.periods?.[key];
         const title = {daily:'Daily',weekly:'Weekly',monthly:'Monthly',yearly:'Yearly'}[key];
-        const dates = period?.startDate && period?.endDate ? `${formatDate(period.startDate)} – ${formatDate(period.endDate)}` : 'Forecast dates unavailable';
+        const dates = period?.startDate && period?.endDate
+            ? `${key === 'daily' ? 'Forecast for ' : ''}${formatDateWindow(period.startDate, period.endDate)}`
+            : 'Forecast dates unavailable';
         const heading = `<div class="forecast-period-heading"><div><h3>${escapeHtml(flower.flowerName)} · ${title} forecast</h3><p class="forecast-window">${escapeHtml(dates)} · Asia/Manila</p></div></div>`;
         if (flower.needsRefresh || period?.status !== 'Predicted' || !validFraction(period.meanDailyFraction) || !validFraction(period.cumulativeFraction)) {
             host.innerHTML = `${heading}<div class="forecast-unavailable"><strong>${flower.needsRefresh ? 'Forecast update required' : period?.status === 'InsufficientData' ? 'Insufficient history' : 'Forecast unavailable'}</strong><p class="forecast-method-note">${escapeHtml(flower.needsRefresh ? 'Inputs changed. The current forecast is being prepared; outdated rates are withheld.' : period?.message || 'A current forecast is required. Saved batch advisories remain available below.')}</p></div>`;
             return;
         }
         const percent = (value) => validFraction(value) ? `${number(value * 100, 2)}%` : 'Not available';
+        const quantity = number(period.predictedQuantity, 2);
+        const unit = flower.baseUnit === 'Stem' ? 'stems' : 'bouquets';
+        const stock = number(flower.remaining);
+        const calculationBasis = key === 'daily' ? 'daily rate' : 'cumulative exposure';
         const metrics = [
             ['Average daily spoilage rate', percent(period.meanDailyFraction), 'Average of the future daily forecast rates.'],
             ['Period cumulative exposure', percent(period.cumulativeFraction), 'Compounded exposure across this forecast window; not a risk classification.'],
             key === 'yearly'
                 ? ['Planning horizon', '12 months', 'Long-range rate outlook; affected stock quantities are not projected.']
-                : ['Expected affected quantity', period.predictedQuantity == null ? 'Not available' : `${number(period.predictedQuantity, 2)} ${flower.baseUnit ?? ''}`, 'Current stock cohort only; assumes no replenishment or releases.'],
+                : ['Expected spoiled quantity', `${quantity} ${unit}`, `Stock basis: ${stock} ${unit}`,
+                    `Calculation (higher-precision ${calculationBasis}): ${stock} × ${calculationPercent(flower.remaining, period.cumulativeFraction, quantity)} = ${quantity} ${unit}`],
         ];
         const risk = Object.hasOwn(riskPriority, period.risk) ? `<span class="prediction-risk prediction-risk-${period.risk.toLowerCase()}">${escapeHtml(period.risk)} · 7-day reference risk</span>` : '<span class="text-muted">Reference risk unavailable</span>';
         const buckets = Array.isArray(period.buckets) ? period.buckets : [];
         const maximum = Math.max(0, ...buckets.map((bucket) => validFraction(bucket.meanDailyFraction) ? bucket.meanDailyFraction : 0));
         const breakdown = buckets.length ? `<div class="forecast-breakdown" tabindex="0" role="region" aria-label="${title} forecast breakdown; scroll for all columns"><table><caption>${key === 'yearly' ? 'Month-by-month outlook' : key === 'monthly' ? 'Weekly progression' : 'Daily progression'} · future predictions</caption><thead><tr><th scope="col">Period</th><th scope="col" class="forecast-value">Avg. daily rate</th><th scope="col">Relative trend</th><th scope="col" class="forecast-value">Cumulative exposure</th></tr></thead><tbody>${buckets.map((bucket) => {
             const value = validFraction(bucket.meanDailyFraction) ? bucket.meanDailyFraction : 0;
-            return `<tr><th scope="row">${escapeHtml(bucket.label)}<small class="forecast-window d-block">${escapeHtml(formatDate(bucket.startDate))} – ${escapeHtml(formatDate(bucket.endDate))}</small></th><td class="forecast-value">${percent(bucket.meanDailyFraction)}</td><td><span class="forecast-trend" aria-hidden="true"><span style="width:${maximum > 0 ? Math.max(0, Math.min(100, value / maximum * 100)) : 0}%"></span></span></td><td class="forecast-value">${percent(bucket.cumulativeFraction)}</td></tr>`;
+            const date = escapeHtml(formatDateWindow(bucket.startDate, bucket.endDate));
+            const label = bucket.startDate === bucket.endDate ? date : `${escapeHtml(bucket.label)}<small class="forecast-window d-block">${date}</small>`;
+            return `<tr><th scope="row">${label}</th><td class="forecast-value">${percent(bucket.meanDailyFraction)}</td><td><span class="forecast-trend" aria-hidden="true"><span style="width:${maximum > 0 ? Math.max(0, Math.min(100, value / maximum * 100)) : 0}%"></span></span></td><td class="forecast-value">${percent(bucket.cumulativeFraction)}</td></tr>`;
         }).join('')}</tbody></table></div>` : '';
-        host.innerHTML = `${heading}${risk}<div class="forecast-metrics mt-3">${metrics.map(([label,value,note]) => `<div class="forecast-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(note)}</small></div>`).join('')}</div>${breakdown}<p class="forecast-method-note">Method: ${escapeHtml(period.method || 'Unavailable')} · ${number(period.historyDays)} completed history days. Risk always uses the same 7-day reference window. Bars compare average daily rates within this view; each row’s exposure applies only to that row’s dates. ${escapeHtml(period.message || '')}</p>`;
+        host.innerHTML = `${heading}${risk}<div class="forecast-metrics mt-3">${metrics.map(([label, value, ...notes]) => `<div class="forecast-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${notes.map((note) => `<small>${escapeHtml(note)}</small>`).join('')}</div>`).join('')}</div>${breakdown}<p class="forecast-method-note">Method: ${escapeHtml(period.method || 'Unavailable')} · ${number(period.historyDays)} completed history days through ${escapeHtml(formatDate(flower.historyEndDate))}. Risk always uses the same 7-day reference window. Bars compare average daily rates within this view; each row’s exposure applies only to that row’s dates. ${escapeHtml(period.message || '')}</p>`;
     }
 
     // GET reads saved results; only the automatic POST may write predictions.

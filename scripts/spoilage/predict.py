@@ -177,16 +177,17 @@ def predict(payload):
     series = daily_series(history)
     as_of = date.fromisoformat(payload["as_of_date"])
     latest = series.index[-1].date()
+    bridge_days = (as_of - latest).days - 1
     horizon = payload["horizon_days"]
     order = payload["order"]
-    if latest >= as_of or type(horizon) is not int or not 1 <= horizon <= MAX_FORECAST_DAYS:
+    if bridge_days < 0 or type(horizon) is not int or not 1 <= horizon <= MAX_FORECAST_DAYS:
         raise ValueError("Invalid forecast date or horizon.")
 
     # Refit the saved order on available live history, including evaluated observations.
     if order is None:
         reason = "No trained ARIMA order for this flower."
-    elif series.isna().any() or latest != as_of - timedelta(days=1):
-        reason = "Flower ARIMA requires continuous history through yesterday."
+    elif series.isna().any():
+        reason = "Flower ARIMA requires continuous daily history."
     elif len(series) < 43:
         reason = "Flower ARIMA requires at least 43 completed daily observations."
     else:
@@ -204,10 +205,10 @@ def predict(payload):
                 )
                 fitted = model.fit()
 
-            daily_rates = np.asarray(fitted.forecast(steps=horizon), dtype=float)
+            daily_rates = np.asarray(fitted.forecast(steps=bridge_days + horizon), dtype=float)
             if not np.isfinite(daily_rates).all():
                 raise ValueError("ARIMA returned a nonfinite forecast.")
-            daily_rates = np.clip(daily_rates, 0, 1)
+            daily_rates = np.clip(daily_rates[bridge_days:], 0, 1)
             return inventory_result(daily_rates, "Flower ARIMA")
         except (ValueError, RuntimeError, ArithmeticError, np.linalg.LinAlgError) as error:
             reason = f"Flower ARIMA unavailable: {error}"

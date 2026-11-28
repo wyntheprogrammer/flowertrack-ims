@@ -224,19 +224,42 @@ class SpoilageArimaTest(unittest.TestCase):
         self.assertEqual("InsufficientData", result["2"]["status"])
         self.assertEqual("Error", result["3"]["status"])
 
-    def test_live_gaps_and_fit_failures_use_the_historical_fallback(self):
+    def test_live_internal_history_gaps_and_fit_failures_use_the_historical_fallback(self):
         rows = history([8, 12] * 22)
         payload = {"history": rows, "order": [1, 0, 0], "as_of_date": "2026-02-14", "horizon_days": 1}
         with patch("predict.ARIMA", side_effect=ValueError("Fit failed.")) as fit:
             gapped = predict({**payload, "history": rows[:20] + rows[21:]})
-            stale = predict({**payload, "as_of_date": "2026-02-15"})
             fit.assert_not_called()
             failed = predict(payload)
             fit.assert_called_once()
 
-        for result in (gapped, stale, failed):
+        for result in (gapped, failed):
             self.assertEqual("Flower historical fallback", result["method"])
         self.assertIn("Fit failed.", failed["message"])
+
+    def test_live_forecast_bridges_yesterdays_and_older_history_before_the_visible_year(self):
+        visible_rates = np.linspace(0.01, 0.05, 366)
+        start = date(2027, 11, 29)
+        for bridge_days in (1, 5):
+            with self.subTest(bridge_days=bridge_days):
+                last_observation = start - timedelta(days=bridge_days + 1)
+                rows = history([8, 12] * 22, start=last_observation - timedelta(days=43))
+                rates = np.concatenate([np.full(bridge_days, 0.5), visible_rates])
+                fitted = Mock(forecast=Mock(return_value=rates))
+                model = Mock(fit=Mock(return_value=fitted))
+                with patch("predict.ARIMA", return_value=model) as arima:
+                    result = predict({
+                        "history": rows, "order": [1, 0, 0], "as_of_date": start.isoformat(), "horizon_days": 366,
+                    })
+
+                self.assertTrue(arima.call_args.args[0].equals(daily_series(rows)))
+                fitted.forecast.assert_called_once_with(steps=366 + bridge_days)
+                self.assertEqual("Flower ARIMA", result["method"])
+                np.testing.assert_allclose(result["daily_rate_forecasts"], visible_rates)
+                for days in (1, 7, 30, 366):
+                    self.assertAlmostEqual(
+                        1 - np.prod(1 - visible_rates[:days]), result["cumulative_fractions"][days - 1]
+                    )
 
     def test_real_statsmodels_training_and_forecast_over_json(self):
         rows = history(np.random.default_rng(9).integers(2, 30, size=50).tolist())
@@ -247,7 +270,8 @@ class SpoilageArimaTest(unittest.TestCase):
         )
         trained = json.loads(training.stdout)
         payload = {
-            "history": rows, "order": trained["order"], "as_of_date": "2026-02-20", "horizon_days": 366,
+            "history": rows, "order": trained["order"], "as_of_date": "2026-02-22",
+            "horizon_days": 366,
         }
         live = subprocess.run(
             [sys.executable, str(scripts / "predict_many.py")],

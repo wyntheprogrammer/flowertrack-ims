@@ -49,7 +49,8 @@ class SpoilagePredictionService
     public function plan(?array $ids = null): array
     {
         return DB::transaction(function () use ($ids) {
-            $date = $this->today()->toDateString();
+            $start = $this->today()->addDay();
+            $startDate = $start->toDateString();
             $query = InventoryBatch::query()->with('flower')
                 ->where('spoiled', false)->where('remaining_quantity', '>', 0);
             if ($ids !== null) {
@@ -60,7 +61,7 @@ class SpoilagePredictionService
                 return [];
             }
 
-            $histories = $this->histories($batches->pluck('flower_id')->unique()->all(), $date);
+            $histories = $this->histories($batches->pluck('flower_id')->unique()->all(), $startDate);
             $engine = [];
             foreach (['scripts/spoilage/predict.py', 'scripts/spoilage/predict_many.py', 'requirements.txt'] as $path) {
                 $engine[$path] = is_file(base_path($path)) ? hash_file('sha256', base_path($path)) : null;
@@ -68,7 +69,7 @@ class SpoilagePredictionService
             $saved = BatchSpoilagePrediction::query()
                 ->whereIn('batch_id', $batches->modelKeys())
                 ->where('model_version', config('spoilage.model_version'))
-                ->whereDate('as_of_date', '<=', $date)
+                ->whereDate('as_of_date', '<=', $startDate)
                 ->orderByDesc('as_of_date')->orderByDesc('generated_at')->orderByDesc('id')
                 ->get()->groupBy('batch_id');
             $plans = [];
@@ -77,11 +78,13 @@ class SpoilagePredictionService
                     continue;
                 }
                 $signature = $this->signature($batch, $batch->flower);
+                $history = $histories[$batch->flower_id] ?? [];
+                $historyEndDate = $history === [] ? null : $history[array_key_last($history)]['observation_date'];
                 $payload = [
-                    'as_of_date' => $date,
-                    'history' => $histories[$batch->flower_id] ?? [],
-                    'order' => $this->selectedOrder($batch->flower, $date),
-                    'horizon_days' => (int) $this->today()->diffInDays($this->today()->addYearNoOverflow()),
+                    'as_of_date' => $startDate,
+                    'history' => $history,
+                    'order' => $this->selectedOrder($batch->flower, $startDate),
+                    'horizon_days' => (int) $start->diffInDays($start->addYearNoOverflow()),
                 ];
                 $hash = $this->hash([
                     'signature' => $signature,
@@ -92,13 +95,14 @@ class SpoilagePredictionService
                     'period_format' => config('spoilage.forecast_format_version'),
                 ]);
                 $candidates = $saved->get($batch->id, collect());
-                $cached = $candidates->first(fn ($prediction) => $prediction->as_of_date->toDateString() === $date
+                $cached = $candidates->first(fn ($prediction) => $prediction->as_of_date->toDateString() === $startDate
                     && $prediction->input_hash === $hash
                     && in_array($prediction->status, ['Predicted', 'InsufficientData'], true)
                 );
                 $plans[(int) $batch->id] = [
                     'batch' => $batch, 'signature' => $signature,
                     'payload' => $payload, 'hash' => $hash,
+                    'history_end_date' => $historyEndDate,
                     'cached' => $cached, 'saved' => $cached ?? $candidates->first(),
                 ];
             }
@@ -161,6 +165,7 @@ class SpoilagePredictionService
                         $batch = InventoryBatch::query()->lockForUpdate()->findOrFail($plan['batch']->id);
                         if ($this->signature($batch, $flower) !== $plan['signature']
                             || $this->selectedOrder($flower, $plan['payload']['as_of_date']) !== $plan['payload']['order']
+                            || $this->today()->addDay()->toDateString() !== $plan['payload']['as_of_date']
                             || ($this->histories([$flower->id], $plan['payload']['as_of_date'])[$flower->id] ?? []) !== $plan['payload']['history']) {
                             return null;
                         }
@@ -258,7 +263,7 @@ class SpoilagePredictionService
             $first = $group->first(fn (array $plan): bool => $plan['cached'] !== null) ?? $group->first();
             $flower = $first['batch']->flower;
             $prediction = $first['saved'];
-            $asOf = $prediction?->as_of_date?->toDateString() ?? $first['payload']['as_of_date'];
+            $asOf = $first['payload']['as_of_date'];
             $start = CarbonImmutable::parse($asOf, config('spoilage.observation_timezone'));
             $rates = $prediction?->metadata['daily_rate_forecasts'] ?? null;
             $annualDays = (int) $start->diffInDays($start->addYearNoOverflow());
@@ -314,6 +319,7 @@ class SpoilagePredictionService
                 'flowerId' => (int) $flower->id, 'flowerName' => $flower->name,
                 'flowerCode' => $flower->code, 'baseUnit' => $flower->product_type,
                 'remaining' => $remaining,
+                'historyEndDate' => $first['history_end_date'],
                 'needsRefresh' => $group->contains(fn (array $plan): bool => $plan['cached'] === null),
                 'periods' => $periods,
             ];
