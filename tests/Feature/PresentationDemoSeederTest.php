@@ -9,7 +9,6 @@ use App\Models\SalesRecord;
 use App\Models\User;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
-use Database\Seeders\PresentationDemoSeeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use RuntimeException;
@@ -29,7 +28,6 @@ class PresentationDemoSeederTest extends TestCase
             'hashing.bcrypt.rounds' => 4, 'spoilage.activity_collection' => false,
         ]);
         DB::purge('presentation_test');
-        $this->artisan('migrate', ['--database' => 'presentation_test'])->assertSuccessful();
         Carbon::setTestNow('2026-11-28 05:00:00 UTC');
         CarbonImmutable::setTestNow('2026-11-28 05:00:00 UTC');
         $this->withoutVite();
@@ -45,7 +43,7 @@ class PresentationDemoSeederTest extends TestCase
 
     public function test_seed_is_reproducible_coherent_and_demo_accounts_use_normal_login(): void
     {
-        $this->seed(PresentationDemoSeeder::class);
+        $this->artisan('migrate:fresh', ['--seed' => true])->assertSuccessful();
         $this->assertSame(7, User::count());
         $this->assertSame(4384, BatchDailyObservation::count());
         $this->assertSame(15, Order::count());
@@ -70,7 +68,7 @@ class PresentationDemoSeederTest extends TestCase
         }
         $counts = [InventoryBatch::count(), DB::table('inventory_movements')->count(), Order::count()];
         DB::table('cache')->delete();
-        $this->seed(PresentationDemoSeeder::class);
+        $this->seed();
         $this->assertSame($counts, [InventoryBatch::count(), DB::table('inventory_movements')->count(), Order::count()]);
         foreach (['admin', 'supplier', 'client1'] as $login) {
             $user = User::where('email', $login.'@demo.example.test')->firstOrFail();
@@ -92,12 +90,13 @@ class PresentationDemoSeederTest extends TestCase
 
     public function test_seed_refuses_nonempty_database_without_deleting_anything(): void
     {
+        $this->artisan('migrate')->assertSuccessful();
         $user = User::factory()->create();
         try {
-            $this->seed(PresentationDemoSeeder::class);
+            $this->seed();
             $this->fail('Existing accounts must never be overwritten.');
         } catch (RuntimeException $exception) {
-            $this->assertStringContainsString('empty demo database', $exception->getMessage());
+            $this->assertStringContainsString('freshly migrated database', $exception->getMessage());
         }
         $this->assertSame(1, User::count());
         $this->assertSame($user->email, $user->fresh()->email);

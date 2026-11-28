@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
 
-/** Reproducible synthetic data, explicitly restricted to an empty local presentation database. */
+/** Reproducible synthetic data for a fresh local or testing database. */
 class PresentationDemoSeeder extends Seeder
 {
     private const MARKER = 'Presentation Demo v3 Seeded';
@@ -51,7 +51,7 @@ class PresentationDemoSeeder extends Seeder
         }
         foreach (['users', 'flowers', 'clients', 'inventory_batches', 'orders', 'batch_daily_observations', 'audit_events'] as $table) {
             if (DB::table($table)->exists()) {
-                throw new RuntimeException('Presentation seeding requires an empty demo database; existing records are never overwritten.');
+                throw new RuntimeException('Presentation seeding requires a freshly migrated database.');
             }
         }
         $oldCarbon = Carbon::getTestNow();
@@ -82,17 +82,15 @@ class PresentationDemoSeeder extends Seeder
                 Auth::forgetUser();
             }
         }
-        $this->command?->info('Synthetic presentation data seeded. All demo login passwords are 123 (hashed). Train models separately; no predictions were invented.');
+        $this->command?->info('Synthetic presentation data seeded. Demo login password: 123. Run php artisan spoilage:train to train the models.');
     }
 
     private function guardEnvironment(): void
     {
         $database = DB::connection()->getDatabaseName();
         $isolatedTest = app()->environment('testing') && $database === ':memory:';
-        if (! app()->environment('local', 'testing') || (! $isolatedTest && ! in_array(basename($database), [
-            'flowertrack_ims_demo', 'flowertrack_ims_presentation', 'flowertrack_demo.sqlite',
-        ], true))) {
-            throw new RuntimeException('Use a local flowertrack_ims_demo/flowertrack_ims_presentation database or flowertrack_demo.sqlite. This seeder never resets a database.');
+        if (! app()->environment('local', 'testing') || ($database !== 'flowertrack_ims' && ! $isolatedTest)) {
+            throw new RuntimeException('Presentation seeding requires flowertrack_ims in a local or testing environment, or an in-memory test database.');
         }
     }
 
