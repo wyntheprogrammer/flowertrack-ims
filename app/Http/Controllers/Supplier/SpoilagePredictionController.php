@@ -23,7 +23,8 @@ class SpoilagePredictionController extends Controller
     {
         $this->checkAccess($request);
         $rows = [];
-        foreach ($service->plan() as $plan) {
+        $plans = $service->plan();
+        foreach ($plans as $plan) {
             $batch = $plan['batch'];
             $prediction = $plan['saved'];
             $rows[] = [
@@ -51,7 +52,7 @@ class SpoilagePredictionController extends Controller
             ];
         }
 
-        return response()->json(['data' => $rows])->header('Cache-Control', 'no-store');
+        return response()->json(['data' => $rows, 'forecasts' => $service->forecasts($plans)])->header('Cache-Control', 'no-store');
     }
 
     // The browser sends one automatic POST after loading saved data.

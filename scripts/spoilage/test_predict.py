@@ -146,6 +146,68 @@ class SpoilageArimaTest(unittest.TestCase):
         self.assertEqual("Flower ARIMA", result["method"])
         np.testing.assert_allclose(inventory.call_args.args[0], [0, 0.10, 0.20, 1])
         self.assertEqual(1.0, result["predicted_fraction"])
+        self.assertEqual([0.0, 0.1, 0.2, 1.0], result["daily_rate_forecasts"])
+        np.testing.assert_allclose(result["cumulative_fractions"], [0, 0.1, 0.28, 1])
+
+    def test_one_annual_live_fit_supplies_all_shorter_forecast_periods(self):
+        rows = history([8, 12] * 22)
+        rates = np.linspace(0.001, 0.01, 366)
+        fitted = Mock(forecast=Mock(return_value=rates))
+        model = Mock(fit=Mock(return_value=fitted))
+        payload = {"history": rows, "order": [1, 0, 0], "as_of_date": "2026-02-14", "horizon_days": 366}
+        with patch("predict.ARIMA", return_value=model) as arima, patch("predict.select_best_order") as select:
+            result = predict(payload)
+
+        arima.assert_called_once()
+        model.fit.assert_called_once_with()
+        fitted.forecast.assert_called_once_with(steps=366)
+        select.assert_not_called()
+        self.assertEqual(366, len(result["daily_rate_forecasts"]))
+        self.assertEqual(366, len(result["cumulative_fractions"]))
+        for days in (1, 7, 30, 366):
+            expected = 1 - float(np.prod(1 - rates[:days]))
+            self.assertAlmostEqual(expected, result["cumulative_fractions"][days - 1])
+        self.assertAlmostEqual(result["cumulative_fractions"][-1], result["predicted_fraction"])
+        self.assertTrue(all(0 <= point <= 1 for point in result["cumulative_fractions"]))
+
+    def test_cumulative_inventory_math_applies_daily_rates_to_surviving_stock(self):
+        result = inventory_result([0.1, 0.2, 0.05], "Flower ARIMA")
+        self.assertEqual([0.1, 0.2, 0.05], result["daily_rate_forecasts"])
+        np.testing.assert_allclose(result["cumulative_fractions"], [0.1, 0.28, 0.316])
+        self.assertAlmostEqual(0.316, result["predicted_fraction"])
+        self.assertNotAlmostEqual(sum(result["daily_rate_forecasts"]), result["predicted_fraction"])
+
+    def test_live_horizon_is_bounded_to_one_rolling_year(self):
+        payload = {"history": history([5, 10]), "order": None, "as_of_date": "2026-01-03"}
+        for horizon in (0, -1, 367, True, 1.5, "7"):
+            with self.subTest(horizon=horizon), self.assertRaises(ValueError):
+                predict({**payload, "horizon_days": horizon})
+
+    def test_fallback_returns_the_same_complete_daily_vector_contract(self):
+        rows = history([10, 20])
+        rows[1]["opening_quantity"] = 50
+        result = predict({"history": rows, "order": None, "as_of_date": "2026-01-03", "horizon_days": 366})
+        self.assertEqual("Flower historical fallback", result["method"])
+        np.testing.assert_allclose(result["daily_rate_forecasts"], [0.2] * 366)
+        self.assertEqual(366, len(result["cumulative_fractions"]))
+        self.assertAlmostEqual(1 - 0.8 ** 7, result["cumulative_fractions"][6])
+        self.assertIn("No trained ARIMA order", result["message"])
+
+    def test_forecast_vectors_clip_rates_and_reject_nonfinite_or_invalid_shapes(self):
+        result = inventory_result([-0.5, 1.5], "Flower ARIMA")
+        self.assertEqual([0.0, 1.0], result["daily_rate_forecasts"])
+        self.assertEqual([0.0, 1.0], result["cumulative_fractions"])
+        for rates in ([], [[0.1]], [float("nan")], [float("inf")], [0.1] * 367):
+            with self.subTest(rates=rates[:2]), self.assertRaises(ValueError):
+                inventory_result(rates, "Flower ARIMA")
+
+    def test_daily_series_rejects_invalid_quantities_and_duplicate_dates(self):
+        for opening, spoiled in ((0, 0), (-1, 0), (100, -1), (100, 101), (True, 0), (100, 1.5)):
+            with self.subTest(opening=opening, spoiled=spoiled), self.assertRaises(ValueError):
+                daily_series([{"observation_date": "2026-01-01", "opening_quantity": opening, "spoiled_quantity": spoiled}])
+        row = history([1])[0]
+        with self.assertRaisesRegex(ValueError, "one aggregated row"):
+            daily_series([row, row])
 
     def test_live_uses_weighted_flower_fallback_and_isolates_errors(self):
         rows = history([10, 20])
@@ -185,7 +247,7 @@ class SpoilageArimaTest(unittest.TestCase):
         )
         trained = json.loads(training.stdout)
         payload = {
-            "history": rows, "order": trained["order"], "as_of_date": "2026-02-20", "horizon_days": 7,
+            "history": rows, "order": trained["order"], "as_of_date": "2026-02-20", "horizon_days": 366,
         }
         live = subprocess.run(
             [sys.executable, str(scripts / "predict_many.py")],
@@ -197,6 +259,10 @@ class SpoilageArimaTest(unittest.TestCase):
         self.assertEqual("Trained", trained["status"])
         self.assertEqual("Flower ARIMA", result["method"])
         self.assertTrue(0 <= result["predicted_fraction"] <= 1)
+        self.assertEqual(366, len(result["daily_rate_forecasts"]))
+        self.assertEqual(366, len(result["cumulative_fractions"]))
+        expected_weekly_fraction = 1 - np.prod(1 - np.asarray(result["daily_rate_forecasts"][:7]))
+        self.assertAlmostEqual(expected_weekly_fraction, result["cumulative_fractions"][6])
 
 
 if __name__ == "__main__":

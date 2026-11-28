@@ -81,7 +81,7 @@ class SpoilagePredictionService
                     'as_of_date' => $date,
                     'history' => $histories[$batch->flower_id] ?? [],
                     'order' => $this->selectedOrder($batch->flower, $date),
-                    'horizon_days' => (int) config('spoilage.horizon_days'),
+                    'horizon_days' => (int) $this->today()->diffInDays($this->today()->addYearNoOverflow()),
                 ];
                 $hash = $this->hash([
                     'signature' => $signature,
@@ -89,6 +89,7 @@ class SpoilagePredictionService
                     'risk_thresholds' => config('spoilage.risk_thresholds'),
                     'engine' => $engine,
                     'version' => config('spoilage.model_version'),
+                    'period_format' => config('spoilage.forecast_format_version'),
                 ]);
                 $candidates = $saved->get($batch->id, collect());
                 $cached = $candidates->first(fn ($prediction) => $prediction->as_of_date->toDateString() === $date
@@ -159,7 +160,8 @@ class SpoilagePredictionService
                         $flower = Flower::query()->lockForUpdate()->findOrFail($plan['batch']->flower_id);
                         $batch = InventoryBatch::query()->lockForUpdate()->findOrFail($plan['batch']->id);
                         if ($this->signature($batch, $flower) !== $plan['signature']
-                            || $this->selectedOrder($flower, $plan['payload']['as_of_date']) !== $plan['payload']['order']) {
+                            || $this->selectedOrder($flower, $plan['payload']['as_of_date']) !== $plan['payload']['order']
+                            || ($this->histories([$flower->id], $plan['payload']['as_of_date'])[$flower->id] ?? []) !== $plan['payload']['history']) {
                             return null;
                         }
                         $identity = [
@@ -176,13 +178,17 @@ class SpoilagePredictionService
                             ->where('model_version', $identity['model_version'])
                             ->where('input_hash', $identity['input_hash'])
                             ->first();
-                        $fraction = $result['predicted_fraction'] ?? null;
-                        $fraction = $fraction === null ? null : round($fraction, 10);
+                        $rates = $result['daily_rate_forecasts'] ?? null;
+                        if ($result['status'] === 'Predicted' && (! is_array($rates)
+                            || count($rates) !== $plan['payload']['horizon_days'])) {
+                            throw new RuntimeException('A complete daily forecast path is required before saving.');
+                        }
+                        $fraction = $rates === null ? null : round($this->cumulative(array_slice($rates, 0, 7)), 10);
 
                         return $existing ?? BatchSpoilagePrediction::create([
                             ...$identity,
                             'forecast_end_date' => CarbonImmutable::parse($plan['payload']['as_of_date'])
-                                ->addDays($plan['payload']['horizon_days'] - 1)->toDateString(),
+                                ->addDays(6)->toDateString(),
                             'opening_quantity' => $batch->remaining_quantity,
                             'base_unit' => $flower->product_type,
                             'status' => $result['status'],
@@ -194,6 +200,10 @@ class SpoilagePredictionService
                             'message' => $result['message'] ?? null,
                             'metadata' => [
                                 'signature' => $plan['signature'],
+                                'daily_rate_forecasts' => $rates,
+                                'forecast_horizon_days' => $plan['payload']['horizon_days'],
+                                'period_format' => config('spoilage.forecast_format_version'),
+                                'risk_reference_days' => 7,
                                 'order' => ($result['method'] ?? null) === SpoilagePythonService::ARIMA
                                     ? $plan['payload']['order'] : null,
                             ],
@@ -232,6 +242,112 @@ class SpoilagePredictionService
         }
 
         return $saved;
+    }
+
+    /**
+     * Present one persisted daily flower forecast through four views, without fitting again.
+     * Risk always refers to the existing seven-day inventory advisory, never annual exposure.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function forecasts(array $plans): array
+    {
+        $groups = collect($plans)->groupBy(fn (array $plan): int => (int) $plan['batch']->flower_id);
+        $rows = [];
+        foreach ($groups as $group) {
+            $first = $group->first(fn (array $plan): bool => $plan['cached'] !== null) ?? $group->first();
+            $flower = $first['batch']->flower;
+            $prediction = $first['saved'];
+            $asOf = $prediction?->as_of_date?->toDateString() ?? $first['payload']['as_of_date'];
+            $start = CarbonImmutable::parse($asOf, config('spoilage.observation_timezone'));
+            $rates = $prediction?->metadata['daily_rate_forecasts'] ?? null;
+            $annualDays = (int) $start->diffInDays($start->addYearNoOverflow());
+            $available = $prediction?->status === 'Predicted' && is_array($rates)
+                && count($rates) >= $annualDays
+                && $group->every(fn (array $plan): bool => $plan['cached'] !== null)
+                && ($prediction->metadata['period_format'] ?? null) === config('spoilage.forecast_format_version');
+            $remaining = (int) $group->sum(fn (array $plan): int => (int) $plan['batch']->remaining_quantity);
+            $periods = [];
+            foreach (['daily' => 1, 'weekly' => 7, 'monthly' => 30, 'yearly' => $annualDays] as $period => $days) {
+                $path = $available ? array_slice($rates, 0, $days) : null;
+                $fraction = $path === null ? null : $this->cumulative($path);
+                $status = $available ? 'Predicted' : ($prediction?->status === 'InsufficientData' ? 'InsufficientData' : 'NotGenerated');
+                $buckets = [];
+                if ($path !== null) {
+                    if ($period === 'yearly') {
+                        for ($month = 0; $month < 12; $month++) {
+                            $bucketStart = $start->addMonthsNoOverflow($month);
+                            $bucketEnd = $start->addMonthsNoOverflow($month + 1);
+                            $offset = (int) $start->diffInDays($bucketStart);
+                            $length = (int) $bucketStart->diffInDays($bucketEnd);
+                            $buckets[] = $this->bucket($bucketStart, array_slice($path, $offset, $length), null, $bucketStart->format('M Y'));
+                        }
+                    } else {
+                        $step = $period === 'monthly' ? 7 : 1;
+                        for ($offset = 0; $offset < $days; $offset += $step) {
+                            $bucketStart = $start->addDays($offset);
+                            $surviving = $remaining * (1 - $this->cumulative(array_slice($path, 0, $offset)));
+                            $buckets[] = $this->bucket($bucketStart, array_slice($path, $offset, $step), $surviving, $bucketStart->format('M d'));
+                        }
+                    }
+                }
+                $periods[$period] = [
+                    'startDate' => $asOf,
+                    'endDate' => $start->addDays($days - 1)->toDateString(),
+                    'status' => $status,
+                    'method' => $available ? $prediction->method : null,
+                    'historyDays' => $prediction?->history_days ?? 0,
+                    'meanDailyFraction' => $path === null ? null : array_sum($path) / count($path),
+                    'cumulativeFraction' => $fraction,
+                    'predictedQuantity' => $fraction === null || $period === 'yearly' ? null : $remaining * $fraction,
+                    'risk' => $available ? $prediction->risk_level : null,
+                    'riskBasisDays' => 7,
+                    'message' => $available
+                        ? ($period === 'yearly'
+                            ? 'Long-range daily-rate extrapolation, not validated seasonal demand. Monthly fractions describe conditional exposure; no annual current-stock quantity is projected.'
+                            : 'Cumulative exposure assumes today’s usable stock with no arrivals or releases. Risk remains the seven-day reference advisory.')
+                        : ($prediction?->message ?? 'Generate the daily forecast path to view these periods.'),
+                    'buckets' => $buckets,
+                ];
+            }
+            $rows[] = [
+                'flowerId' => (int) $flower->id, 'flowerName' => $flower->name,
+                'flowerCode' => $flower->code, 'baseUnit' => $flower->product_type,
+                'remaining' => $remaining,
+                'needsRefresh' => $group->contains(fn (array $plan): bool => $plan['cached'] === null),
+                'periods' => $periods,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /** @param list<float|int> $rates */
+    private function cumulative(array $rates): float
+    {
+        $survival = 1.0;
+        foreach ($rates as $rate) {
+            if (! is_numeric($rate) || ! is_finite((float) $rate) || $rate < 0 || $rate > 1) {
+                throw new RuntimeException('Daily forecast rates must be finite fractions from zero to one.');
+            }
+            $survival *= 1 - $rate;
+        }
+
+        return max(0.0, min(1.0, 1 - $survival));
+    }
+
+    /** @param list<float|int> $rates */
+    private function bucket(CarbonImmutable $start, array $rates, ?float $remaining, string $label): array
+    {
+        $fraction = $this->cumulative($rates);
+
+        return [
+            'label' => $label, 'startDate' => $start->toDateString(),
+            'endDate' => $start->addDays(count($rates) - 1)->toDateString(),
+            'meanDailyFraction' => array_sum($rates) / count($rates),
+            'cumulativeFraction' => $fraction,
+            'predictedQuantity' => $remaining === null ? null : $remaining * $fraction,
+        ];
     }
 
     private function signature(InventoryBatch $batch, Flower $flower): array

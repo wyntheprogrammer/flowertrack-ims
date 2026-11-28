@@ -12,6 +12,7 @@ from statsmodels.tsa.stattools import adfuller
 
 P_VALUES = range(5)
 Q_VALUES = range(5)
+MAX_FORECAST_DAYS = 366
 
 
 def daily_series(history):
@@ -178,7 +179,7 @@ def predict(payload):
     latest = series.index[-1].date()
     horizon = payload["horizon_days"]
     order = payload["order"]
-    if latest >= as_of or type(horizon) is not int or horizon < 1:
+    if latest >= as_of or type(horizon) is not int or not 1 <= horizon <= MAX_FORECAST_DAYS:
         raise ValueError("Invalid forecast date or horizon.")
 
     # Refit the saved order on available live history, including evaluated observations.
@@ -220,12 +221,21 @@ def predict(payload):
 
 def inventory_result(daily_rates, method, message=None):
     # Inventory calculation: apply each daily rate to surviving stock.
-    # Laravel uses the cumulative fraction for each batch's predicted quantity and risk.
+    # One daily forecast supports every presentation period; Laravel selects and
+    # groups these points without refitting ARIMA or multiplying rates by days.
+    rates = np.asarray(daily_rates, dtype=float)
+    if rates.ndim != 1 or not 1 <= len(rates) <= MAX_FORECAST_DAYS or not np.isfinite(rates).all():
+        raise ValueError("Expected a finite daily forecast of 1 to 366 days.")
+    rates = np.clip(rates, 0, 1)
     predicted_fraction = 0.0
-    for rate in daily_rates:
+    cumulative_fractions = []
+    for rate in rates:
         predicted_fraction += (1 - predicted_fraction) * float(rate)
+        cumulative_fractions.append(predicted_fraction)
     return {
         "status": "Predicted", "predicted_fraction": predicted_fraction,
+        "daily_rate_forecasts": rates.tolist(),
+        "cumulative_fractions": cumulative_fractions,
         "method": method, "message": message,
     }
 

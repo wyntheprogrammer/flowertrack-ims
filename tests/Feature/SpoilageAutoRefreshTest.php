@@ -167,6 +167,24 @@ class SpoilageAutoRefreshTest extends TestCase
         $this->assertSame($observations, BatchDailyObservation::orderBy('id')->get()->toArray());
     }
 
+    public function test_four_periods_share_the_saved_flower_path_and_weekly_risk(): void
+    {
+        $this->service->refresh($this->actor);
+        $rows = $this->service->forecasts($this->service->plan());
+        $this->assertCount(1, $rows);
+        $periods = $rows[0]['periods'];
+        foreach (['daily' => 1, 'weekly' => 7, 'monthly' => 5, 'yearly' => 12] as $name => $count) {
+            $this->assertCount($count, $periods[$name]['buckets']);
+            $this->assertSame('Medium', $periods[$name]['risk']);
+            $this->assertSame(7, $periods[$name]['riskBasisDays']);
+        }
+        $this->assertEqualsWithDelta(0.1, $periods['weekly']['cumulativeFraction'], 1e-9);
+        $this->assertGreaterThan($periods['weekly']['cumulativeFraction'], $periods['monthly']['cumulativeFraction']);
+        $this->assertNull($periods['yearly']['predictedQuantity']);
+        $this->assertSame($periods['yearly']['endDate'], $periods['yearly']['buckets'][11]['endDate']);
+        $this->assertSame(1, $this->calls);
+    }
+
     public function test_stock_change_invalidates_only_the_changed_batch(): void
     {
         $this->service->refresh($this->actor);
@@ -193,9 +211,9 @@ class SpoilageAutoRefreshTest extends TestCase
     public function test_new_day_and_settings_changes_invalidate_predictions(): void
     {
         $this->service->refresh($this->actor);
-        config(['spoilage.horizon_days' => 5]);
+        config(['spoilage.forecast_format_version' => 'changed-period-format']);
         $this->assertNull($this->service->plan()[$this->first->id]['cached']);
-        config(['spoilage.horizon_days' => 7]);
+        config(['spoilage.forecast_format_version' => 'daily-periods-v1']);
         CarbonImmutable::setTestNow('2026-11-16 04:00:00 UTC');
         $this->assertNull($this->service->plan()[$this->first->id]['cached']);
     }
@@ -335,7 +353,9 @@ class SpoilageAutoRefreshTest extends TestCase
             $results[$item['key']] = $p['history'] === []
                 ? ['status' => 'InsufficientData', 'message' => 'No completed spoilage history.']
                 : [
-                    'status' => 'Predicted', 'predicted_fraction' => .1,
+                    'status' => 'Predicted',
+                    'predicted_fraction' => 1 - pow(.9, $p['horizon_days'] / 7),
+                    'daily_rate_forecasts' => array_fill(0, $p['horizon_days'], 1 - pow(.9, 1 / 7)),
                     'method' => $p['order'] === null ? SpoilagePythonService::FALLBACK : SpoilagePythonService::ARIMA,
                     'message' => null,
                 ];
